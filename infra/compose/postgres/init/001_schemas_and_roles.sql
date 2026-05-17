@@ -49,6 +49,15 @@ BEGIN
   END IF;
 END $$;
 
+-- B4: future tables/sequences created by gerti_admin_user in schema gerti
+-- are auto-granted to gerti_app (belt-and-suspenders with per-migration GRANTs).
+-- Placed AFTER gerti_admin_user is created (role must pre-exist for
+-- ALTER DEFAULT PRIVILEGES FOR ROLE). Declarative/idempotent — safe to re-run.
+ALTER DEFAULT PRIVILEGES FOR ROLE gerti_admin_user IN SCHEMA gerti
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO gerti_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE gerti_admin_user IN SCHEMA gerti
+  GRANT USAGE, SELECT ON SEQUENCES TO gerti_app;
+
 -- Verificação visual ------------------------------------------------
 SELECT
   rolname,
