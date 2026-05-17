@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import text
 
 from gerti_sidecar import db
-from gerti_sidecar.models import Contract
+from gerti_sidecar.models import Contract, Tenant, ZnunyInstance
 from gerti_sidecar.models.enums import ContractType
 
 
@@ -102,3 +102,65 @@ async def test_every_gerti_table_has_rls_enabled_and_forced(session):
     assert not missing, f"gerti tables absent: {missing}"
     unforced = {t for t, (en, fo) in state.items() if t in expected and not (en and fo)}
     assert not unforced, f"RLS not ENABLE+FORCE on: {unforced}"
+
+
+@pytest.mark.asyncio
+async def test_znuny_instance_rls_scoped_by_tenant(session, app_session_factory):
+    """Regression guard for the S1 gap (0009): gerti.znuny_instance is now
+    RLS ENABLE+FORCE and scoped via gerti.tenant.znuny_instance_id.
+
+    Seeds TWO distinct instances (one per tenant) via the admin `session`
+    (BYPASSRLS) so we can prove that under tenant A's scope an unprivileged
+    gerti_sidecar session sees ONLY A's instance — never B's — and that an
+    unset GUC yields zero instance rows (fail-closed)."""
+    inst_a = ZnunyInstance(
+        name="inst-A",
+        base_url="http://a",
+        db_dsn_secret_ref="x",
+        webservice_token_secret_ref="x",
+        webhook_signing_secret_ref="x",
+        mode="pool",
+    )
+    inst_b = ZnunyInstance(
+        name="inst-B",
+        base_url="http://b",
+        db_dsn_secret_ref="x",
+        webservice_token_secret_ref="x",
+        webhook_signing_secret_ref="x",
+        mode="pool",
+    )
+    session.add_all([inst_a, inst_b])
+    await session.flush()
+    a = Tenant(
+        legal_name="A SA",
+        trade_name="A",
+        document="1",
+        znuny_customer_id="a",
+        znuny_instance_id=inst_a.id,
+        subdomain="a",
+    )
+    b = Tenant(
+        legal_name="B SA",
+        trade_name="B",
+        document="2",
+        znuny_customer_id="b",
+        znuny_instance_id=inst_b.id,
+        subdomain="b",
+    )
+    session.add_all([a, b])
+    await session.commit()
+
+    # tenant A scope → only A's instance (not B's)
+    async with db.tenant_session_scope(a.id, factory=app_session_factory) as s:
+        names = (await s.execute(text("SELECT name FROM gerti.znuny_instance"))).scalars().all()
+    assert names == ["inst-A"]
+
+    # tenant B scope → only B's instance
+    async with db.tenant_session_scope(b.id, factory=app_session_factory) as s:
+        names = (await s.execute(text("SELECT name FROM gerti.znuny_instance"))).scalars().all()
+    assert names == ["inst-B"]
+
+    # unset GUC → zero rows (fail-closed, no empty escape)
+    async with app_session_factory() as s:
+        rows = (await s.execute(text("SELECT name FROM gerti.znuny_instance"))).scalars().all()
+    assert rows == []
