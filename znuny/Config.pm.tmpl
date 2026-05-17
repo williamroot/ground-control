@@ -1,0 +1,69 @@
+# ─────────────────────────────────────────────────────────────────────
+#  Kernel/Config.pm  —  rendered by entrypoint.sh from environment vars.
+#  Placeholders __NAME__ are substituted at container start.
+#  Structure mirrors Znuny 7.2's Kernel/Config.pm.dist (must inherit
+#  from Kernel::Config::Defaults or the ObjectManager breaks).
+# ─────────────────────────────────────────────────────────────────────
+package Kernel::Config;
+
+use strict;
+use warnings;
+use utf8;
+
+sub Load {
+    my $Self = shift;
+
+    # ── Database (PostgreSQL) ────────────────────────────────────────
+    $Self->{DatabaseHost} = '__DB_HOST__';
+    $Self->{Database}     = '__DB_NAME__';
+    $Self->{DatabaseUser} = '__DB_USER__';
+    $Self->{DatabasePw}   = '__DB_PASS__';
+    $Self->{DatabaseDSN}  =
+        "DBI:Pg:dbname=$Self->{Database};host=$Self->{DatabaseHost};port=__DB_PORT__";
+
+    # ── fs root ──────────────────────────────────────────────────────
+    $Self->{Home} = '/opt/otrs';
+
+    # ── Identity ─────────────────────────────────────────────────────
+    $Self->{SystemID}        = __SYSTEM_ID__;
+    $Self->{FQDN}            = '__FQDN__';
+    $Self->{HttpType}        = 'https';
+    # Matches the ScriptAlias in Znuny 7.2's shipped Apache include
+    # (scripts/apache2-httpd.include.conf → "/znuny/").
+    $Self->{ScriptAlias}     = 'znuny/';
+    $Self->{AdminEmail}      = 'admin@__FQDN__';
+    $Self->{Organization}    = 'Gerti Service Desk';
+    $Self->{DefaultLanguage} = 'pt_BR';
+    $Self->{SecureMode}      = 1;
+
+    # ── Dev-friendly checks ──────────────────────────────────────────
+    $Self->{CheckMXRecord}       = 0;
+    $Self->{CheckEmailAddresses} = 1;
+
+    # ── Cache → Redis ────────────────────────────────────────────────
+    $Self->{'Cache::Module'} = 'Kernel::System::Cache::Redis';
+    $Self->{'Cache::Redis'}  = {
+        Server                => '__REDIS_HOST__:__REDIS_PORT__',
+        DatabaseNumber        => __REDIS_DB__,
+        RedisConnectorOptions => {},
+    };
+    $Self->{'Cache::InBackend'} = 1;
+    $Self->{'Cache::InMemory'}  = 0;
+
+    # ── OpenSearch / Elasticsearch ───────────────────────────────────
+    #   Znuny 7.2 CORE has no ES support (separate add-on package).
+    #   Endpoint the integration would use once the add-on is present:
+    $Self->{'GertiOpenSearchEndpoint'} =
+        'http://__OS_HOST__:__OS_PORT__';
+
+    # ── data inserted by installer ──────────────────────────────────
+    # $DIBI$
+
+    return 1;
+}
+
+# ── needed system stuff (don't edit) ────────────────────────────────
+use Kernel::Config::Defaults; # import Translatable()
+use parent qw(Kernel::Config::Defaults);
+
+1;
