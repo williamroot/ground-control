@@ -11,6 +11,7 @@ Plataforma de Service Desk **own-source, white-label, MSP-first** — núcleo **
 - **Cache real:** backend `Kernel::System::Cache::Redis` custom (core 7.2 só tem FileStorable) — 150+ chaves `znuny:*` no Redis
 - **Busca:** OpenSearch single-node healthy e alcançável pelo Znuny (indexação completa depende do add-on `Znuny-Elasticsearch` — gap documentado)
 - **Em prod:** VPS `100.99.49.110` via Cloudflare Tunnel → `znuny-dev.was.dev.br` (aguardando token do connector)
+- **Demo pronta para apresentação:** seed idempotente ([`scripts/seed-demo.sh`](scripts/seed-demo.sh)) cria a operação MSP fictícia "Aurora Móveis" — 5 agentes, 5 clientes, 5 filas, 11 serviços, 3 SLAs, 17 tickets. Credenciais e roteiro em [`.ia/DEMO.md`](.ia/DEMO.md)
 - **Landing comercial:** em [`landing/`](landing/) — deploy próprio para `groundcontrol.was.dev.br`
 
 ## Stack
@@ -37,6 +38,8 @@ ground-control/
 │   └── Cache/Redis.pm            backend Redis custom (upgrade-safe, Custom/)
 ├── postgres/init/                hooks de init do cluster
 ├── scripts/smoke-test.sh         teste e2e (24 asserts)
+├── scripts/seed-demo.sh          seed idempotente da demo + verificação e2e
+├── scripts/seed-demo.pl          motor do seed (API nativa Znuny)
 ├── landing/                      landing comercial Ground Control (estático)
 ├── docs/decisions/0001-stack.md  ADR canônico (PG18, base image, gaps)
 └── .ia/                          documentação viva (ler antes de mexer)
@@ -71,6 +74,7 @@ Produção em `100.99.49.110` via Cloudflare Tunnel. Passo a passo em [`DEPLOY.m
 | [`.ia/OVERVIEW.md`](.ia/OVERVIEW.md) | Problema, escopo, terminologia |
 | [`.ia/ARCHITECTURE.md`](.ia/ARCHITECTURE.md) | Containers, redes, fluxos, provisionamento |
 | [`.ia/OPS.md`](.ia/OPS.md) | Hosts, deploy, runbooks, troubleshooting |
+| [`.ia/DEMO.md`](.ia/DEMO.md) | Instância de demonstração: empresa fictícia, credenciais, roteiro de apresentação, como (re)semear |
 | [`.ia/DECISIONS.md`](.ia/DECISIONS.md) | ADRs — por que cada escolha |
 | [`docs/decisions/0001-stack.md`](docs/decisions/0001-stack.md) | ADR técnico canônico (inglês) |
 

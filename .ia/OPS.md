@@ -53,6 +53,17 @@ Esperado até `.env.prod` ter token real. Não afeta o resto da stack (nada depe
 ### Smoke-test
 `make test` — 24 asserts e2e a partir do estado atual. Para validação real pós-deploy, rodar do zero: `make reset && make build && make up && make test`.
 
+### Seed de demonstração (apresentação)
+`scripts/seed-demo.sh` — semeia, **de forma idempotente**, a operação MSP
+fictícia "Aurora Móveis" (5 agentes, 5 customer users, 5 filas, 11 serviços,
+3 SLAs, 17 tickets com artigos e horas). Roda na VPS dentro de `~/ground-control`
+com a stack de pé. Detalhes, credenciais e roteiro em [`DEMO.md`](DEMO.md).
+- `./scripts/seed-demo.sh` — semeia / re-semeia (seguro reexecutar)
+- `./scripts/seed-demo.sh --verify` — só verificação e2e
+- `./scripts/seed-demo.sh --reset` — apaga só os dados de demo (pede `SIM`)
+O motor é `scripts/seed-demo.pl` (API nativa Znuny, executado como `otrs`
+dentro de `znuny-web`); `scripts/seed-authcheck.pl` valida credenciais.
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)

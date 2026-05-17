@@ -10,6 +10,7 @@
 
 ## Sob demanda
 
+- `DEMO.md` — instância de **demonstração**: empresa fictícia, credenciais, inventário, roteiro de apresentação e como (re)semear/resetar
 - `DECISIONS.md` — ADRs: por que cada decisão (PG18, base image, Redis, OpenSearch, gaps)
 - `../docs/decisions/0001-stack.md` — ADR técnico canônico (inglês, gerado no build)
 
