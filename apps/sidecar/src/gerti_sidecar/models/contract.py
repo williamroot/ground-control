@@ -68,12 +68,13 @@ class Contract(Base):
     accumulate_balance_between_cycles: Mapped[bool] = mapped_column(
         nullable=False, server_default="false"
     )
-    # H3: column only — the FK to gerti.shared_credit_pool is added at the DB
-    # level in migration 0006 (Task 5), AFTER that table exists, and the ORM
-    # ForeignKey is declared then alongside the ShareCreditPool model. Declaring
-    # it here would make Base.metadata unresolvable (NoReferencedTableError)
-    # until Task 5, mirroring the same deferral H3 mandates for the migration.
-    shared_pool_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    # H3: the DB-level FK to gerti.shared_credit_pool is added in migration
+    # 0006 (Task 5), AFTER that table exists; the ORM ForeignKey is declared
+    # here now that SharedCreditPool exists (models/catalog.py), so
+    # Base.metadata resolves. The 0005 column stayed FK-less intentionally.
+    shared_pool_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("gerti.shared_credit_pool.id")
+    )
 
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
