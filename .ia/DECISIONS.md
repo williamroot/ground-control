@@ -45,6 +45,19 @@ postgres/redis/opensearch não roteáveis de fora).
 Token não commitado. Placeholder → cloudflared loga "token is not valid" e reinicia;
 esperado e inócuo (nada depende dele). Token real ativa o tunnel.
 
+## D10 — `make` interpola de `.env` **e** `.env.prod`
+**Bug encontrado no deploy real:** `DC := docker compose` usava só o `.env`
+default; o token em `.env.prod` (via `env_file:` do override) injeta no
+*ambiente do container* mas **não** alimenta a interpolação compose-time de
+`${CLOUDFLARE_TUNNEL_TOKEN}` no `command: --token`. Resultado: `make up`
+limpo nunca conectava o tunnel (ficava `MISSING_TOKEN`); forçar
+`--env-file .env.prod` conectava o tunnel mas zerava todas as outras vars
+(quebrava postgres/znuny-web). **Fix:** `DC := docker compose --env-file
+.env --env-file .env.prod` (compose mescla, último vence). `init` agora
+depende de file-targets `.env`/`.env.prod` silenciosos e é prereq de todos
+os alvos, garantindo que ambos existam. Token mora em `.env.prod` (design
+documentado preservado).
+
 ## D9 — Monorepo de deploy + landing consolidada
 Repo `ground-control` é o monorepo de deploy. Landing comercial consolidada em
 `landing/` (era repo standalone `ground-control-landing`). Sidecar/portal entram
