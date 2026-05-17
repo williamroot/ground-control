@@ -119,7 +119,7 @@ RUN set -eux; \
 
 # ── Apache: mod_perl + the Znuny vhost include shipped by Znuny
 RUN set -eux; \
-    a2enmod perl headers deflate filter; \
+    a2enmod perl headers deflate filter rewrite; \
     a2dissite 000-default || true; \
     ln -sf ${OTRS_HOME}/scripts/apache2-httpd.include.conf \
            /etc/apache2/sites-available/zzz_znuny.conf; \
