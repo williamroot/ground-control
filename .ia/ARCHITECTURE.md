@@ -65,6 +65,31 @@
 
 Core Znuny 7.2 só tem `Cache::FileStorable`. Adicionamos `Kernel::System::Cache::Redis` em `Custom/` (primeiro no `@INC`, upgrade-safe) implementando o contrato exato (`Set/Get/Delete/CleanUp`), serialização `Storable`, `SETEX` nativo, índice SET por `Type`. Verificado: 150+ chaves `znuny:*` no Redis, FS bypassed.
 
+## Sidecar Python (`apps/sidecar/`) + infra dev (`infra/`)
+
+Serviço **FastAPI + SQLAlchemy 2 async + Alembic** que detém o domínio
+de contratos/consumo/faturamento no schema **`gerti`** (Spec #0). Estado:
+**fundação (Plano 1A) + #1C Task 1 prontos e verificados** — gate
+`ruff + mypy + pytest` (16 testes, testcontainers) verde nesta localização.
+
+- **Limite de integração com o Znuny:** núcleo Znuny imutável. Escrita
+  Znuny via **Generic Interface** (REST); leitura do schema `znuny`
+  read-only. Znuny → sidecar via **webhooks HMAC** (GertiHooks.opm,
+  Spec #1B — não iniciado) alimentando `gerti.consumption_event`.
+- **Multi-tenant:** GUC `app.current_tenant` (SET LOCAL por transação)
+  + **FORCE RLS** por tabela `gerti.*`, fail-closed; runtime conecta
+  como `gerti_sidecar` (sem BYPASSRLS).
+- **Schema compartilhado:** Spec #0 prevê **um cluster Postgres** com
+  schemas `znuny` + `gerti`. Hoje o Znuny de prod usa o `postgres:18`
+  próprio (schema `public`); o sidecar testa via testcontainers +
+  `infra/compose/postgres/init/001_schemas_and_roles.sql`. Convergência
+  para cluster único = **item de integração aberto**.
+- **`infra/compose/`** = infra **dev** opcional do sidecar
+  (postgres/redis/minio) + init SQL + smoke-test. **Separada** da stack
+  Znuny de produção (`docker-compose.yml` raiz); não compartilham containers.
+
+Detalhe completo: [`INTEGRATION.md`](INTEGRATION.md).
+
 ## Landing (`landing/`)
 
 Estático (HTML/CSS/JS), estética mission-control. Deploy próprio independente: nginx + cloudflared → `groundcontrol.was.dev.br`. Não compartilha containers com a stack Znuny. Detalhes em `landing/README.md`.

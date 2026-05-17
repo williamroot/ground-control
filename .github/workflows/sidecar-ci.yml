@@ -1,0 +1,55 @@
+name: sidecar-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/sidecar/**"
+      - "infra/compose/postgres/init/**"
+      - ".github/workflows/sidecar-ci.yml"
+  pull_request:
+    paths:
+      - "apps/sidecar/**"
+      - "infra/compose/postgres/init/**"
+      - ".github/workflows/sidecar-ci.yml"
+
+defaults:
+  run:
+    working-directory: apps/sidecar
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.4.30"
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync deps
+        run: uv sync --all-extras --frozen
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Typecheck
+        run: uv run mypy src
+
+      - name: Test
+        run: uv run pytest -v --cov=gerti_sidecar --cov-report=term
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: apps/sidecar/.coverage
+          if-no-files-found: ignore

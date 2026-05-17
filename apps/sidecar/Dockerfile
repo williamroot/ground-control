@@ -1,0 +1,43 @@
+# syntax=docker/dockerfile:1.7
+
+# ---- base ----
+FROM python:3.12-slim AS base
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/app/.venv
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:0.5.9 /uv /usr/local/bin/uv
+WORKDIR /app
+
+# ---- deps ----
+FROM base AS deps
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-install-project
+
+# ---- dev ----
+FROM deps AS dev
+RUN uv sync --frozen --all-extras --no-install-project
+COPY src ./src
+COPY alembic ./alembic
+COPY alembic.ini ./
+EXPOSE 8001
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=5 \
+  CMD curl -fsS http://localhost:8001/v1/health || exit 1
+CMD ["uv", "run", "uvicorn", "gerti_sidecar.main:app", "--host", "0.0.0.0", "--port", "8001"]
+
+# ---- prod ----
+FROM deps AS prod
+COPY src ./src
+COPY alembic ./alembic
+COPY alembic.ini ./
+RUN uv sync --frozen --no-install-project
+RUN groupadd -r gerti && useradd -r -g gerti gerti && chown -R gerti:gerti /app
+USER gerti
+EXPOSE 8001
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=5 \
+  CMD curl -fsS http://localhost:8001/v1/health || exit 1
+CMD ["uv", "run", "uvicorn", "gerti_sidecar.main:app", "--host", "0.0.0.0", "--port", "8001"]

@@ -1,0 +1,29 @@
+# Override de DEV: expõe portas no host, monta source para hot-reload,
+# desabilita restart agressivo. Use:
+#   docker compose -f docker-compose.base.yml -f docker-compose.dev.yml up
+
+services:
+
+  postgres:
+    ports:
+      - "${POSTGRES_PORT}:5432"
+
+  redis:
+    ports:
+      - "${REDIS_PORT}:6379"
+
+  minio:
+    ports:
+      - "${MINIO_PORT_API}:9000"
+      - "${MINIO_PORT_CONSOLE}:9001"
+
+  sidecar:
+    build:
+      target: dev
+    command: uv run uvicorn gerti_sidecar.main:app --host 0.0.0.0 --port 8001 --reload
+    ports:
+      - "${SIDECAR_PORT}:8001"
+    volumes:
+      - ../../apps/sidecar/src:/app/src:ro
+      - ../../apps/sidecar/alembic:/app/alembic:ro
+      - ../../apps/sidecar/tests:/app/tests:ro

@@ -12,6 +12,7 @@ Plataforma de Service Desk **own-source, white-label, MSP-first** — núcleo **
 - **Busca:** OpenSearch single-node healthy e alcançável pelo Znuny (indexação completa depende do add-on `Znuny-Elasticsearch` — gap documentado)
 - **Em prod:** VPS `100.99.49.110` via Cloudflare Tunnel → `znuny-dev.was.dev.br` (aguardando token do connector)
 - **Demo pronta para apresentação:** seed idempotente ([`scripts/seed-demo.sh`](scripts/seed-demo.sh)) cria a operação MSP fictícia "Aurora Móveis" — 5 agentes, 5 clientes, 5 filas, 11 serviços, 3 SLAs, 17 tickets. Credenciais e roteiro em [`.ia/DEMO.md`](.ia/DEMO.md)
+- **Sidecar Python:** em [`apps/sidecar/`](apps/sidecar/) — FastAPI + SQLAlchemy + Alembic; **fundação (Plano 1A) + #1C Task 1** prontos e verificados (gate `ruff + mypy + pytest` 16/16, RLS multi-tenant sob role sem privilégio). Integração com o Znuny em [`.ia/INTEGRATION.md`](.ia/INTEGRATION.md)
 - **Landing comercial:** em [`landing/`](landing/) — deploy próprio para `groundcontrol.was.dev.br`
 
 ## Stack
@@ -36,6 +37,8 @@ ground-control/
 │   ├── entrypoint.sh             provisionamento idempotente
 │   ├── Config.pm.tmpl            Kernel/Config.pm renderizado de env
 │   └── Cache/Redis.pm            backend Redis custom (upgrade-safe, Custom/)
+├── apps/sidecar/                 serviço Python (FastAPI · SQLAlchemy · Alembic) — domínio de contratos
+├── infra/compose/                infra DEV do sidecar (separada da stack Znuny)
 ├── postgres/init/                hooks de init do cluster
 ├── scripts/smoke-test.sh         teste e2e (24 asserts)
 ├── scripts/seed-demo.sh          seed idempotente da demo + verificação e2e
@@ -76,6 +79,7 @@ Produção em `100.99.49.110` via Cloudflare Tunnel. Passo a passo em [`DEPLOY.m
 | [`.ia/OPS.md`](.ia/OPS.md) | Hosts, deploy, runbooks, troubleshooting |
 | [`.ia/DEMO.md`](.ia/DEMO.md) | Instância de demonstração: empresa fictícia, credenciais, roteiro de apresentação, como (re)semear |
 | [`.ia/DECISIONS.md`](.ia/DECISIONS.md) | ADRs — por que cada escolha |
+| [`.ia/INTEGRATION.md`](.ia/INTEGRATION.md) | Sidecar Python ↔ stack Znuny: monorepo, schema `gerti`, RLS, webhooks, built vs pendente |
 | [`docs/decisions/0001-stack.md`](docs/decisions/0001-stack.md) | ADR técnico canônico (inglês) |
 
 Engineered by **WAS Soluções em Tecnologia**.

@@ -10,8 +10,9 @@
 
 ## Sob demanda
 
+- `INTEGRATION.md` — como o **sidecar Python** (`apps/sidecar`: fundação + #1C T1) e o domínio de contratos integram com a stack Znuny: layout do monorepo, schema `gerti` compartilhado, RLS multi-tenant, webhooks HMAC, construído vs pendente, como rodar/testar
 - `DEMO.md` — instância de **demonstração**: empresa fictícia, credenciais, inventário, roteiro de apresentação e como (re)semear/resetar
-- `DECISIONS.md` — ADRs: por que cada decisão (PG18, base image, Redis, OpenSearch, gaps)
+- `DECISIONS.md` — ADRs: por que cada decisão (PG18, base image, Redis, OpenSearch, gaps, consolidação do monorepo)
 - `../docs/decisions/0001-stack.md` — ADR técnico canônico (inglês, gerado no build)
 
 ## Como atualizar
@@ -20,5 +21,6 @@
 - Mudou host/deploy/runbook → `OPS.md`
 - Tomou decisão técnica não óbvia → `DECISIONS.md` (+ ADR numerado em `../docs/decisions/` se estrutural)
 - Mudou escopo/terminologia → `OVERVIEW.md`
+- Mudou integração sidecar↔Znuny / `apps/sidecar` → `INTEGRATION.md`
 
 Mantenha conciso e factual. Documentação desatualizada é pior que ausente.

@@ -63,3 +63,21 @@ Repo `ground-control` é o monorepo de deploy. Landing comercial consolidada em
 `landing/` (era repo standalone `ground-control-landing`). Sidecar/portal entram
 quando estabilizarem. Documentação no padrão **voyager** (`.ia/` + README conceito
 mission-control).
+
+## D11 — Sidecar e código do projeto consolidados no monorepo ground-control (gerti = só apresentação)
+O sidecar Python, `infra/`, specs/planos/ADRs do projeto e o CI
+(`sidecar-ci.yml`) viviam no repo `gerti`. `gerti` agora contém **apenas a
+apresentação** (`apresentacao/`); todo o código/infra/docs migrou para
+`ground-control/apps/sidecar`, `infra/`, `docs/superpowers/`, `docs/adr/`,
+`.github/workflows/`. **Racional:** monorepo único de deploy evita
+*split-brain* (código x stack em repos separados), um só ciclo de deploy,
+docs de integração ao lado da stack que integram. Gate verificado
+(`ruff + mypy + pytest` 16/16, RLS/tenant-session sob role sem privilégio)
+**revalidado verde na nova localização** — `conftest` resolve o init SQL
+via `infra/` copiado sem editar código.
+
+**Decisão de integração — schema `gerti` compartilhado:** Spec #0 mantém
+**um cluster Postgres, dois schemas** (`znuny` imutável + `gerti` do
+sidecar). Convergir produção para esse cluster único (Znuny hoje usa
+`postgres:18` próprio; sidecar testa via testcontainers) é **item aberto
+documentado** em `INTEGRATION.md`, não regressão.
