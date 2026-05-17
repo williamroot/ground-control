@@ -125,6 +125,10 @@ RUN set -eux; \
            /etc/apache2/sites-available/zzz_znuny.conf; \
     a2ensite zzz_znuny
 
+# ── Front door: bare host (/) → Znuny agent interface
+COPY root-redirect.conf /etc/apache2/conf-available/root-redirect.conf
+RUN a2enconf root-redirect
+
 # ── Custom Redis cache backend (core 7.2 only ships FileStorable).
 #    Placed in Custom/ which Znuny puts first in @INC (upgrade-safe).
 COPY Cache/Redis.pm ${OTRS_HOME}/Custom/Kernel/System/Cache/Redis.pm
