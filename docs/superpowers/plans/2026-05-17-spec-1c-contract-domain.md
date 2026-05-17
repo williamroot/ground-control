@@ -4,7 +4,47 @@
 
 **Goal:** Build the real contract engine of the Gerti Service Desk sidecar — the 6 MSP contract types, billing≠closing cycles, hour-bank, append-only consumption, glosa, index adjustment, renewal, and per-tenant RLS — as a tested, demoable domain core (models + migrations + repositories + services). No HTTP endpoints (Spec #1E).
 
-**Architecture:** Extends the Plano 1A sidecar foundation (`apps/sidecar`, branch `feature/spec-1a-foundation`, alembic `0001`+`0002`, `TenantMiddleware`, RLS on `gerti.tenant`). Adds a request/job tenant-scoped session seam that sets the `app.current_tenant` Postgres GUC, a reusable RLS migration pattern (`ENABLE`+`FORCE ROW LEVEL SECURITY`, policy keyed strictly on `current_setting('app.current_tenant', true)::uuid` with **no empty-GUC escape**), the contract data model from Spec #0 §4, tenant-scoped repositories, and domain services for create/consume/close-cycle/adjust/renew. All DDL runs as `gerti_admin` (never `gerti_app`-owned). Tests use the existing testcontainers Postgres and assert isolation under the unprivileged `gerti_sidecar` role.
+**Architecture:** Extends the Plano 1A sidecar foundation (`apps/sidecar`, repo `ground-control` branch `main`, alembic chain head `0004_contract_enums`, `TenantMiddleware`, FORCE RLS on `gerti.tenant`). Adds a request/job tenant-scoped session seam that sets the `app.current_tenant` Postgres GUC, a reusable RLS migration pattern (`ENABLE`+`FORCE ROW LEVEL SECURITY`, policy keyed strictly on `current_setting('app.current_tenant', true)::uuid` with **no empty-GUC escape**), the contract data model from Spec #0 §4, tenant-scoped repositories, and domain services for create/consume/close-cycle/adjust/renew. All DDL runs as `gerti_admin` (never `gerti_app`-owned). Tests use the existing testcontainers Postgres and assert isolation under the unprivileged `gerti_sidecar` role.
+
+---
+
+## AUDIT — REAL CURRENT STATE (2026-05-17, verified by commands)
+
+**Repo:** `ground-control` `git@github.com:williamroot/ground-control.git`, branch `main`, HEAD `e02d4fc` (`feat(repo): consolidar sidecar+infra+specs no monorepo`). Working tree clean.
+
+**Alembic versions present** (`apps/sidecar/alembic/versions/`): `0001_initial_schema.py` (rev `0001_initial`, down `None`), `0002_rls_baseline.py` (rev `0002_rls_baseline`, down `0001_initial`), `0003_force_rls_tenant.py` (rev `0003_force_rls_tenant`, down `0002_rls_baseline`), `0004_contract_enums.py` (rev `0004_contract_enums`, down `0003_force_rls_tenant`). **Chain head = `0004_contract_enums`.** New migrations MUST start `down_revision="0004_contract_enums"`.
+
+**Models present:** `base.py`, `enums.py`, `tenant.py`, `znuny_instance.py` (+ `__init__.py` exporting `Base, Tenant, ZnunyInstance`). **No contract-domain models yet.**
+
+**Tests present (16, all green):** `test_config`, `test_db_connection`, `test_enums`, `test_health`, `test_models`, `test_rls_isolation`, `test_tenant_middleware`, `test_tenant_session`. conftest already has `app_db_url`, `app_session_factory`, `seed_two_tenants`, `_reset_settings_cache`.
+
+**Gate result (quoted, verified):** `uv sync --all-extras` exit 0; `ruff check .` → "All checks passed!"; `ruff format --check .` → "28 files already formatted"; `mypy src` → "Success: no issues found in 13 source files"; `pytest -q` → **`16 passed in 5.17s`**.
+
+### T1 (✅ DONE — committed, green)
+`db.tenant_session_scope(tenant_id, *, factory=None)` + `db.get_tenant_session(request)` exist in `db.py` using `SELECT set_config('app.current_tenant', :tid, true)` (the `SET LOCAL`-can't-bind trap is already fixed). `0003_force_rls_tenant.py` FORCEs RLS on `gerti.tenant` and replaces the empty-GUC-escape policy with strict `id = current_setting('app.current_tenant', true)::uuid`. `test_tenant_session.py` proves fail-closed under the unprivileged `gerti_sidecar` role (`app_session_factory`). **Evidence:** both files present; `test_tenant_session_scope_sets_guc_and_isolates` + `test_unset_guc_sees_zero_tenant_rows` pass.
+
+### T2 (✅ DONE — committed, green, AST-verified)
+`models/enums.py` has `ContractType, ContractStatus, CycleKind, CycleStatus, GlosaStatus, BillingStatus` as `StrEnum`. `0004_contract_enums.py` issues `CREATE TYPE gerti.<name> AS ENUM (...)` for all six. `test_enums.py` asserts exact value ordering. **Cross-checked against Spec #0 §4 — identical** (`contract_type`: closed_value,credit_brl,credit_shared,hour_bank,saas_product,service_count; `contract_status`: draft,active,suspended,expired,terminated; `cycle_kind`: billing,closing; `cycle_status`: open,closed,invoiced; `glosa_status`: pending,approved,rejected; `billing_status`: pending,approved,billed,disputed). No change needed.
+
+**=> The actionable plan starts at Task 3. Tasks 1 & 2 below are retained for traceability and marked ✅ DONE; do NOT re-run their migration-creation steps (the revisions already exist). Their `down_revision` text in this doc reflects the OLD pre-consolidation chain; the REAL committed files are `0003`/`0004` as audited above and are correct.**
+
+### CRITICAL HARDENING APPLIED TO TASKS 3–13 (read before implementing)
+
+The following latent defects were found by static analysis of the plan against the audited code and Postgres semantics. **Each fix is baked into the task below; the trap → fix table:**
+
+| # | Trap | Fix (mandatory) |
+|---|---|---|
+| H1 | Native ENUM column with `server_default="active"` renders bare `DEFAULT 'active'`; Postgres will NOT implicitly cast an unknown-typed literal default to `gerti.contract_status` reliably under all clients → migration/insert error. | In **migrations** use `server_default=sa.text("'active'::gerti.contract_status")` (and `'open'::gerti.cycle_status`, `'pending'::gerti.glosa_status`, `'pending'::gerti.billing_status`). In **models** use `server_default=text("'active'::gerti.contract_status")` etc. (import `from sqlalchemy import text`). |
+| H2 | Append-only trigger on `consumption_event` blocks ALL UPDATE — but `CycleService.close()` MUST `UPDATE ... SET closing_cycle_id` and glosa flow sets `glosa_id`. The plan as written deadlocks: closing any cycle raises the append-only exception. | Trigger blocks **DELETE always** and blocks **UPDATE unless the only changed columns are `closing_cycle_id` and/or `glosa_id`** (immutable ledger fields stay immutable; settlement bookkeeping allowed). Exact plpgsql given in Task 6. |
+| H3 | `contract.shared_pool_id` FK targets `gerti.shared_credit_pool`, created in `0006` (Task 5) AFTER `contract` in `0005` (Task 3). Inline FK in `0005` → "relation gerti.shared_credit_pool does not exist". | `0005` creates `shared_pool_id` column **without** FK. `0006` adds it **after** `shared_credit_pool` exists via explicit `op.create_foreign_key("fk_contract_shared_pool_id_shared_credit_pool", "contract", "shared_credit_pool", ["shared_pool_id"], ["id"], source_schema="gerti", referent_schema="gerti")`; `0006.downgrade()` drops this FK first. Exact code in Tasks 3 & 5. |
+| H4 | `consumption_event.id` declared `BigInteger primary_key autoincrement=True`. Under `op.create_table` with an explicit PK column, SQLAlchemy emits `BIGINT` with **no sequence** (no `BIGSERIAL`), so inserts without explicit id fail NOT NULL. Spec #0 says `BIGSERIAL`. | Migration column: `sa.Column("id", sa.BigInteger(), sa.Identity(always=False), primary_key=True)`. Model: `mapped_column(BigInteger, sa.Identity(always=False), primary_key=True)`. |
+| H5 | `cycle.closed_at = func.now()` then same-session `await s.get(ContractCycle, cyc.id)` returns the identity-mapped object whose `closed_at` is the unflushed SQL clause / stale `None`; `assert refreshed.closed_at is not None` is flaky. | Assign a Python value: `cycle.closed_at = dt.datetime.now(dt.UTC)` in `CycleService.close()`. Deterministic, timezone-aware, asserts cleanly. |
+| H6 | conftest testcontainer pins `postgres:16` but prod cluster (`docker-compose.yml`) is `postgres:18`. Matview uses `COUNT(ce.*)` + `FILTER` — valid on both, but version drift is a zero-tolerance smell and the spec DDL header says PG16. | Bump conftest to `PostgresContainer("postgres:18", driver="asyncpg")` in Task 3 Step 0 (one-line conftest change, run full gate to prove still 16/16). Removes prod/test engine drift. |
+| H7 | Child-table RLS policies (`contract_id IN (SELECT ... WHERE tenant_id = GUC)`) were `USING`-only. For INSERT, Postgres applies `WITH CHECK`; if absent it falls back to `USING`, so a cross-tenant INSERT via a child table under tenant A's GUC could succeed if the subquery is satisfiable. | Every child-table policy gets an explicit identical `WITH CHECK (...)` mirroring `USING`. Baked into Tasks 3/5/6/7. |
+| H8 | `Glosa.consumption_event_id` is `BIGINT` FK to `consumption_event.id`; `consumption_event.glosa_id` is `UUID` with **no** FK (deliberate, avoids circular FK). Plan models are correct but unstated — an implementer might "fix" it into a circular FK. | Explicitly: `consumption_event.glosa_id` is `UUID` **NO ForeignKey** (settled-by pointer, enforced in app layer). Documented in Task 6. |
+| H9 | `ContractService._current_tenant_id()` does `import uuid` inside the method and `from sqlalchemy import text` inside the method — ruff `PLC0415` (import-outside-toplevel) may fail the gate depending on ruff config. | Move `import uuid` and `from sqlalchemy import text` to module top of `contract_service.py`. Baked into Task 9. |
+| H10 | `contract.updated_at` has no `onupdate`; `AdjustmentService`/`CycleService` mutate the contract but `updated_at` never advances (silent staleness). | Model: add `onupdate=func.now()` to `updated_at`. (DB-side trigger out of scope; ORM `onupdate` is sufficient for sidecar-mediated writes — all writes go through the ORM.) Baked into Task 3. |
+| H11 | T13 e2e has dead `hasattr(... '_session_contracts')` probe that never exists → ruff `B004`/unused. | Delete the probe lines entirely; keep only the explicit `select(Contract.code)` assertion. Baked into Task 13. |
 
 **Tech Stack:** Python 3.12, uv, FastAPI (only the `Depends` seam — no routes here), SQLAlchemy 2 async, Alembic, asyncpg, Pydantic v2, pytest + pytest-asyncio + testcontainers, PostgreSQL (schema `gerti`, RLS).
 
@@ -81,7 +121,9 @@ GUC name: `app.current_tenant`. RLS policy name per table: `<table>_tenant_isola
 
 ---
 
-## Task 1: Tenant-scoped session seam + FORCE RLS backfill on `gerti.tenant`
+## Task 1: Tenant-scoped session seam + FORCE RLS backfill on `gerti.tenant` — ✅ DONE
+
+> **STATUS: ✅ COMPLETE & VERIFIED** — `db.tenant_session_scope`/`get_tenant_session` shipped (uses `SELECT set_config('app.current_tenant', :tid, true)`), `0003_force_rls_tenant.py` committed (rev `0003_force_rls_tenant`, down `0002_rls_baseline`), `test_tenant_session.py` green under unprivileged role. **Do NOT re-create the migration or re-run these steps.** Steps below retained for traceability only (the doc's `down_revision` text predates the consolidation; the committed file is authoritative).
 
 Closes the Plano 1A foundation gap: requests/jobs must run DB work with `SET LOCAL app.current_tenant`, and `gerti.tenant` must `FORCE` RLS so even the owner is constrained. Negative test proves an unset GUC sees zero rows.
 
@@ -301,7 +343,9 @@ git commit -m "feat(sidecar): tenant_session_scope + get_tenant_session dep + FO
 
 ---
 
-## Task 2: Contract enums (Python + Postgres) + RLS migration helper
+## Task 2: Contract enums (Python + Postgres) + RLS migration helper — ✅ DONE
+
+> **STATUS: ✅ COMPLETE & VERIFIED** — `models/enums.py` (6 `StrEnum`s) + `0004_contract_enums.py` (rev `0004_contract_enums`, down `0003_force_rls_tenant`, `CREATE TYPE gerti.*`) committed; `test_enums.py` green; values cross-checked identical to Spec #0 §4. **Do NOT re-create.** Steps retained for traceability.
 
 **Files:**
 - Create: `apps/sidecar/src/gerti_sidecar/models/enums.py`
@@ -455,15 +499,33 @@ git commit -m "feat(sidecar): enums do domínio de contratos (Python + tipos ger
 
 ---
 
-## Task 3: `Contract` + `ContractBillingParty` models + migration with RLS template
+## Task 3: `Contract` + `ContractBillingParty` models + migration with RLS template — START HERE (true current head)
 
-This task LOCKS the reusable RLS table template every later contract table copies.
+This task LOCKS the reusable RLS table template every later contract table copies. **Migration `0005_contract_core.py` chains `down_revision="0004_contract_enums"` (the audited real head).**
 
 **Files:**
+- Modify: `apps/sidecar/tests/conftest.py` (H6 testcontainer bump)
 - Create: `apps/sidecar/src/gerti_sidecar/models/contract.py`
 - Modify: `apps/sidecar/src/gerti_sidecar/models/__init__.py`
 - Create: `apps/sidecar/alembic/versions/0005_contract_core.py`
 - Create: `apps/sidecar/tests/test_model_contract.py`
+
+- [ ] **Step 0: H6 — align testcontainer to prod Postgres major**
+
+In `apps/sidecar/tests/conftest.py` change exactly:
+```python
+    with PostgresContainer("postgres:16", driver="asyncpg") as pg:
+```
+to:
+```python
+    with PostgresContainer("postgres:18", driver="asyncpg") as pg:
+```
+Run the full gate now (`ruff check . && ruff format --check . && mypy src && DATABASE_URL=postgresql+asyncpg://x:y@localhost/z uv run pytest -q`) and confirm still **16 passed** before proceeding. Commit alone:
+```bash
+cd /home/will/projetos/ground-control
+git add apps/sidecar/tests/conftest.py
+git commit -m "test(sidecar): alinhar testcontainer ao postgres:18 de produção (remove drift PG16/PG18)"
+```
 
 - [ ] **Step 1: Failing test**
 
@@ -521,7 +583,7 @@ import uuid
 
 from sqlalchemy import (
     CheckConstraint, Date, DateTime, ForeignKey, Integer, Numeric, String,
-    UniqueConstraint, func,
+    UniqueConstraint, func, text,
 )
 from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -529,6 +591,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from gerti_sidecar.models.base import Base
 from gerti_sidecar.models.enums import ContractStatus, ContractType
 
+# H1: native enum defaults MUST be explicitly cast to the gerti.* type.
 _contract_type = ENUM(ContractType, name="contract_type", schema="gerti", create_type=False)
 _contract_status = ENUM(ContractStatus, name="contract_status", schema="gerti", create_type=False)
 
@@ -554,7 +617,9 @@ class Contract(Base):
     code: Mapped[str] = mapped_column(String, nullable=False)
     type: Mapped[ContractType] = mapped_column(_contract_type, nullable=False)
     status: Mapped[ContractStatus] = mapped_column(
-        _contract_status, nullable=False, server_default="active"
+        _contract_status,
+        nullable=False,
+        server_default=text("'active'::gerti.contract_status"),  # H1
     )
     starts_on: Mapped[dt.date] = mapped_column(Date, nullable=False)
     ends_on: Mapped[dt.date] = mapped_column(Date, nullable=False)
@@ -588,7 +653,10 @@ class Contract(Base):
     )
     created_by: Mapped[str] = mapped_column(String, nullable=False)
     updated_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),  # H10: advance on any ORM-mediated mutation
     )
 
 
@@ -628,7 +696,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "0005_contract_core"
-down_revision: str | None = "0004_contract_enums"
+down_revision: str | None = "0004_contract_enums"  # AUDITED REAL HEAD
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -674,7 +742,8 @@ def upgrade() -> None:
                   nullable=False),
         sa.Column("status",
                   postgresql.ENUM(name="contract_status", schema="gerti", create_type=False),
-                  nullable=False, server_default="active"),
+                  nullable=False,
+                  server_default=sa.text("'active'::gerti.contract_status")),  # H1
         sa.Column("starts_on", sa.Date(), nullable=False),
         sa.Column("ends_on", sa.Date(), nullable=False),
         sa.Column("initial_amount_brl", sa.Numeric(14, 2)),
@@ -691,6 +760,8 @@ def upgrade() -> None:
                   nullable=False, server_default=sa.text("true")),
         sa.Column("accumulate_balance_between_cycles", sa.Boolean(),
                   nullable=False, server_default=sa.text("false")),
+        # H3: column only — FK to gerti.shared_credit_pool is added in 0006
+        # (Task 5), AFTER that table exists. Do NOT add sa.ForeignKey here.
         sa.Column("shared_pool_id", postgresql.UUID(as_uuid=True)),
         sa.Column("created_at", sa.DateTime(timezone=True),
                   nullable=False, server_default=sa.text("now()")),
@@ -708,6 +779,12 @@ def upgrade() -> None:
     )
     op.create_index("ix_contract_tenant_status", "contract",
                     ["tenant_id", "status"], schema="gerti")
+    # Spec #0 §4 partial indexes (were missing from the draft plan):
+    op.create_index("ix_contract_ends_on_active", "contract", ["ends_on"],
+                    schema="gerti", postgresql_where=sa.text("status = 'active'"))
+    op.create_index("ix_contract_shared_pool_id", "contract", ["shared_pool_id"],
+                    schema="gerti",
+                    postgresql_where=sa.text("shared_pool_id IS NOT NULL"))
     op.create_table(
         "contract_billing_party",
         sa.Column("contract_id", postgresql.UUID(as_uuid=True),
@@ -723,10 +800,14 @@ def upgrade() -> None:
     # contract_billing_party has no tenant_id; isolate via its contract.
     op.execute("ALTER TABLE gerti.contract_billing_party ENABLE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE gerti.contract_billing_party FORCE ROW LEVEL SECURITY")
+    # H7: child-table policy needs explicit WITH CHECK identical to USING,
+    # else cross-tenant INSERT could slip through the USING fallback.
     op.execute(
         "CREATE POLICY contract_billing_party_tenant_isolation "
-        "ON gerti.contract_billing_party USING (contract_id IN "
-        "(SELECT id FROM gerti.contract WHERE tenant_id = "
+        "ON gerti.contract_billing_party "
+        "USING (contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = "
+        "current_setting('app.current_tenant', true)::uuid)) "
+        "WITH CHECK (contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = "
         "current_setting('app.current_tenant', true)::uuid))"
     )
     op.execute(
@@ -741,6 +822,8 @@ def downgrade() -> None:
                "ON gerti.contract_billing_party")
     op.drop_table("contract_billing_party", schema="gerti")
     _disable_tenant_rls("contract")
+    op.drop_index("ix_contract_shared_pool_id", table_name="contract", schema="gerti")
+    op.drop_index("ix_contract_ends_on_active", table_name="contract", schema="gerti")
     op.drop_index("ix_contract_tenant_status", table_name="contract", schema="gerti")
     op.drop_table("contract", schema="gerti")
 ```
@@ -903,7 +986,9 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, func
+from sqlalchemy import (
+    Date, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, func, text,
+)
 from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -929,9 +1014,10 @@ class ServiceCatalogItem(Base):
         SmallInteger, nullable=False, server_default="3")
     default_sla_minutes: Mapped[int | None] = mapped_column(Integer)
     form_schema: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, server_default="{}")
+        JSONB, nullable=False, server_default=text("'{}'::jsonb"))  # H1-class
     unit_price_brl: Mapped[float | None] = mapped_column(Numeric(14, 2))
-    active: Mapped[bool] = mapped_column(nullable=False, server_default="true")
+    active: Mapped[bool] = mapped_column(
+        nullable=False, server_default=text("true"))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now())
 
@@ -995,10 +1081,29 @@ Extend `models/__init__.py` exports + `__all__`.
 
 - [ ] **Step 4: Migration `0006_catalog_scope.py`**
 
-Create `apps/sidecar/alembic/versions/0006_catalog_scope.py` — chains `down_revision="0005_contract_core"`. Create the 4 tables (`service_catalog_item`, `shared_credit_pool`, `contract_scope_service`, `contract_scope_ci`) with the same `sa.Column` shapes as the models above, schema `gerti`. **Paste the `_enable_tenant_rls`/`_disable_tenant_rls` helpers from Task 3 verbatim into this migration** (self-contained). Apply RLS:
-- `service_catalog_item`: tenant-scoped but `tenant_id` is NULLable (global catalog rows). Policy: `USING (tenant_id IS NULL OR tenant_id = current_setting('app.current_tenant', true)::uuid)` and `WITH CHECK (tenant_id = current_setting('app.current_tenant', true)::uuid)`; ENABLE+FORCE; GRANT to gerti_app. (Global rows are read-only to tenants — inserts require a tenant match; seed global rows via `gerti_admin`.)
-- `shared_credit_pool`: use `_enable_tenant_rls("shared_credit_pool")` (has `tenant_id`).
-- `contract_scope_service` / `contract_scope_ci`: no `tenant_id` — use the `contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = current_setting('app.current_tenant', true)::uuid)` policy form (USING only; inserts are via the contract owner), ENABLE+FORCE, GRANT to gerti_app. `downgrade()` reverses in FK-safe order.
+Create `apps/sidecar/alembic/versions/0006_catalog_scope.py` — `revision="0006_catalog_scope"`, `down_revision="0005_contract_core"`. Create the 4 tables (`service_catalog_item`, `shared_credit_pool`, `contract_scope_service`, `contract_scope_ci`) with the same `sa.Column` shapes as the models above, schema `gerti`. **`form_schema` JSONB server_default must be `sa.text("'{}'::jsonb")`** (a bare `"{}"` string default fails on JSONB). **Paste the `_enable_tenant_rls`/`_disable_tenant_rls` helpers from Task 3 verbatim into this migration** (self-contained).
+
+**Order inside `upgrade()` (MANDATORY):**
+1. `op.create_table("shared_credit_pool", ...)` FIRST (it is referenced by the FK added next).
+2. **H3 — add the deferred FK from `contract.shared_pool_id`:**
+   ```python
+   op.create_foreign_key(
+       "fk_contract_shared_pool_id_shared_credit_pool",
+       "contract", "shared_credit_pool",
+       ["shared_pool_id"], ["id"],
+       source_schema="gerti", referent_schema="gerti",
+   )
+   op.create_index("ix_shared_credit_pool_tenant_id", "shared_credit_pool",
+                   ["tenant_id"], schema="gerti")  # Spec #0 §4
+   ```
+3. `op.create_table("service_catalog_item", ...)`, then `contract_scope_service`, then `contract_scope_ci`.
+
+RLS (all ENABLE+FORCE, GRANT `SELECT,INSERT,UPDATE,DELETE` to `gerti_app`):
+- `service_catalog_item`: `tenant_id` is NULLable (global catalog rows). Policy: `USING (tenant_id IS NULL OR tenant_id = current_setting('app.current_tenant', true)::uuid)` and **`WITH CHECK (tenant_id = current_setting('app.current_tenant', true)::uuid)`** (global rows are read-only to tenants; seed global rows as `gerti_admin`).
+- `shared_credit_pool`: `_enable_tenant_rls("shared_credit_pool")` (has `tenant_id`; the helper already includes `WITH CHECK`).
+- `contract_scope_service` / `contract_scope_ci`: no `tenant_id` — **H7**: both `USING` AND `WITH CHECK` = `contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = current_setting('app.current_tenant', true)::uuid)`, ENABLE+FORCE, GRANT.
+
+`downgrade()` (FK-safe reverse order): drop scope tables → drop policies/grants → `op.drop_constraint("fk_contract_shared_pool_id_shared_credit_pool", "contract", schema="gerti", type_="foreignkey")` → drop `ix_shared_credit_pool_tenant_id` → drop `service_catalog_item` → drop `shared_credit_pool`.
 
 - [ ] **Step 5: Run model test — expect pass**; then full gate.
 
@@ -1086,7 +1191,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import Date, DateTime, ForeignKey, UniqueConstraint, func
+from sqlalchemy import Date, DateTime, ForeignKey, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import ENUM, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -1112,7 +1217,8 @@ class ContractCycle(Base):
     period_start: Mapped[dt.date] = mapped_column(Date, nullable=False)
     period_end: Mapped[dt.date] = mapped_column(Date, nullable=False)
     status: Mapped[CycleStatus] = mapped_column(
-        _cycle_status, nullable=False, server_default="open")
+        _cycle_status, nullable=False,
+        server_default=text("'open'::gerti.cycle_status"))  # H1
     opened_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now())
     closed_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
@@ -1129,7 +1235,7 @@ import datetime as dt
 import uuid
 
 from sqlalchemy import (
-    BigInteger, DateTime, ForeignKey, Numeric, String, func,
+    BigInteger, DateTime, ForeignKey, Identity, Numeric, String, func, text,
 )
 from sqlalchemy.dialects.postgresql import ENUM, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -1143,7 +1249,10 @@ _glosa_status = ENUM(GlosaStatus, name="glosa_status", schema="gerti", create_ty
 class ConsumptionEvent(Base):
     __tablename__ = "consumption_event"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    # H4: BIGSERIAL-equivalent — Identity makes the sequence; plain
+    # autoincrement under op.create_table with explicit PK does NOT.
+    id: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=False), primary_key=True)
     contract_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("gerti.contract.id"), nullable=False)
     occurred_at: Mapped[dt.datetime] = mapped_column(
@@ -1157,6 +1266,8 @@ class ConsumptionEvent(Base):
     billable_amount_brl: Mapped[float] = mapped_column(
         Numeric(14, 2), nullable=False, server_default="0")
     unit_price_at_event: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    # H8: settled-by pointer. UUID, NO ForeignKey (a FK here would create a
+    # circular FK with gerti.glosa). Integrity enforced in the app layer.
     glosa_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     closing_cycle_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("gerti.contract_cycle.id"))
@@ -1174,7 +1285,8 @@ class Glosa(Base):
     consumption_event_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("gerti.consumption_event.id"), nullable=False)
     status: Mapped[GlosaStatus] = mapped_column(
-        _glosa_status, nullable=False, server_default="pending")
+        _glosa_status, nullable=False,
+        server_default=text("'pending'::gerti.glosa_status"))  # H1
     reason: Mapped[str] = mapped_column(String, nullable=False)
     requested_by: Mapped[str] = mapped_column(String, nullable=False)
     requested_at: Mapped[dt.datetime] = mapped_column(
@@ -1188,7 +1300,14 @@ Extend `models/__init__.py`.
 
 - [ ] **Step 4: Migration `0007_cycle_consumption.py`**
 
-Chains `down_revision="0006_catalog_scope"`. Create `contract_cycle`, `consumption_event`, `glosa` with the column shapes above. Add: `UNIQUE` on `contract_cycle (contract_id, kind, period_start)`; partial unique index `consumption_event_idempotency` = `CREATE UNIQUE INDEX consumption_event_idempotency ON gerti.consumption_event (webhook_event_id) WHERE webhook_event_id IS NOT NULL`; index `ON gerti.consumption_event (contract_id, occurred_at DESC)`; index `ON gerti.consumption_event (closing_cycle_id)`. **Append-only enforcement**: after creating `consumption_event`, add a trigger blocking UPDATE/DELETE:
+`revision="0007_cycle_consumption"`, `down_revision="0006_catalog_scope"`. Create `contract_cycle`, `consumption_event`, `glosa` with the EXACT column shapes from the models above. Migration-side specifics:
+
+- **H1 enum defaults:** `contract_cycle.status` → `server_default=sa.text("'open'::gerti.cycle_status")`; `glosa.status` → `server_default=sa.text("'pending'::gerti.glosa_status")`.
+- **H4:** `consumption_event.id` column = `sa.Column("id", sa.BigInteger(), sa.Identity(always=False), primary_key=True)`. `glosa.consumption_event_id` = `sa.Column(..., sa.BigInteger(), sa.ForeignKey("gerti.consumption_event.id"), nullable=False)`.
+- **H8:** `consumption_event.glosa_id` = `sa.Column("glosa_id", postgresql.UUID(as_uuid=True))` — **NO `sa.ForeignKey`**.
+- Constraints/indexes: `UNIQUE (contract_id, kind, period_start)` on `contract_cycle` (`uq_contract_cycle_contract_id_kind_period_start`); `CREATE INDEX ON gerti.contract_cycle (contract_id, status)`; partial `CREATE INDEX ix_contract_cycle_period_end_open ON gerti.contract_cycle (period_end) WHERE status = 'open'`; partial unique `CREATE UNIQUE INDEX consumption_event_idempotency ON gerti.consumption_event (webhook_event_id) WHERE webhook_event_id IS NOT NULL`; `CREATE INDEX ON gerti.consumption_event (contract_id, occurred_at DESC)`; `CREATE INDEX ON gerti.consumption_event (closing_cycle_id)`; `CREATE INDEX ON gerti.consumption_event (source_ref)`; `CREATE INDEX ON gerti.glosa (consumption_event_id)`; `CREATE INDEX ON gerti.glosa (status)`.
+
+**H2 — append-only enforcement that does NOT break cycle closing / glosa settlement.** A blanket UPDATE block deadlocks `CycleService.close()` (which sets `closing_cycle_id`) and the glosa flow (which sets `glosa_id`). The ledger fields stay immutable; only the two settlement-bookkeeping columns may change; DELETE is always forbidden:
 
 ```python
 op.execute(
@@ -1196,7 +1315,23 @@ op.execute(
     CREATE OR REPLACE FUNCTION gerti.consumption_event_append_only()
     RETURNS trigger LANGUAGE plpgsql AS $$
     BEGIN
-        RAISE EXCEPTION 'consumption_event é append-only (% proibido)', TG_OP;
+        IF TG_OP = 'DELETE' THEN
+            RAISE EXCEPTION 'consumption_event é append-only (DELETE proibido)';
+        END IF;
+        -- UPDATE: only closing_cycle_id and/or glosa_id may change.
+        IF ROW(NEW.id, NEW.contract_id, NEW.occurred_at, NEW.source_kind,
+                NEW.source_ref, NEW.service_id, NEW.billable_minutes,
+                NEW.billable_amount_brl, NEW.unit_price_at_event,
+                NEW.recorded_by, NEW.recorded_at, NEW.webhook_event_id)
+           IS DISTINCT FROM
+           ROW(OLD.id, OLD.contract_id, OLD.occurred_at, OLD.source_kind,
+                OLD.source_ref, OLD.service_id, OLD.billable_minutes,
+                OLD.billable_amount_brl, OLD.unit_price_at_event,
+                OLD.recorded_by, OLD.recorded_at, OLD.webhook_event_id)
+        THEN
+            RAISE EXCEPTION 'consumption_event é append-only: só closing_cycle_id/glosa_id podem mudar';
+        END IF;
+        RETURN NEW;
     END;
     $$;
     """
@@ -1208,7 +1343,13 @@ op.execute(
 )
 ```
 
-Paste the Task 3 RLS helpers verbatim. Apply per-tenant RLS to all three via the `contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = current_setting('app.current_tenant', true)::uuid)` form (none has its own `tenant_id`); `glosa` isolates via its `consumption_event_id → consumption_event → contract`. ENABLE+FORCE, GRANT to gerti_app (SELECT,INSERT on consumption_event; the trigger still blocks UPDATE/DELETE even though the grant exists — keep grants minimal: `GRANT SELECT, INSERT ON gerti.consumption_event TO gerti_app`; full DML on cycle/glosa). `downgrade()` drops trigger+function, policies, indexes, tables in FK-safe order.
+Paste the Task 3 `_enable_tenant_rls`/`_disable_tenant_rls` helpers verbatim (self-contained). Apply per-tenant RLS to all three (none has its own `tenant_id`) — **H7**: each policy has BOTH `USING` and `WITH CHECK`:
+- `contract_cycle` / `consumption_event`: `(contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = current_setting('app.current_tenant', true)::uuid))` for both `USING` and `WITH CHECK`.
+- `glosa`: `(consumption_event_id IN (SELECT ce.id FROM gerti.consumption_event ce JOIN gerti.contract c ON c.id = ce.contract_id WHERE c.tenant_id = current_setting('app.current_tenant', true)::uuid))` for both.
+
+ENABLE+FORCE on all three. Grants (minimal): `GRANT SELECT, INSERT, UPDATE ON gerti.consumption_event TO gerti_app` (UPDATE needed for the settlement columns; the trigger still forbids ledger mutation and DELETE — RLS + trigger + grant are now consistent); `GRANT SELECT, INSERT, UPDATE, DELETE ON gerti.contract_cycle TO gerti_app`; `GRANT SELECT, INSERT, UPDATE, DELETE ON gerti.glosa TO gerti_app`.
+
+`downgrade()` (FK-safe order): drop glosa (policy/grant/table) → drop trigger `trg_consumption_event_append_only` ON consumption_event → `DROP FUNCTION IF EXISTS gerti.consumption_event_append_only()` → drop consumption_event (policy/grant/indexes/table) → drop contract_cycle (policy/grant/indexes/table).
 
 - [ ] **Step 5: Run model test — expect pass**; full gate green.
 
@@ -1317,7 +1458,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, func, text
 from sqlalchemy.dialects.postgresql import ENUM, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -1337,7 +1478,8 @@ class TicketContractLink(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("gerti.tenant.id"), nullable=False)
     billing_status: Mapped[BillingStatus] = mapped_column(
-        _billing_status, nullable=False, server_default="pending")
+        _billing_status, nullable=False,
+        server_default=text("'pending'::gerti.billing_status"))  # H1
     linked_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now())
     linked_by_rule: Mapped[str] = mapped_column(String, nullable=False)
@@ -1345,7 +1487,7 @@ class TicketContractLink(Base):
 
 Extend `models/__init__.py`.
 
-- [ ] **Step 4: Migration `0008_policy_ticketlink.py`** — chains `down_revision="0007_cycle_consumption"`. Create the 3 tables. RLS (paste Task 3 helpers verbatim): `ticket_contract_link` has `tenant_id` → `_enable_tenant_rls("ticket_contract_link")`; the two policy tables are `contract_id`-only → `contract_id IN (SELECT … WHERE tenant_id = GUC)` form, ENABLE+FORCE, GRANT to gerti_app. `downgrade()` reverses.
+- [ ] **Step 4: Migration `0008_policy_ticketlink.py`** — `revision="0008_policy_ticketlink"`, `down_revision="0007_cycle_consumption"`. Create the 3 tables (`contract_adjustment_rule`, `contract_renewal_policy`, `ticket_contract_link`). **H1:** `ticket_contract_link.billing_status` → `server_default=sa.text("'pending'::gerti.billing_status")`. Spec #0 §4 indexes: `CREATE INDEX ON gerti.ticket_contract_link (contract_id)` and `CREATE INDEX ON gerti.ticket_contract_link (tenant_id, billing_status)`. RLS (paste Task 3 helpers verbatim, self-contained): `ticket_contract_link` has `tenant_id` → `_enable_tenant_rls("ticket_contract_link")` (helper already adds `WITH CHECK`); the two policy tables are `contract_id`-only → **H7**: both `USING` AND `WITH CHECK` = `contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = current_setting('app.current_tenant', true)::uuid)`, ENABLE+FORCE, GRANT `SELECT,INSERT,UPDATE,DELETE` to gerti_app. `downgrade()` reverses (drop indexes, policies, grants, tables; FK-safe).
 
 - [ ] **Step 5: Run model test — expect pass; full gate green.**
 
@@ -1627,8 +1769,9 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerti_sidecar.domain.errors import ContractValidationError
@@ -1712,17 +1855,14 @@ class ContractService:
         await self.session.flush()
         return contract
 
-    async def _current_tenant_id(self):
-        from sqlalchemy import text
-
+    async def _current_tenant_id(self) -> uuid.UUID:
+        # H9: imports hoisted to module top (ruff PLC0415-safe).
         res = await self.session.execute(
             text("SELECT current_setting('app.current_tenant', true)")
         )
         val = res.scalar_one()
         if not val:
             raise ContractValidationError("sessão sem tenant (GUC ausente)")
-        import uuid
-
         return uuid.UUID(val)
 ```
 
@@ -2046,7 +2186,7 @@ class CycleService:
             .values(closing_cycle_id=cycle.id)
         )
         cycle.status = CycleStatus.closed
-        cycle.closed_at = func.now()
+        cycle.closed_at = dt.datetime.now(dt.UTC)  # H5: Python value, not func.now()
         cycle.totals = totals
         await self.session.flush()
         return totals
@@ -2195,7 +2335,44 @@ git commit -m "feat(sidecar): AdjustmentService — reajuste por índice (com te
 
 - [ ] **Step 1: Migration `0009_balance_view.py`**
 
-Create the materialized view from Spec #0 §4 (`gerti.contract_balance_current`) chaining `down_revision="0008_policy_ticketlink"`. Use `op.execute` with the exact `CREATE MATERIALIZED VIEW gerti.contract_balance_current AS SELECT c.id AS contract_id, c.type, CASE c.type WHEN 'credit_brl' THEN c.initial_amount_brl - COALESCE(SUM(...)...) ... END AS remaining FROM gerti.contract c LEFT JOIN gerti.consumption_event ce ON ce.contract_id=c.id AND ce.glosa_id IS NULL GROUP BY c.id;` plus `CREATE UNIQUE INDEX ON gerti.contract_balance_current (contract_id);`. Grant `SELECT` to `gerti_app`. (Matviews are not RLS-filtered; document that callers must filter by tenant via a join to `gerti.contract` under the tenant GUC — the view is for admin/reporting refresh jobs, not tenant-facing reads.) `downgrade()` drops the index + matview.
+`revision="0009_balance_view"`, `down_revision="0008_policy_ticketlink"`. Use `op.execute` with the **EXACT** Spec #0 §4 DDL (do not paraphrase — the glosa-rejected `FILTER` matters; a contract written-off then `rejected` must count again):
+
+```python
+op.execute(
+    """
+    CREATE MATERIALIZED VIEW gerti.contract_balance_current AS
+    SELECT
+      c.id AS contract_id,
+      c.type,
+      CASE c.type
+        WHEN 'credit_brl' THEN
+          c.initial_amount_brl - COALESCE(SUM(ce.billable_amount_brl) FILTER (
+            WHERE ce.glosa_id IS NULL OR EXISTS (
+              SELECT 1 FROM gerti.glosa g
+              WHERE g.id = ce.glosa_id AND g.status = 'rejected')), 0)
+        WHEN 'hour_bank' THEN
+          c.initial_hours - COALESCE(SUM(ce.billable_minutes) FILTER (
+            WHERE ce.glosa_id IS NULL OR EXISTS (
+              SELECT 1 FROM gerti.glosa g
+              WHERE g.id = ce.glosa_id AND g.status = 'rejected')), 0) / 60.0
+        WHEN 'service_count' THEN
+          c.initial_service_count - COALESCE(COUNT(ce.*) FILTER (
+            WHERE ce.source_kind = 'service_item'), 0)
+        ELSE NULL
+      END AS remaining
+    FROM gerti.contract c
+    LEFT JOIN gerti.consumption_event ce ON ce.contract_id = c.id
+    GROUP BY c.id;
+    """
+)
+op.execute(
+    "CREATE UNIQUE INDEX ix_contract_balance_current_contract_id "
+    "ON gerti.contract_balance_current (contract_id)"
+)
+op.execute("GRANT SELECT ON gerti.contract_balance_current TO gerti_app")
+```
+
+> **RLS BYPASS — KNOWN & ACCEPTED:** Postgres materialized views are NOT row-level-security filtered (RLS applies to base tables, not the matview's stored rows). `gerti.contract_balance_current` therefore exposes ALL tenants' balances to anyone with `SELECT`. Mitigation baked into the design: (1) it is **reporting/refresh-job only**, never queried on a tenant-facing path; (2) tenant-facing balance is served exclusively by `ConsumptionService.balance()` which runs under the tenant GUC against RLS'd base tables; (3) the matview is documented here and in `INTEGRATION.md` as admin-scope. Do NOT add a tenant-scoped query against this matview anywhere. `downgrade()`: `DROP INDEX` then `DROP MATERIALIZED VIEW gerti.contract_balance_current`.
 
 - [ ] **Step 2: End-to-end test**
 
@@ -2252,15 +2429,11 @@ async def test_full_contract_lifecycle(session, app_session_factory, seed_two_te
 
     # tenant B cannot see tenant A's contract at all (RLS, unprivileged role)
     async with db.tenant_session_scope(b_id, factory=app_session_factory) as s:
-        repo_codes = [r.code for r in await ContractService(s)._session_contracts()] \
-            if hasattr(ContractService(s), "_session_contracts") else None
-        from sqlalchemy import select
-        from gerti_sidecar.models import Contract
         rows = (await s.execute(select(Contract.code))).scalars().all()
         assert "MSP-OURO" not in rows
 ```
 
-(If `_session_contracts` helper doesn't exist, the `select(Contract.code)` block is the authoritative assertion — keep that; drop the `hasattr` line if it triggers ruff. Implementer: prefer the explicit `select` assertion and delete the helper probe.)
+(Add `from sqlalchemy import select` and `from gerti_sidecar.models import Contract` to the test's top-level imports — H11: no inline imports, no dead `_session_contracts`/`hasattr` probe.)
 
 - [ ] **Step 3: Demo script (domain-level, no HTTP)**
 
@@ -2355,8 +2528,10 @@ git commit -m "feat(sidecar): matview de saldo + e2e do domínio de contratos + 
 
 **3. Type consistency:** enum names (`ContractType` etc.) and PG type names (`gerti.contract_type` etc.) consistent T2↔T3↔T6↔T7. `tenant_session_scope(tenant_id, *, factory=None)` / `get_tenant_session(request)` signatures consistent T1↔T8↔T9. `NewContract`/`RecordConsumption` dataclass fields consistent across T9/T10/T11/T13. `Balance(kind, remaining)` consistent T10↔T13. Repo `model` classvar + `TenantScopedRepository` consistent T8. Migration revision chain `0002→0003→0004→0005→0006→0007→0008→0009` linear and each `down_revision` matches.
 
-**4. Known follow-ups for the executing skill:** (a) `contract.shared_pool_id` FK targets `gerti.shared_credit_pool` which is created in T5 (0006) AFTER `contract` in T3 (0005) — the FK must be added as a separate `op.create_foreign_key` in 0006 (after the pool table exists), NOT inline in 0005; T3 model keeps the FK but T3 migration 0005 must create the column WITHOUT the FK and T5 migration 0006 adds the FK. This is called out here so the implementer doesn't hit a missing-table FK error. (b) Matviews bypass RLS — documented in T13; tenant-facing balance must go via `ConsumptionService.balance()` (RLS-safe), the matview is reporting-only.
+**4. Hardening baked in (H1–H11):** see the "CRITICAL HARDENING" table at the top. Summary: H1 native-enum casts in every default; H2 append-only trigger now permits only `closing_cycle_id`/`glosa_id` UPDATE (does not deadlock cycle close); H3 `contract.shared_pool_id` FK created in 0006 not 0005; H4 `consumption_event.id` uses `Identity` (real BIGSERIAL); H5 `closed_at` is a Python datetime; H6 testcontainer = `postgres:18`; H7 every child policy has `WITH CHECK`; H8 `glosa_id` is FK-less by design; H9 imports hoisted; H10 `updated_at` `onupdate`; H11 dead e2e probe removed. Migration chain (audited real head → forward): **`0004_contract_enums`(head) →0005→0006→0007→0008→0009**, each `down_revision` verified linear. T1/T2 ✅ DONE — not re-created.
+
+**5. Out of scope (unchanged):** `audit_log` (#1E), HTTP APIs (#1E), Znuny webhook ingestion (#1E), `v_znuny_*` read views (#1E).
 
 ---
 
-Plan complete and saved to `docs/superpowers/plans/2026-05-17-spec-1c-contract-domain.md`.
+Plan hardened against the audited real state and saved to `docs/superpowers/plans/2026-05-17-spec-1c-contract-domain.md`. Deploy plan: `docs/superpowers/plans/2026-05-17-spec-1c-deploy.md`.
