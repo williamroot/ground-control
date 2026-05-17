@@ -39,7 +39,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE gerti_admin_user IN SCHEMA gerti
   GRANT USAGE, SELECT ON SEQUENCES TO gerti_app;
 ```
 
-Final `SELECT` verification block. **No `DROP`, no `CREATE SCHEMA znuny` if Znuny owns `public` (Znuny uses `public`, not `znuny` — keep the `znuny` schema creation `IF NOT EXISTS` for the future read views; harmless empty schema).** This `ALTER DEFAULT PRIVILEGES` set is the SAME two lines added to the dev init in #1C plan Task 3 Step 0b — prod and dev/test stay byte-equivalent on grants (zero drift).
+**Ordering (B4): these two `ALTER DEFAULT PRIVILEGES FOR ROLE gerti_admin_user …` lines MUST appear AFTER the `DO $$ … CREATE USER gerti_admin_user … $$;` block — the role must pre-exist or `ALTER DEFAULT PRIVILEGES FOR ROLE` errors with "role does not exist". Place them immediately before the final verification `SELECT`, exactly as in the dev init (`infra/compose/postgres/init/001_schemas_and_roles.sql`).** Final `SELECT` verification block. **No `DROP`, no `CREATE SCHEMA znuny` if Znuny owns `public` (Znuny uses `public`, not `znuny` — keep the `znuny` schema creation `IF NOT EXISTS` for the future read views; harmless empty schema).** This `ALTER DEFAULT PRIVILEGES` set is the SAME two lines added to the dev init in #1C plan Task 3 Step 0b — prod and dev/test stay byte-equivalent on grants (zero drift).
 
 - [ ] **Step 2: Add `gerti-db-init` one-shot service** to root `docker-compose.yml` (profile `gerti`, so it never runs on a plain `make up` of the Znuny stack unless the profile is enabled):
 
