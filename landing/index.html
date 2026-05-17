@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ground Control — Service Desk white-label para MSPs</title>
+<meta name="description" content="A plataforma de Service Desk own-source que MSPs operam com a própria marca. Zero licença por agente, white-label por cliente final, multi-tenant. Agende uma demonstração." />
+<meta name="theme-color" content="#070A12" />
+<meta property="og:title" content="Ground Control — Service Desk white-label para MSPs" />
+<meta property="og:description" content="Opere seu Service Desk com a sua marca. Own-source, multi-tenant, sem licença por agente." />
+<meta property="og:type" content="website" />
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=Saira:wght@400;500;600&family=Archivo:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div class="scanlines" aria-hidden="true"></div>
+<div class="starfield" aria-hidden="true"></div>
+
+<!-- STATUS BAR -->
+<div class="statusbar" role="status">
+  <div class="statusbar-inner">
+    <span class="sb-item"><i class="led led-go"></i> ALL SYSTEMS NOMINAL</span>
+    <span class="sb-sep">·</span>
+    <span class="sb-item sb-mono">UPLINK <b>ACTIVE</b></span>
+    <span class="sb-sep">·</span>
+    <span class="sb-item sb-mono">PLATAFORMA <b>v1</b></span>
+    <span class="sb-spacer"></span>
+    <span class="sb-item sb-mono sb-clock" id="utc-clock">--:--:-- UTC</span>
+  </div>
+</div>
+
+<!-- NAV -->
+<header class="nav">
+  <a href="#top" class="brand" aria-label="Ground Control">
+    <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+      <circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="20" cy="20" r="4" fill="currentColor"/>
+      <line x1="20" y1="1" x2="20" y2="9" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="20" y1="31" x2="20" y2="39" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="1" y1="20" x2="9" y2="20" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="31" y1="20" x2="39" y2="20" stroke="currentColor" stroke-width="1.5"/>
+      <circle cx="20" cy="20" r="10" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="2 3" opacity="0.6"/>
+    </svg>
+    <span class="brand-type">
+      <strong>GROUND CONTROL</strong>
+      <em>service desk platform</em>
+    </span>
+  </a>
+  <nav class="nav-links" aria-label="Seções">
+    <a href="#problema">O problema</a>
+    <a href="#subsistemas">Plataforma</a>
+    <a href="#whitelabel">White-label</a>
+    <a href="#sequencia">Como funciona</a>
+    <a href="#comparativo">Por que</a>
+  </nav>
+  <a href="#demo" class="btn btn-primary nav-cta">Agendar demonstração<span class="btn-arrow">→</span></a>
+</header>
+
+<main id="top">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-grid" aria-hidden="true"></div>
+    <svg class="hero-orbit" viewBox="0 0 600 600" aria-hidden="true">
+      <circle cx="300" cy="300" r="290" fill="none" stroke="currentColor" stroke-width="1" opacity="0.10"/>
+      <circle cx="300" cy="300" r="220" fill="none" stroke="currentColor" stroke-width="1" opacity="0.14" stroke-dasharray="1 6"/>
+      <circle cx="300" cy="300" r="150" fill="none" stroke="currentColor" stroke-width="1" opacity="0.10"/>
+      <g class="orbit-spin">
+        <circle cx="300" cy="80" r="5" fill="currentColor"/>
+        <circle cx="300" cy="300" r="220" fill="none" stroke="currentColor" stroke-width="1" opacity="0.25"/>
+      </g>
+      <g class="orbit-spin-rev">
+        <circle cx="450" cy="300" r="3.5" fill="currentColor" opacity="0.7"/>
+      </g>
+    </svg>
+
+    <div class="hero-inner">
+      <p class="eyebrow"><i class="led led-go"></i> PHASE 01 · WHITE-LABEL SERVICE DESK · PARA MSPs</p>
+      <h1 class="hero-title">
+        Opere o Service Desk<br/>
+        com a <span class="hl">sua marca</span>.<br/>
+        Nós somos o <span class="hl-out">controle de missão</span>.
+      </h1>
+      <p class="hero-sub">
+        <strong>Ground Control</strong> é a plataforma de Service Desk <strong>own-source</strong> que MSPs
+        rodam como produto próprio: <strong>zero licença por agente</strong>, <strong>white-label por
+        cliente final</strong>, multi-tenant de verdade, contratos e faturamento modelados para quem
+        presta serviço de TI. Você comanda. Nós sustentamos a órbita.
+      </p>
+
+      <div class="hero-cta">
+        <a href="#demo" class="btn btn-primary btn-lg">Agendar demonstração<span class="btn-arrow">→</span></a>
+        <a href="#subsistemas" class="btn btn-ghost btn-lg">Ver a plataforma</a>
+      </div>
+
+      <div class="telemetry">
+        <div class="tm">
+          <span class="tm-v" data-count="0">R$ 0</span>
+          <span class="tm-l">licença / agente</span>
+        </div>
+        <div class="tm">
+          <span class="tm-v" data-count="6">6</span>
+          <span class="tm-l">tipos de contrato MSP</span>
+        </div>
+        <div class="tm">
+          <span class="tm-v">∞</span>
+          <span class="tm-l">clientes white-label</span>
+        </div>
+        <div class="tm">
+          <span class="tm-v">GPL v3</span>
+          <span class="tm-l">own-source · sem lock-in</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="hero-foot">
+      <span class="mono">LAT -23.55 · LON -46.63 · GROUND STATION SP</span>
+      <span class="mono">SCROLL ↓ INITIATE</span>
+    </div>
+  </section>
+
+  <!-- TRUST STRIP -->
+  <section class="trust">
+    <p class="trust-label">ENGINE</p>
+    <div class="trust-items">
+      <span>Núcleo <b>Znuny / OTRS</b> open-source</span>
+      <span class="dot">●</span>
+      <span><b>Multi-tenant</b> com isolamento real (RLS)</span>
+      <span class="dot">●</span>
+      <span>API REST <b>+ webhooks</b></span>
+      <span class="dot">●</span>
+      <span>Deploy <b>Docker</b> · seu cloud ou o nosso</span>
+      <span class="dot">●</span>
+      <span>Dados <b>na sua casa</b> · LGPD</span>
+    </div>
+  </section>
+
+  <!-- PROBLEMA -->
+  <section class="section" id="problema">
+    <div class="sec-head">
+      <span class="phase">PHASE 02</span>
+      <h2>O Service Desk de quem presta serviço quebrou.</h2>
+    </div>
+    <div class="problem-grid">
+      <article class="prob">
+        <span class="prob-code">ERR · 01</span>
+        <h3>Você paga por agente, todo mês, pra sempre</h3>
+        <p>SaaS de service desk cobra por usuário. Sua margem de MSP evapora à medida que o time cresce. O custo sobe com você — não com seu lucro.</p>
+      </article>
+      <article class="prob">
+        <span class="prob-code">ERR · 02</span>
+        <h3>O white-label é da ferramenta, não do seu cliente</h3>
+        <p>No máximo você troca o logo do <em>seu</em> portal. Oferecer um portal com a marca de <em>cada cliente seu</em> que você atende? Não existe.</p>
+      </article>
+      <article class="prob">
+        <span class="prob-code">ERR · 03</span>
+        <h3>Contratos de MSP não cabem na caixinha</h3>
+        <p>Banco de horas, crédito compartilhado, franquia de deslocamento, glosa, ciclos de fechamento ≠ faturamento. Ferramenta genérica não modela isso.</p>
+      </article>
+      <article class="prob">
+        <span class="prob-code">ERR · 04</span>
+        <h3>Seus dados moram na casa dos outros</h3>
+        <p>Lock-in de fornecedor, exportação capada, sem extensibilidade real. Quando precisa integrar Zabbix, PRTG, M365 ou faturar via Asaas/NFe, esbarra.</p>
+      </article>
+    </div>
+    <div class="shift">
+      <span class="shift-tag">CORREÇÃO DE ROTA</span>
+      <p>Ground Control inverte tudo: <b>own-source</b> (você é dono), <b>sem licença por agente</b>, <b>white-label por cliente final</b>, e contratos MSP como cidadão de primeira classe.</p>
+    </div>
+  </section>
+
+  <!-- SUBSISTEMAS -->
+  <section class="section" id="subsistemas">
+    <div class="sec-head">
+      <span class="phase">PHASE 03</span>
+      <h2>Subsistemas a bordo.</h2>
+    </div>
+    <p class="lead">Cada módulo é um subsistema independente do console. Tudo integrado, nada amarrado.</p>
+    <div class="sys-grid">
+      <article class="sys">
+        <header><span class="sys-id">SYS·01</span><i class="led led-go"></i></header>
+        <h3>Contratos MSP</h3>
+        <p>6 tipos: valor fechado, crédito R$, crédito compartilhado, banco de horas, SaaS/produto, por serviços. Ciclos de faturamento ≠ fechamento, reajuste por índice, renovação automática.</p>
+      </article>
+      <article class="sys">
+        <header><span class="sys-id">SYS·02</span><i class="led led-go"></i></header>
+        <h3>White-label por cliente</h3>
+        <p>Cada cliente seu com subdomínio, logo, cores e e-mail próprios. Branding injetado no servidor antes do paint — zero flash genérico.</p>
+      </article>
+      <article class="sys">
+        <header><span class="sys-id">SYS·03</span><i class="led led-go"></i></header>
+        <h3>Multi-tenant blindado</h3>
+        <p>Isolamento por linha (RLS no Postgres) + segregação de filas/ACLs. Pool compartilhado ou instância dedicada por cliente regulado.</p>
+      </article>
+      <article class="sys">
+        <header><span class="sys-id">SYS·04</span><i class="led led-go"></i></header>
+        <h3>Faturamento integrado</h3>
+        <p>Consumo vira cobrança: Asaas, boleto, NFe. Glosa do cliente, reversal, conciliação. O ciclo fecha sozinho e gera a fatura.</p>
+      </article>
+      <article class="sys">
+        <header><span class="sys-id">SYS·05</span><i class="led led-go"></i></header>
+        <h3>Catálogo de serviços</h3>
+        <p>Formulários dinâmicos por serviço, SLA por contrato, abertura guiada pelo cliente. Precificação automática amarrada ao contrato.</p>
+      </article>
+      <article class="sys">
+        <header><span class="sys-id">SYS·06</span><i class="led led-go"></i></header>
+        <h3>Dashboards & SLA</h3>
+        <p>Telemetria por cliente: consumo do contrato, cumprimento de SLA, NPS, saldo de horas. O gestor do cliente vê o painel dele.</p>
+      </article>
+      <article class="sys">
+        <header><span class="sys-id">SYS·07</span><i class="led led-go"></i></header>
+        <h3>Integrações de campo</h3>
+        <p>WhatsApp, e-mail, Microsoft 365/SSO, monitoramento Zabbix/PRTG abrindo ticket sozinho. API REST + webhooks HMAC para o resto.</p>
+      </article>
+      <article class="sys">
+        <header><span class="sys-id">SYS·08</span><i class="led led-go"></i></header>
+        <h3>Own-source · sem lock-in</h3>
+        <p>Núcleo Znuny GPL v3 + extensões suas. Roda no seu Docker, seu cloud. Exporta tudo. Você nunca fica refém de roadmap alheio.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- WHITE-LABEL -->
+  <section class="section section-wl" id="whitelabel">
+    <div class="wl-wrap">
+      <div class="wl-copy">
+        <span class="phase">PHASE 04</span>
+        <h2>Sua missão. Sua marca.<br/>O console de cada cliente.</h2>
+        <p>O que nenhum SaaS entrega: cada empresa que <em>você</em> atende recebe um portal com a marca <em>dela</em> — <code>suporte.cliente.com.br</code>, logo, tema, e-mail no domínio dela. Para o cliente final, o produto é dele. Para você, é um console só.</p>
+        <ul class="wl-list">
+          <li><i class="led led-go"></i> Subdomínio + DNS automatizado por cliente</li>
+          <li><i class="led led-go"></i> Tema, logo, favicon e CSS por tenant</li>
+          <li><i class="led led-go"></i> E-mail transacional com o domínio do cliente</li>
+          <li><i class="led led-go"></i> Isolamento de dados garantido por RLS</li>
+        </ul>
+      </div>
+      <div class="wl-console" aria-hidden="true">
+        <div class="console-bar">
+          <span class="cb-dot"></span><span class="cb-dot"></span><span class="cb-dot"></span>
+          <span class="cb-url mono">suporte.acme.com.br</span>
+        </div>
+        <div class="console-body">
+          <div class="cv-row"><span class="cv-brand">▲ ACME</span><span class="cv-tag mono">tenant: acme · NOMINAL</span></div>
+          <div class="cv-panel">
+            <div class="cv-stat"><b>128</b><span>tickets/mês</span></div>
+            <div class="cv-stat"><b>42h</b><span>saldo banco</span></div>
+            <div class="cv-stat"><b>99.4%</b><span>SLA</span></div>
+          </div>
+          <div class="cv-line"></div>
+          <div class="cv-row dim"><span class="cv-brand cv-brand-2">◇ NÓVEX</span><span class="cv-tag mono">tenant: novex · NOMINAL</span></div>
+          <div class="cv-panel dim">
+            <div class="cv-stat"><b>76</b><span>tickets/mês</span></div>
+            <div class="cv-stat"><b>R$ 8.2k</b><span>crédito</span></div>
+            <div class="cv-stat"><b>97.1%</b><span>SLA</span></div>
+          </div>
+          <p class="cv-foot mono">UM CONSOLE · MÚLTIPLAS MARCAS · ISOLAMENTO RLS</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SEQUÊNCIA -->
+  <section class="section" id="sequencia">
+    <div class="sec-head">
+      <span class="phase">PHASE 05</span>
+      <h2>Sequência de lançamento.</h2>
+    </div>
+    <ol class="launch">
+      <li>
+        <span class="lc">T-04</span>
+        <div><h3>Onboarding</h3><p>Levantamos sua operação, contratos e clientes. Provisionamos a plataforma no seu cloud ou no nosso.</p></div>
+      </li>
+      <li>
+        <span class="lc">T-03</span>
+        <div><h3>Configuração</h3><p>Filas, SLAs, catálogo de serviços, tipos de contrato, integrações (WhatsApp, M365, monitoramento).</p></div>
+      </li>
+      <li>
+        <span class="lc">T-02</span>
+        <div><h3>Lançamento do tenant</h3><p>Primeiro cliente white-label no ar: subdomínio, marca, portal. Equipe treinada.</p></div>
+      </li>
+      <li>
+        <span class="lc">T-00</span>
+        <div><h3>Operação</h3><p>Você opera com a sua marca. Faturamento roda no ciclo. Nós monitoramos a órbita.</p></div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- COMPARATIVO -->
+  <section class="section" id="comparativo">
+    <div class="sec-head">
+      <span class="phase">PHASE 06</span>
+      <h2>Ground Control × SaaS genérico.</h2>
+    </div>
+    <div class="cmp">
+      <div class="cmp-row cmp-head">
+        <span>Parâmetro</span><span>SaaS genérico</span><span class="cmp-gc">Ground Control</span>
+      </div>
+      <div class="cmp-row">
+        <span>Custo por agente</span><span class="bad">R$ / agente / mês, pra sempre</span><span class="cmp-gc good">zero licença · só infra</span>
+      </div>
+      <div class="cmp-row">
+        <span>White-label por cliente final</span><span class="bad">não existe</span><span class="cmp-gc good">nativo · subdomínio + marca</span>
+      </div>
+      <div class="cmp-row">
+        <span>Contratos MSP (banco de horas, glosa)</span><span class="bad">genérico / ausente</span><span class="cmp-gc good">6 tipos · cidadão 1ª classe</span>
+      </div>
+      <div class="cmp-row">
+        <span>Propriedade dos dados</span><span class="bad">no fornecedor</span><span class="cmp-gc good">na sua infra · own-source</span>
+      </div>
+      <div class="cmp-row">
+        <span>Extensibilidade</span><span class="bad">limitada ao roadmap deles</span><span class="cmp-gc good">API + webhooks + código aberto</span>
+      </div>
+      <div class="cmp-row">
+        <span>Integrações (Zabbix/PRTG/M365/NFe)</span><span class="bad">parciais / pagas à parte</span><span class="cmp-gc good">incluídas no roadmap</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- DEMO / CTA -->
+  <section class="section section-demo" id="demo">
+    <div class="demo-wrap">
+      <div class="demo-bracket demo-bracket-tl" aria-hidden="true"></div>
+      <div class="demo-bracket demo-bracket-br" aria-hidden="true"></div>
+      <span class="phase">T-MINUS</span>
+      <h2>Inicie a contagem.</h2>
+      <p class="demo-sub">Agende uma demonstração guiada. Mostramos a plataforma operando com white-label por cliente, contratos MSP e faturamento — com dados de exemplo do seu cenário.</p>
+
+      <form class="demo-form" id="demo-form" novalidate>
+        <div class="df-grid">
+          <label class="df-field">
+            <span>Nome</span>
+            <input type="text" name="nome" autocomplete="name" required placeholder="Seu nome" />
+          </label>
+          <label class="df-field">
+            <span>E-mail corporativo</span>
+            <input type="email" name="email" autocomplete="email" required placeholder="voce@suamsp.com.br" />
+          </label>
+          <label class="df-field">
+            <span>MSP / empresa</span>
+            <input type="text" name="empresa" autocomplete="organization" required placeholder="Nome da sua MSP" />
+          </label>
+          <label class="df-field">
+            <span>Nº de agentes</span>
+            <select name="agentes">
+              <option value="">Selecione</option>
+              <option>1–10</option>
+              <option>11–30</option>
+              <option>31–80</option>
+              <option>80+</option>
+            </select>
+          </label>
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg btn-block">
+          Agendar demonstração<span class="btn-arrow">→</span>
+        </button>
+        <p class="df-note mono" id="df-note">CANAL SEGURO · SEM SPAM · RESPOSTA EM ATÉ 1 DIA ÚTIL</p>
+      </form>
+
+      <p class="demo-alt">Prefere falar direto? <a href="mailto:contato@was.dev.br?subject=Demonstra%C3%A7%C3%A3o%20Ground%20Control">contato@was.dev.br</a></p>
+    </div>
+  </section>
+
+</main>
+
+<!-- FOOTER -->
+<footer class="footer">
+  <div class="footer-top">
+    <div class="footer-brand">
+      <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true">
+        <circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="1.5"/>
+        <circle cx="20" cy="20" r="4" fill="currentColor"/>
+        <line x1="20" y1="1" x2="20" y2="9" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="20" y1="31" x2="20" y2="39" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="1" y1="20" x2="9" y2="20" stroke="currentColor" stroke-width="1.5"/>
+        <line x1="31" y1="20" x2="39" y2="20" stroke="currentColor" stroke-width="1.5"/>
+      </svg>
+      <div>
+        <strong>GROUND CONTROL</strong>
+        <p class="mono">SERVICE DESK PLATFORM · WHITE-LABEL · MSP-FIRST</p>
+      </div>
+    </div>
+    <a href="#demo" class="btn btn-primary">Agendar demonstração<span class="btn-arrow">→</span></a>
+  </div>
+  <div class="footer-rule"></div>
+  <div class="footer-bottom">
+    <p class="mono">ENGINEERED BY <b>WAS SOLUÇÕES EM TECNOLOGIA</b></p>
+    <p class="mono" id="footer-stamp">GROUND CONTROL // SP STATION // R001</p>
+    <p class="mono"><i class="led led-go"></i> SYSTEMS NOMINAL</p>
+  </div>
+</footer>
+
+<script src="js/main.js" defer></script>
+</body>
+</html>

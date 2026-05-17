@@ -1,0 +1,59 @@
+# Deploy de produção da landing Ground Control via Cloudflare Tunnel.
+#
+#   Cloudflare edge ──tunnel──► cloudflared ──http──► nginx ──files──► ./
+#
+# Subir:
+#   1. cp .env.prod.example .env.prod
+#   2. Editar .env.prod com o token do tunnel (Zero Trust → Tunnels → groundcontrol)
+#   3. docker compose -f docker-compose-prod.yml --env-file .env.prod up -d
+#   4. docker compose -f docker-compose-prod.yml logs -f cloudflared  → "Registered tunnel connection"
+#
+# Public Hostname (no dashboard): groundcontrol.was.dev.br → HTTP → web:80
+
+name: groundcontrol-landing
+
+services:
+
+  web:
+    image: nginx:1.27-alpine
+    container_name: groundcontrol-web
+    restart: unless-stopped
+    volumes:
+      - ./:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks: [tunnel]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    labels:
+      com.was.project: "groundcontrol-landing"
+      com.was.domain: "groundcontrol.was.dev.br"
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: groundcontrol-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    environment:
+      TUNNEL_METRICS: 0.0.0.0:2000
+    depends_on:
+      web:
+        condition: service_healthy
+    networks: [tunnel]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+    labels:
+      com.was.project: "groundcontrol-landing"
+      com.was.domain: "groundcontrol.was.dev.br"
+
+networks:
+  tunnel:
+    name: groundcontrol-tunnel
+    driver: bridge

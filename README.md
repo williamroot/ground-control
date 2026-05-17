@@ -1,162 +1,77 @@
-# Ground Control — Znuny dev stack
+# Ground Control
 
-Production-grade, fully-coupled Docker Compose stack for **Znuny 7.2.3**
-— the ticketing/ITSM core of the **Gerti Service Desk** platform
-(replacing Tiflux). This repo is the **infra/orchestration layer only**;
-the Python sidecar and Nuxt portal live elsewhere and are out of scope.
+Plataforma de Service Desk **own-source, white-label, MSP-first** — núcleo **Znuny 7.2.3** acoplado em Docker Compose, sob medida para substituir o Tiflux no projeto Gerti e ser revendida por MSPs com a marca delas.
 
-100% automated provisioning — **no web installer, ever**.
+> **Conceito:** *Mission Control.* Cada cliente da MSP é uma órbita; este repositório é a estação de controle que mantém todas no ar — ticketing, contratos, faturamento e telemetria a partir de um único console.
 
----
+## Status atual
 
-## Architecture
+- **Núcleo no ar:** Znuny 7.2.3 (build próprio do tarball oficial) sobre **PostgreSQL 18** — compatível, sem fallback
+- **Stack validada:** 24/24 asserts no smoke-test e2e a partir de `down -v` limpo; provisionamento idempotente
+- **Cache real:** backend `Kernel::System::Cache::Redis` custom (core 7.2 só tem FileStorable) — 150+ chaves `znuny:*` no Redis
+- **Busca:** OpenSearch single-node healthy e alcançável pelo Znuny (indexação completa depende do add-on `Znuny-Elasticsearch` — gap documentado)
+- **Em prod:** VPS `100.99.49.110` via Cloudflare Tunnel → `znuny-dev.was.dev.br` (aguardando token do connector)
+- **Landing comercial:** em [`landing/`](landing/) — deploy próprio para `groundcontrol.was.dev.br`
+
+## Stack
 
 ```
-                       Internet
-                          │
-                 ┌────────▼────────┐   edge network
-                 │   cloudflared   │   (znuny-dev.was.dev.br)
-                 └────────┬────────┘
-                          │
-                 ┌────────▼────────┐
-                 │   znuny-web     │  Apache2 + mod_perl2  (:8080→80)
-                 │  (Znuny 7.2.3)  │
-                 └────────┬────────┘
-        app network       │           ┌──────────────┐
-                 ┌────────┼───────────┤ znuny-daemon │ bin/otrs.Daemon.pl
-                 │        │           └──────────────┘ (foreground/supervised)
-   ┌─────────────▼──┐ ┌───▼────┐ ┌────▼─────────┐
-   │  postgres:18   │ │redis:7 │ │ opensearch:2 │   data network
-   │ schema: znuny  │ │ cache  │ │  single-node │   (internal: true)
-   └────────────────┘ └────────┘ └──────────────┘
+Znuny 7.2.3 (Perl · Apache2 + mod_perl2 · build do tarball oficial)
+PostgreSQL 18  ·  Redis 7 (cache backend custom)  ·  OpenSearch 2.x
+cloudflared (Cloudflare Tunnel · znuny-dev.was.dev.br)
+Docker Compose · 3 redes segregadas (edge / app / data-internal)
+Provisionamento 100% automatizado · zero instalador web
+Landing: HTML/CSS/JS estático · nginx + cloudflared (groundcontrol.was.dev.br)
 ```
 
-| Service        | Image                            | Role |
-|----------------|----------------------------------|------|
-| `postgres`     | `postgres:18`                    | DB (Znuny schema in `public`; `gerti` schema added later by sidecar) |
-| `redis`        | `redis:7-alpine`                 | Znuny cache backend (custom `Cache::Redis`) |
-| `opensearch`   | `opensearchproject/opensearch:2` | Search cluster (single-node, dev security off) |
-| `znuny-web`    | built from official tarball      | Apache2 + mod_perl2, serves `/znuny/index.pl` |
-| `znuny-daemon` | same image                       | `bin/otrs.Daemon.pl` supervised in foreground |
-| `cloudflared`  | `cloudflare/cloudflared:latest`  | Tunnel for `znuny-dev.was.dev.br` (token pending) |
+## Arquitetura
 
-Networks: **edge** (cloudflared↔web), **app** (web/daemon↔services),
-**data** (`internal: true` — DB/Redis/OpenSearch unreachable from
-outside the project).
+```
+ground-control/
+├── docker-compose.yml            stack: redes, healthchecks, depends_on
+├── docker-compose.override.yml   dev: expõe portas, carrega .env.prod
+├── znuny/
+│   ├── Dockerfile                imagem do tarball oficial 7.2.3 (debian-slim)
+│   ├── entrypoint.sh             provisionamento idempotente
+│   ├── Config.pm.tmpl            Kernel/Config.pm renderizado de env
+│   └── Cache/Redis.pm            backend Redis custom (upgrade-safe, Custom/)
+├── postgres/init/                hooks de init do cluster
+├── scripts/smoke-test.sh         teste e2e (24 asserts)
+├── landing/                      landing comercial Ground Control (estático)
+├── docs/decisions/0001-stack.md  ADR canônico (PG18, base image, gaps)
+└── .ia/                          documentação viva (ler antes de mexer)
+```
 
-Named volumes: `postgres-data`, `znuny-var` (article storage /
-`/opt/otrs/var`), `opensearch-data`.
+Detalhes em [`.ia/`](.ia/) — overview, arquitetura, decisões, runbook operacional.
 
----
-
-## Quickstart
+## Como subir (dev)
 
 ```bash
-make init      # create .env and .env.prod from the committed examples
-make build     # build the Znuny image (~1–2 min on a warm cache)
-make up        # start the whole stack
-make test      # full end-to-end smoke test (24 assertions)
+git clone git@github.com:williamroot/ground-control.git
+cd ground-control
+make init      # cria .env e .env.prod a partir dos exemplos commitados
+make build     # constrói a imagem Znuny (~1-2 min cache quente)
+make up        # sobe a stack inteira
+make test      # smoke-test e2e (24 asserts) — deve dar FAIL=0
 ```
 
-Then open <http://localhost:8080/znuny/index.pl>.
+Abra <http://localhost:8080/znuny/index.pl>. Super-agente semeado (em `.env`):
+`root@localhost` / `ZNUNY_ADMIN_PASSWORD` (troque).
 
-Default seeded super-agent (set in `.env`):
+Atalhos: `make logs svc=znuny-web`, `make shell`, `make psql`, `make redis-keys`, `make es-health`, `make reset` (destrói volumes).
 
-- user: `root@localhost`
-- password: `Admin-Change-Me-123`  ← change `ZNUNY_ADMIN_PASSWORD`
+## Deploy
 
-Useful targets: `make logs svc=znuny-web`, `make shell`, `make psql`,
-`make redis-keys`, `make es-health`, `make reset` (destroys volumes).
+Produção em `100.99.49.110` via Cloudflare Tunnel. Passo a passo em [`DEPLOY.md`](DEPLOY.md).
 
----
+## Documentação
 
-## How the Cloudflare Tunnel token is supplied
-
-The tunnel hostname is `znuny-dev.was.dev.br`. The connector token is
-**not committed**. `make init` copies `.env.prod.example` →
-`.env.prod` (gitignored). When you provision the tunnel in the
-Cloudflare dashboard, paste the connector token:
-
-```bash
-# .env.prod
-CLOUDFLARE_TUNNEL_TOKEN=<real-connector-token-from-cloudflare>
-```
-
-then `docker compose up -d cloudflared`.
-
-**Until then** cloudflared logs `Provided Tunnel token is not valid.`
-and restarts. **This is expected and harmless** — no other service
-depends on cloudflared, so the rest of the stack is fully functional.
-
----
-
-## PG18 verdict
-
-**Znuny 7.2.3 is COMPATIBLE with PostgreSQL 18 (verified 18.4). No
-fallback to PG17 was needed.** Schema load, `DBD::Pg`, console
-commands, the daemon and the web UI all work on `postgres:18`.
-
-The only PG18-specific change (an *image* change, not a Znuny
-incompatibility): `postgres:18` expects the data volume at
-`/var/lib/postgresql` (major-version subdir), not
-`/var/lib/postgresql/data`. Handled in `docker-compose.yml`. Details:
-[`docs/decisions/0001-stack.md`](docs/decisions/0001-stack.md).
-
----
-
-## Provisioning (automated, idempotent)
-
-`znuny/entrypoint.sh`:
-
-1. Renders `Kernel/Config.pm` from `Config.pm.tmpl` using env
-   (DB DSN, Redis, OpenSearch endpoint, `SystemID`, FQDN).
-2. Waits for PostgreSQL to be ready.
-3. **Idempotent DB init** — loads schema + initial data + post-schema
-   **only if** the `valid` table is absent; otherwise logs
-   `schema already present — skipping`.
-4. Rebuilds SysConfig, ensures/creates the admin user, sets its
-   password deterministically, verifies it in the `users` table.
-5. Proves Znuny→OpenSearch reachability.
-6. `web` role → exec Apache2 (foreground). `daemon` role → waits for
-   web's provisioning marker, then runs `bin/otrs.Daemon.pl`
-   supervised in the foreground (auto-restarts if it stops).
-
----
-
-## Known gaps / notes
-
-- **Redis cache:** core Znuny 7.2 ships only `FileStorable`. We add a
-  faithful `Kernel::System::Cache::Redis` (in `Custom/`, upgrade-safe)
-  implementing Znuny's exact backend contract. Verified: 150+
-  `znuny:*` keys land in Redis; filesystem cache is bypassed.
-- **OpenSearch:** core Znuny 7.2 has **no** ES/OpenSearch support —
-  it is the separate `Znuny-Elasticsearch` add-on (not in the public
-  release repo). We guarantee: OpenSearch healthy, Znuny configured
-  with the endpoint, and **Znuny→OpenSearch connectivity proven**
-  (`status: green`). Full document-search indexing requires the add-on
-  (future work). See the decision note.
-- **cloudflared:** pending real token (see above).
-
-## Troubleshooting
-
-| Symptom | Cause / fix |
+| Arquivo | Conteúdo |
 |---|---|
-| `postgres` unhealthy, logs about `/var/lib/postgresql/data (unused mount)` | PG18 volume path — must be `/var/lib/postgresql` (already fixed here) |
-| `znuny-web` restart loop, Apache `Can't locate /opt/znuny/...` | Znuny defaults to `/opt/znuny`; we install to `/opt/otrs` and symlink `/opt/znuny→/opt/otrs` (already handled) |
-| `Cache::Redis could not be loaded` | The custom backend is in `Custom/Kernel/System/Cache/Redis.pm`; rebuild the image |
-| cloudflared `token is not valid` | Expected until you set a real `CLOUDFLARE_TUNNEL_TOKEN` in `.env.prod` |
-| Want a clean slate | `make reset` (destroys all volumes incl. DB) |
+| [`.ia/OVERVIEW.md`](.ia/OVERVIEW.md) | Problema, escopo, terminologia |
+| [`.ia/ARCHITECTURE.md`](.ia/ARCHITECTURE.md) | Containers, redes, fluxos, provisionamento |
+| [`.ia/OPS.md`](.ia/OPS.md) | Hosts, deploy, runbooks, troubleshooting |
+| [`.ia/DECISIONS.md`](.ia/DECISIONS.md) | ADRs — por que cada escolha |
+| [`docs/decisions/0001-stack.md`](docs/decisions/0001-stack.md) | ADR técnico canônico (inglês) |
 
-## Layout
-
-```
-docker-compose.yml            stack (networks, healthchecks, depends_on)
-docker-compose.override.yml   dev: exposes 5432/9200, loads .env.prod
-znuny/Dockerfile              Znuny image from official 7.2.3 tarball
-znuny/entrypoint.sh           automated, idempotent provisioning
-znuny/Config.pm.tmpl          Kernel/Config.pm rendered from env
-znuny/Cache/Redis.pm          custom Znuny Redis cache backend
-scripts/smoke-test.sh         24-assertion end-to-end test
-docs/decisions/0001-stack.md  stack choices + PG18 outcome
-Makefile  .env.example  .env.prod.example
-```
+Engineered by **WAS Soluções em Tecnologia**.
