@@ -25,7 +25,7 @@ def upgrade() -> None:
     op.execute(
         """
         CREATE POLICY tenant_tenant_isolation ON gerti.tenant
-            USING (id = current_setting('app.current_tenant', true)::uuid)
+            USING (id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)
         """
     )
 

@@ -25,16 +25,17 @@ def _enable_tenant_rls(table: str, tenant_col: str = "tenant_id") -> None:
 
     - ENABLE + FORCE so even the table owner obeys it.
     - Policy strictly keyed on the GUC cast to uuid (NO empty-GUC escape):
-      unset GUC → current_setting(...) NULL → comparison NULL → 0 rows
-      (fail-closed). Contract data must never leak with an unset tenant.
+      unset GUC → NULL; pooled-conn reset GUC → '' (NOT NULL). NULLIF(...,'')
+      collapses BOTH to NULL → comparison NULL → 0 rows (fail-closed, no
+      22P02). Contract data must never leak with an unset/reset tenant.
     - gerti_app gets table + sequence DML grants (it never owns objects).
     """
     op.execute(f"ALTER TABLE gerti.{table} ENABLE ROW LEVEL SECURITY")
     op.execute(f"ALTER TABLE gerti.{table} FORCE ROW LEVEL SECURITY")
     op.execute(
         f"CREATE POLICY {table}_tenant_isolation ON gerti.{table} "
-        f"USING ({tenant_col} = current_setting('app.current_tenant', true)::uuid) "
-        f"WITH CHECK ({tenant_col} = current_setting('app.current_tenant', true)::uuid)"
+        f"USING ({tenant_col} = NULLIF(current_setting('app.current_tenant', true), '')::uuid) "
+        f"WITH CHECK ({tenant_col} = NULLIF(current_setting('app.current_tenant', true), '')::uuid)"
     )
     op.execute(f"GRANT SELECT, INSERT, UPDATE, DELETE ON gerti.{table} TO gerti_app")
 
@@ -158,9 +159,9 @@ def upgrade() -> None:
         "CREATE POLICY contract_billing_party_tenant_isolation "
         "ON gerti.contract_billing_party "
         "USING (contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = "
-        "current_setting('app.current_tenant', true)::uuid)) "
+        "NULLIF(current_setting('app.current_tenant', true), '')::uuid)) "
         "WITH CHECK (contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = "
-        "current_setting('app.current_tenant', true)::uuid))"
+        "NULLIF(current_setting('app.current_tenant', true), '')::uuid))"
     )
     op.execute(
         "GRANT SELECT, INSERT, UPDATE, DELETE ON gerti.contract_billing_party " "TO gerti_app"

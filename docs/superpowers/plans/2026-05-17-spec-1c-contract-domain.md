@@ -4,7 +4,7 @@
 
 **Goal:** Build the real contract engine of the Gerti Service Desk sidecar — the 6 MSP contract types, billing≠closing cycles, hour-bank, append-only consumption, glosa, index adjustment, renewal, and per-tenant RLS — as a tested, demoable domain core (models + migrations + repositories + services). No HTTP endpoints (Spec #1E).
 
-**Architecture:** Extends the Plano 1A sidecar foundation (`apps/sidecar`, repo `ground-control` branch `main`, alembic chain head `0004_contract_enums`, `TenantMiddleware`, FORCE RLS on `gerti.tenant`). Adds a request/job tenant-scoped session seam that sets the `app.current_tenant` Postgres GUC, a reusable RLS migration pattern (`ENABLE`+`FORCE ROW LEVEL SECURITY`, policy keyed strictly on `current_setting('app.current_tenant', true)::uuid` with **no empty-GUC escape**), the contract data model from Spec #0 §4, tenant-scoped repositories, and domain services for create/consume/close-cycle/adjust/renew. All DDL runs as `gerti_admin` (never `gerti_app`-owned). Tests use the existing testcontainers Postgres and assert isolation under the unprivileged `gerti_sidecar` role.
+**Architecture:** Extends the Plano 1A sidecar foundation (`apps/sidecar`, repo `ground-control` branch `main`, alembic chain head `0004_contract_enums`, `TenantMiddleware`, FORCE RLS on `gerti.tenant`). Adds a request/job tenant-scoped session seam that sets the `app.current_tenant` Postgres GUC, a reusable RLS migration pattern (`ENABLE`+`FORCE ROW LEVEL SECURITY`, policy keyed strictly on `NULLIF(current_setting('app.current_tenant', true), '')::uuid` with **no empty-GUC escape** — pooled conn resets GUC to `''` not NULL → must NULLIF to stay fail-closed, no 22P02), the contract data model from Spec #0 §4, tenant-scoped repositories, and domain services for create/consume/close-cycle/adjust/renew. All DDL runs as `gerti_admin` (never `gerti_app`-owned). Tests use the existing testcontainers Postgres and assert isolation under the unprivileged `gerti_sidecar` role.
 
 ---
 
@@ -21,7 +21,7 @@
 **Gate result (quoted, verified):** `uv sync --all-extras` exit 0; `ruff check .` → "All checks passed!"; `ruff format --check .` → "28 files already formatted"; `mypy src` → "Success: no issues found in 13 source files"; `pytest -q` → **`16 passed in 5.17s`**.
 
 ### T1 (✅ DONE — committed, green)
-`db.tenant_session_scope(tenant_id, *, factory=None)` + `db.get_tenant_session(request)` exist in `db.py` using `SELECT set_config('app.current_tenant', :tid, true)` (the `SET LOCAL`-can't-bind trap is already fixed). `0003_force_rls_tenant.py` FORCEs RLS on `gerti.tenant` and replaces the empty-GUC-escape policy with strict `id = current_setting('app.current_tenant', true)::uuid`. `test_tenant_session.py` proves fail-closed under the unprivileged `gerti_sidecar` role (`app_session_factory`). **Evidence:** both files present; `test_tenant_session_scope_sets_guc_and_isolates` + `test_unset_guc_sees_zero_tenant_rows` pass.
+`db.tenant_session_scope(tenant_id, *, factory=None)` + `db.get_tenant_session(request)` exist in `db.py` using `SELECT set_config('app.current_tenant', :tid, true)` (the `SET LOCAL`-can't-bind trap is already fixed). `0003_force_rls_tenant.py` FORCEs RLS on `gerti.tenant` and replaces the empty-GUC-escape policy with strict `id = NULLIF(current_setting('app.current_tenant', true), '')::uuid` (pooled conn resets GUC to `''` not NULL → must NULLIF to stay fail-closed). `test_tenant_session.py` proves fail-closed under the unprivileged `gerti_sidecar` role (`app_session_factory`). **Evidence:** both files present; `test_tenant_session_scope_sets_guc_and_isolates` + `test_unset_guc_sees_zero_tenant_rows` pass.
 
 ### T2 (✅ DONE — committed, green, AST-verified)
 `models/enums.py` has `ContractType, ContractStatus, CycleKind, CycleStatus, GlosaStatus, BillingStatus` as `StrEnum`. `0004_contract_enums.py` issues `CREATE TYPE gerti.<name> AS ENUM (...)` for all six. `test_enums.py` asserts exact value ordering. **Cross-checked against Spec #0 §4 — identical** (`contract_type`: closed_value,credit_brl,credit_shared,hour_bank,saas_product,service_count; `contract_status`: draft,active,suspended,expired,terminated; `cycle_kind`: billing,closing; `cycle_status`: open,closed,invoiced; `glosa_status`: pending,approved,rejected; `billing_status`: pending,approved,billed,disputed). No change needed.
@@ -308,7 +308,7 @@ def upgrade() -> None:
     op.execute(
         """
         CREATE POLICY tenant_tenant_isolation ON gerti.tenant
-            USING (id = current_setting('app.current_tenant', true)::uuid)
+            USING (id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)
         """
     )
 
@@ -327,7 +327,7 @@ def downgrade() -> None:
     op.execute("ALTER TABLE gerti.tenant NO FORCE ROW LEVEL SECURITY")
 ```
 
-Note: `current_setting('app.current_tenant', true)` returns NULL when unset → `id = NULL::uuid` is NULL → row excluded ⇒ fail-closed (zero rows), exactly what the negative test asserts.
+Note: a pooled conn resets the txn-local GUC to `''` (not NULL) on reuse → `''::uuid` would raise `22P02`, not fail-closed. `NULLIF(current_setting('app.current_tenant', true), '')` collapses BOTH unset(NULL) and reset(`''`) to NULL → `id = NULL::uuid` is NULL → row excluded ⇒ fail-closed (zero rows, no 22P02), exactly what the negative test asserts.
 
 - [ ] **Step 6: Run tests — expect pass**
 
@@ -733,16 +733,17 @@ def _enable_tenant_rls(table: str, tenant_col: str = "tenant_id") -> None:
 
     - ENABLE + FORCE so even the table owner obeys it.
     - Policy strictly keyed on the GUC cast to uuid (NO empty-GUC escape):
-      unset GUC → current_setting(...) NULL → comparison NULL → 0 rows
-      (fail-closed). Contract data must never leak with an unset tenant.
+      unset GUC → NULL; pooled-conn reset GUC → '' (NOT NULL). NULLIF(...,'')
+      collapses BOTH to NULL → comparison NULL → 0 rows (fail-closed, no
+      22P02). Contract data must never leak with an unset/reset tenant.
     - gerti_app gets table + sequence DML grants (it never owns objects).
     """
     op.execute(f"ALTER TABLE gerti.{table} ENABLE ROW LEVEL SECURITY")
     op.execute(f"ALTER TABLE gerti.{table} FORCE ROW LEVEL SECURITY")
     op.execute(
         f"CREATE POLICY {table}_tenant_isolation ON gerti.{table} "
-        f"USING ({tenant_col} = current_setting('app.current_tenant', true)::uuid) "
-        f"WITH CHECK ({tenant_col} = current_setting('app.current_tenant', true)::uuid)"
+        f"USING ({tenant_col} = NULLIF(current_setting('app.current_tenant', true), '')::uuid) "
+        f"WITH CHECK ({tenant_col} = NULLIF(current_setting('app.current_tenant', true), '')::uuid)"
     )
     op.execute(
         f"GRANT SELECT, INSERT, UPDATE, DELETE ON gerti.{table} TO gerti_app"
@@ -833,9 +834,9 @@ def upgrade() -> None:
         "CREATE POLICY contract_billing_party_tenant_isolation "
         "ON gerti.contract_billing_party "
         "USING (contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = "
-        "current_setting('app.current_tenant', true)::uuid)) "
+        "NULLIF(current_setting('app.current_tenant', true), '')::uuid)) "
         "WITH CHECK (contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = "
-        "current_setting('app.current_tenant', true)::uuid))"
+        "NULLIF(current_setting('app.current_tenant', true), '')::uuid))"
     )
     op.execute(
         "GRANT SELECT, INSERT, UPDATE, DELETE ON gerti.contract_billing_party "
@@ -1236,7 +1237,7 @@ op.create_index(
 RLS:
 
 - **`shared_credit_pool`**: `_enable_tenant_rls("shared_credit_pool")` (has `tenant_id`; the helper already includes `WITH CHECK`).
-- **`contract_scope_service` / `contract_scope_ci`**: no `tenant_id` — **H7**: both `USING` AND `WITH CHECK` = `contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = current_setting('app.current_tenant', true)::uuid)`, ENABLE+FORCE, GRANT `SELECT,INSERT,UPDATE,DELETE` to `gerti_app`.
+- **`contract_scope_service` / `contract_scope_ci`**: no `tenant_id` — **H7**: both `USING` AND `WITH CHECK` = `contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)`, ENABLE+FORCE, GRANT `SELECT,INSERT,UPDATE,DELETE` to `gerti_app`.
 - **`service_catalog_item`** (B1 — `tenant_id` is NULLable for global catalog rows; a single `FOR ALL` policy whose `USING` includes `tenant_id IS NULL` would let any tenant **UPDATE/DELETE a global row**, because `FOR ALL` applies that permissive `USING` to UPDATE/DELETE too). Use **split per-command policies** — global rows are SELECT-only to tenants; writes are strictly the caller's own `tenant_id`. ENABLE+FORCE, then GRANT `SELECT,INSERT,UPDATE,DELETE` to `gerti_app` (DML is gated by the policies). Emit EXACTLY:
 
 ```python
@@ -1246,23 +1247,23 @@ op.execute(
     "CREATE POLICY service_catalog_item_tenant_select "
     "ON gerti.service_catalog_item FOR SELECT "
     "USING (tenant_id IS NULL "
-    "OR tenant_id = current_setting('app.current_tenant', true)::uuid)"
+    "OR tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)"
 )
 op.execute(
     "CREATE POLICY service_catalog_item_tenant_insert "
     "ON gerti.service_catalog_item FOR INSERT "
-    "WITH CHECK (tenant_id = current_setting('app.current_tenant', true)::uuid)"
+    "WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)"
 )
 op.execute(
     "CREATE POLICY service_catalog_item_tenant_update "
     "ON gerti.service_catalog_item FOR UPDATE "
-    "USING (tenant_id = current_setting('app.current_tenant', true)::uuid) "
-    "WITH CHECK (tenant_id = current_setting('app.current_tenant', true)::uuid)"
+    "USING (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid) "
+    "WITH CHECK (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)"
 )
 op.execute(
     "CREATE POLICY service_catalog_item_tenant_delete "
     "ON gerti.service_catalog_item FOR DELETE "
-    "USING (tenant_id = current_setting('app.current_tenant', true)::uuid)"
+    "USING (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)"
 )
 op.execute(
     "GRANT SELECT, INSERT, UPDATE, DELETE "
@@ -1515,8 +1516,8 @@ op.execute(
 ```
 
 Paste the Task 3 `_enable_tenant_rls`/`_disable_tenant_rls` helpers verbatim (self-contained). Apply per-tenant RLS to all three (none has its own `tenant_id`) — **H7**: each policy has BOTH `USING` and `WITH CHECK`:
-- `contract_cycle` / `consumption_event`: `(contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = current_setting('app.current_tenant', true)::uuid))` for both `USING` and `WITH CHECK`.
-- `glosa`: `(consumption_event_id IN (SELECT ce.id FROM gerti.consumption_event ce JOIN gerti.contract c ON c.id = ce.contract_id WHERE c.tenant_id = current_setting('app.current_tenant', true)::uuid))` for both.
+- `contract_cycle` / `consumption_event`: `(contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid))` for both `USING` and `WITH CHECK`.
+- `glosa`: `(consumption_event_id IN (SELECT ce.id FROM gerti.consumption_event ce JOIN gerti.contract c ON c.id = ce.contract_id WHERE c.tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid))` for both.
 
 ENABLE+FORCE on all three. Grants (minimal): `GRANT SELECT, INSERT, UPDATE ON gerti.consumption_event TO gerti_app` (UPDATE needed for the settlement columns; the trigger still forbids ledger mutation and DELETE — RLS + trigger + grant are now consistent); `GRANT SELECT, INSERT, UPDATE, DELETE ON gerti.contract_cycle TO gerti_app`; `GRANT SELECT, INSERT, UPDATE, DELETE ON gerti.glosa TO gerti_app`.
 
@@ -1675,7 +1676,7 @@ class TicketContractLink(Base):
 
 Extend `models/__init__.py`.
 
-- [ ] **Step 4: Migration `0008_policy_ticketlink.py`** — `revision="0008_policy_ticketlink"`, `down_revision="0007_cycle_consumption"`. Create the 3 tables (`contract_adjustment_rule`, `contract_renewal_policy`, `ticket_contract_link`). **H1:** `ticket_contract_link.billing_status` → `server_default=sa.text("'pending'::gerti.billing_status")`. Spec #0 §4 indexes: `CREATE INDEX ON gerti.ticket_contract_link (contract_id)` and `CREATE INDEX ON gerti.ticket_contract_link (tenant_id, billing_status)`. RLS (paste Task 3 helpers verbatim, self-contained): `ticket_contract_link` has `tenant_id` → `_enable_tenant_rls("ticket_contract_link")` (helper already adds `WITH CHECK`); the two policy tables are `contract_id`-only → **H7**: both `USING` AND `WITH CHECK` = `contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = current_setting('app.current_tenant', true)::uuid)`, ENABLE+FORCE, GRANT `SELECT,INSERT,UPDATE,DELETE` to gerti_app. **B2 (uniformity):** the last statement of `upgrade()` MUST be `op.execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA gerti TO gerti_app")` (these 3 tables have UUID PKs / no sequence, but the "always grant" rule prevents any future Identity column regressing — `GRANT ON ALL SEQUENCES` is NOT retroactive; binding case is `consumption_event` in 0007). `downgrade()` reverses (drop indexes, policies, grants, tables; FK-safe). No sequence `REVOKE` (harmless residual).
+- [ ] **Step 4: Migration `0008_policy_ticketlink.py`** — `revision="0008_policy_ticketlink"`, `down_revision="0007_cycle_consumption"`. Create the 3 tables (`contract_adjustment_rule`, `contract_renewal_policy`, `ticket_contract_link`). **H1:** `ticket_contract_link.billing_status` → `server_default=sa.text("'pending'::gerti.billing_status")`. Spec #0 §4 indexes: `CREATE INDEX ON gerti.ticket_contract_link (contract_id)` and `CREATE INDEX ON gerti.ticket_contract_link (tenant_id, billing_status)`. RLS (paste Task 3 helpers verbatim, self-contained): `ticket_contract_link` has `tenant_id` → `_enable_tenant_rls("ticket_contract_link")` (helper already adds `WITH CHECK`); the two policy tables are `contract_id`-only → **H7**: both `USING` AND `WITH CHECK` = `contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid)`, ENABLE+FORCE, GRANT `SELECT,INSERT,UPDATE,DELETE` to gerti_app. **B2 (uniformity):** the last statement of `upgrade()` MUST be `op.execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA gerti TO gerti_app")` (these 3 tables have UUID PKs / no sequence, but the "always grant" rule prevents any future Identity column regressing — `GRANT ON ALL SEQUENCES` is NOT retroactive; binding case is `consumption_event` in 0007). `downgrade()` reverses (drop indexes, policies, grants, tables; FK-safe). No sequence `REVOKE` (harmless residual).
 
 - [ ] **Step 5: Run model test — expect pass; full gate green.**
 
