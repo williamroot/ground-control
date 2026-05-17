@@ -52,7 +52,7 @@ The following latent defects were found by static analysis of the plan against t
 
 ## Domain rules (single source of truth — implementers MUST NOT diverge)
 
-**S3 — GLOSA RULE (ONE rule, applied identically in three places):** A glosa is a billing write-off request against a `consumption_event` (`consumption_event.glosa_id` → `glosa.id`, FK-less by design, H8). **A consumption is removed from the running balance / cycle closing total / `contract_balance_current` matview IF AND ONLY IF it is written off by a glosa whose `status = 'approved'`.** A consumption with `glosa_id IS NULL`, OR a glosa whose status is `pending`, OR a glosa whose status is `rejected` — **ALL still COUNT** (money is owed until the write-off is *approved*; a rejected write-off means the charge stands). This rule is implemented verbatim in: (1) `ConsumptionService.balance()` — `glosa_id IS NULL OR glosa_id NOT IN (approved ids)`; (2) `CycleService.close()` — events `id NOT IN (SELECT consumption_event_id FROM glosa WHERE status='approved')`; (3) `0009` matview FILTER — `glosa_id IS NULL OR NOT EXISTS (approved glosa)`. The three are logically equivalent. **Do not introduce a `rejected`-counts-again special case anywhere** — `rejected` simply never removed the consumption in the first place under this rule, so no "re-add" is needed.
+**S3 — GLOSA RULE (ONE rule, applied identically in three places):** A glosa is a billing write-off request against a `consumption_event` (`consumption_event.glosa_id` → `glosa.id`, FK-less by design, H8). **A consumption is removed from the running balance / cycle closing total / `contract_balance_current` matview IF AND ONLY IF it is written off by a glosa whose `status = 'approved'`.** A consumption with `glosa_id IS NULL`, OR a glosa whose status is `pending`, OR a glosa whose status is `rejected` — **ALL still COUNT** (money is owed until the write-off is *approved*; a rejected write-off means the charge stands). This rule is implemented verbatim in: (1) `ConsumptionService.balance()` — `glosa_id IS NULL OR glosa_id NOT IN (approved ids)`; (2) `CycleService.close()` — events `id NOT IN (SELECT consumption_event_id FROM glosa WHERE status='approved')`; (3) `0010` matview FILTER — `glosa_id IS NULL OR NOT EXISTS (approved glosa)`. The three are logically equivalent. **Do not introduce a `rejected`-counts-again special case anywhere** — `rejected` simply never removed the consumption in the first place under this rule, so no "re-add" is needed.
 
 ---
 
@@ -104,7 +104,8 @@ alembic/versions/
   0006_catalog_scope.py                 CREATE: service_catalog_item, shared_credit_pool, scope tables
   0007_cycle_consumption.py             CREATE: contract_cycle, consumption_event, glosa
   0008_policy_ticketlink.py             CREATE: adjustment_rule, renewal_policy, ticket_contract_link
-  0009_balance_view.py                  CREATE: contract_balance_current materialized view
+  0009_rls_znuny_instance.py            BACKFILL RLS ENABLE+FORCE on gerti.znuny_instance (S1 gap @ head 0008)
+  0010_balance_view.py                  CREATE: contract_balance_current materialized view
 tests/
   conftest.py                           MODIFY: add app_session_factory (gerti_sidecar) + seed helpers
   test_tenant_session.py                CREATE
@@ -1536,7 +1537,7 @@ op.execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA gerti TO gerti_app")
 
 No `REVOKE` is needed in `downgrade()` — when `consumption_event` is dropped its owned identity sequence is dropped with it; a residual `GRANT ON ALL SEQUENCES` (against the then-existing set) is harmless and idempotent on re-upgrade.
 
-**Audit of 0005–0009 for Identity/serial sequences:** 0005 `contract`/`contract_billing_party` → UUID/`gen_random_uuid()` PKs, **no sequence** (no per-table grant needed; B4's `ALTER DEFAULT PRIVILEGES` and the uniformity grant still apply). 0006 `service_catalog_item`/`shared_credit_pool`/scope tables → UUID/composite PKs, **no sequence** (B2 uniformity grant emitted there, see Task 5). 0007 `consumption_event` → **`sa.Identity` → has a sequence → explicit grant required (above)**; `contract_cycle`/`glosa` → UUID PKs, no sequence. 0008 `contract_adjustment_rule`/`contract_renewal_policy`/`ticket_contract_link` → UUID PKs, **no sequence** (still emit the uniformity grant as the last statement of 0008's `upgrade()`: `op.execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA gerti TO gerti_app")`). 0009 matview → no table/sequence. **Net: only 0007 strictly requires it, but every migration 0005–0008 emits the same idempotent grant as its final `upgrade()` statement so the rule is "always grant" and no future identity column can regress.**
+**Audit of 0005–0009 for Identity/serial sequences:** 0005 `contract`/`contract_billing_party` → UUID/`gen_random_uuid()` PKs, **no sequence** (no per-table grant needed; B4's `ALTER DEFAULT PRIVILEGES` and the uniformity grant still apply). 0006 `service_catalog_item`/`shared_credit_pool`/scope tables → UUID/composite PKs, **no sequence** (B2 uniformity grant emitted there, see Task 5). 0007 `consumption_event` → **`sa.Identity` → has a sequence → explicit grant required (above)**; `contract_cycle`/`glosa` → UUID PKs, no sequence. 0008 `contract_adjustment_rule`/`contract_renewal_policy`/`ticket_contract_link` → UUID PKs, **no sequence** (still emit the uniformity grant as the last statement of 0008's `upgrade()`: `op.execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA gerti TO gerti_app")`). 0009 RLS-only (no new table/sequence); 0010 matview → no table/sequence. **Net: only 0007 strictly requires it, but every migration 0005–0008 emits the same idempotent grant as its final `upgrade()` statement so the rule is "always grant" and no future identity column can regress.**
 
 `downgrade()` (FK-safe order): drop glosa (policy/grant/table) → drop trigger `trg_consumption_event_append_only` ON consumption_event → `DROP FUNCTION IF EXISTS gerti.consumption_event_append_only()` → drop consumption_event (policy/grant/indexes/table) → drop contract_cycle (policy/grant/indexes/table).
 
@@ -2562,13 +2563,15 @@ git commit -m "feat(sidecar): AdjustmentService — reajuste por índice (com te
 ## Task 13: Balance materialized view + end-to-end test + demo script
 
 **Files:**
-- Create: `apps/sidecar/alembic/versions/0009_balance_view.py`
+- Create: `apps/sidecar/alembic/versions/0010_balance_view.py`
 - Create: `apps/sidecar/tests/test_contract_domain_e2e.py`
 - Create: `apps/sidecar/scripts/demo_contract.py`
 
-- [ ] **Step 1: Migration `0009_balance_view.py`**
+> **Note (S1 gap @ head 0008):** `0009_rls_znuny_instance` backfills RLS ENABLE+FORCE on `gerti.znuny_instance` (created 0001, never had RLS — discovered by the S1 invariant test at full-suite scope; scoped via `gerti.tenant.znuny_instance_id`). The balance matview is therefore **`0010`**, chaining `down_revision="0009_rls_znuny_instance"`.
 
-`revision="0009_balance_view"`, `down_revision="0008_policy_ticketlink"`. **S3 — the matview MUST use the SAME single glosa rule as `ConsumptionService.balance()` and `CycleService.close()`: a consumption is removed from the balance ONLY when it is written off by an `approved` glosa; `glosa_id IS NULL`, a `pending` glosa, OR a `rejected` glosa ALL still COUNT.** (The previous draft DDL filtered `glosa_id IS NULL OR status='rejected'`, which wrongly dropped `pending` consumptions — that diverged from `close()`/`balance()` and is corrected here.) The `FILTER` predicate keeps an event in the sum/count iff it is NOT written off — `glosa_id IS NULL` OR there is NO `approved` glosa for it:
+- [ ] **Step 1: Migration `0010_balance_view.py`**
+
+`revision="0010_balance_view"`, `down_revision="0009_rls_znuny_instance"`. **S3 — the matview MUST use the SAME single glosa rule as `ConsumptionService.balance()` and `CycleService.close()`: a consumption is removed from the balance ONLY when it is written off by an `approved` glosa; `glosa_id IS NULL`, a `pending` glosa, OR a `rejected` glosa ALL still COUNT.** (The previous draft DDL filtered `glosa_id IS NULL OR status='rejected'`, which wrongly dropped `pending` consumptions — that diverged from `close()`/`balance()` and is corrected here.) The `FILTER` predicate keeps an event in the sum/count iff it is NOT written off — `glosa_id IS NULL` OR there is NO `approved` glosa for it:
 
 ```python
 op.execute(
@@ -2752,7 +2755,7 @@ Run: `cd apps/sidecar && DATABASE_URL=postgresql+asyncpg://x:y@localhost/z uv ru
 
 ```bash
 cd /home/will/projetos/ground-control
-git add apps/sidecar/alembic/versions/0009_balance_view.py apps/sidecar/tests/test_contract_domain_e2e.py apps/sidecar/scripts/demo_contract.py
+git add apps/sidecar/alembic/versions/0010_balance_view.py apps/sidecar/tests/test_contract_domain_e2e.py apps/sidecar/scripts/demo_contract.py
 git commit -m "feat(sidecar): matview de saldo + e2e do domínio de contratos + demo script"
 ```
 
@@ -2764,9 +2767,9 @@ git commit -m "feat(sidecar): matview de saldo + e2e do domínio de contratos + 
 
 **2. Placeholder scan:** No "TBD/TODO/handle edge cases". Tasks 5/6/7/13 describe migration SQL in prose where the table-shape mirrors models already shown verbatim and the RLS helper is explicitly "paste verbatim from Task 3" — acceptable per DRY (the canonical code IS in Task 3); each such task still names exact columns/policies/indexes and the FK-safe downgrade. Not a placeholder (no missing decisions), but the implementer must transcribe model columns into `sa.Column` — flagged in each task.
 
-**3. Type consistency:** enum names (`ContractType` etc.) and PG type names (`gerti.contract_type` etc.) consistent T2↔T3↔T6↔T7. `tenant_session_scope(tenant_id, *, factory=None)` / `get_tenant_session(request)` signatures consistent T1↔T8↔T9. `NewContract`/`RecordConsumption` dataclass fields consistent across T9/T10/T11/T13. `Balance(kind, remaining)` consistent T10↔T13. Repo `model` classvar + `TenantScopedRepository` consistent T8. Migration revision chain `0002→0003→0004→0005→0006→0007→0008→0009` linear and each `down_revision` matches.
+**3. Type consistency:** enum names (`ContractType` etc.) and PG type names (`gerti.contract_type` etc.) consistent T2↔T3↔T6↔T7. `tenant_session_scope(tenant_id, *, factory=None)` / `get_tenant_session(request)` signatures consistent T1↔T8↔T9. `NewContract`/`RecordConsumption` dataclass fields consistent across T9/T10/T11/T13. `Balance(kind, remaining)` consistent T10↔T13. Repo `model` classvar + `TenantScopedRepository` consistent T8. Migration revision chain `0001→…→0008→0009_rls_znuny_instance→0010_balance_view` linear and each `down_revision` matches.
 
-**4. Hardening baked in (H1–H11):** see the "CRITICAL HARDENING" table at the top. Summary: H1 native-enum casts in every default; H2 append-only trigger now permits only `closing_cycle_id`/`glosa_id` UPDATE (does not deadlock cycle close); H3 `contract.shared_pool_id` FK created in 0006 not 0005; H4 `consumption_event.id` uses `Identity` (real BIGSERIAL); H5 `closed_at` is a Python datetime; H6 testcontainer = `postgres:18`; H7 every child policy has `WITH CHECK`; H8 `glosa_id` is FK-less by design; H9 imports hoisted; H10 `updated_at` `onupdate`; H11 dead e2e probe removed. Migration chain (audited real head → forward): **`0004_contract_enums`(head) →0005→0006→0007→0008→0009**, each `down_revision` verified linear. T1/T2 ✅ DONE — not re-created.
+**4. Hardening baked in (H1–H11):** see the "CRITICAL HARDENING" table at the top. Summary: H1 native-enum casts in every default; H2 append-only trigger now permits only `closing_cycle_id`/`glosa_id` UPDATE (does not deadlock cycle close); H3 `contract.shared_pool_id` FK created in 0006 not 0005; H4 `consumption_event.id` uses `Identity` (real BIGSERIAL); H5 `closed_at` is a Python datetime; H6 testcontainer = `postgres:18`; H7 every child policy has `WITH CHECK`; H8 `glosa_id` is FK-less by design; H9 imports hoisted; H10 `updated_at` `onupdate`; H11 dead e2e probe removed. Migration chain (audited real head → forward): **`0004_contract_enums`(head) →0005→0006→0007→0008→0009_rls_znuny_instance→0010_balance_view** (0009 backfills RLS ENABLE+FORCE on `gerti.znuny_instance` — S1 gap found at head 0008; matview is 0010), each `down_revision` verified linear. T1/T2 ✅ DONE — not re-created.
 
 **5. Out of scope (unchanged):** `audit_log` (#1E), HTTP APIs (#1E), Znuny webhook ingestion (#1E), `v_znuny_*` read views (#1E).
 
