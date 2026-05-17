@@ -4,10 +4,13 @@
 
 | Host | Uso | Acesso |
 |---|---|---|
-| `100.99.49.110` | **VPS de produção do ground-control** (Znuny) | `ssh ubuntu@100.99.49.110` (chaves configuradas, git ok) |
+| `100.99.49.110` / LAN `192.168.1.40` | **VPS de produção do ground-control** (Znuny + sidecar #1C) | **`ssh gc`** (jump via node `postgres`→LAN) — ver nota abaixo |
+| `100.96.54.61` | node `postgres` (mesma LAN; jump host saudável) | `ssh ubuntu@100.96.54.61` (key) |
 | local | dev | docker compose |
 
 > Não confundir com a VPS `gerti` (host `gerti`), que serve a apresentação `plano-gerti.was.dev.br`. São máquinas distintas.
+
+> **Acesso SSH ao ground-control — path Tailscale direto é assimétrico (CGNAT do uplink):** `tailscale status` mostra `direct 189.1.162.120:41641, tx≫rx`; `tailscale ping` responde mas SSH/TCP direto p/ `100.99.49.110` dá *"timed out (banner exchange)"*, intermitente. **Não é MTU** (mesmo assim `tailscale0` foi p/ 1240 via drop-in `tailscaled.service.d/mtu.conf` — higiene, persistente) **nem firewall do host** (ufw off, DERP sao 9.7ms). Causa: retorno UDP do WireGuard descartado pelo NAT/roteador do uplink — **fix permanente é no roteador/ISP** (port-forward 41641 / UPnP / tirar do CGNAT). **Acesso confiável:** alias `~/.ssh/config` `Host gc` → `ProxyJump ubuntu@100.96.54.61` → `192.168.1.40` (key-based; node `postgres` tem path Tailscale simétrico). Tráfego público (Cloudflare Tunnel) não usa Tailscale e nunca foi afetado.
 
 ## Domínios / Cloudflare Tunnel
 
