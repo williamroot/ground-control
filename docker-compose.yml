@@ -169,3 +169,83 @@ services:
     networks: [edge]
     depends_on:
       znuny-web: { condition: service_started }
+
+  # ───────────────────────────────────────────────────────────────────
+  #  Gerti sidecar (Spec #1C) — profile `gerti` ONLY.
+  #  Aditivo: um `docker compose ... up` SEM `--profile gerti` NÃO sobe
+  #  nenhum destes serviços; a stack Znuny fica intocada (Postgres não
+  #  reinicia, nenhum container Znuny é reconstruído). Single-cluster:
+  #  schema `gerti` no MESMO postgres:18 do Znuny (Spec #0).
+  #  Deploy runbook: docs/superpowers/plans/2026-05-17-spec-1c-deploy.md
+  #  + .ia/OPS.md "Deploy do sidecar".
+  # ───────────────────────────────────────────────────────────────────
+
+  # D1 — one-shot idempotente: cria schema `gerti` + roles + RLS no
+  # cluster Postgres VIVO, como o superusuário. Re-rodável (só re-assere
+  # roles/grants e reaplica senhas). NUNCA toca public/znuny do Znuny.
+  gerti-db-init:
+    profiles: ["gerti"]
+    image: ${POSTGRES_IMAGE:-postgres:18}
+    restart: "no"
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [data]
+    # Segredos passados via environment c/ default vazio (NUNCA `:?` no
+    # nível compose: ele interpola o arquivo INTEIRO antes de filtrar
+    # profiles → `:?` quebraria um `make up` só-Znuny). O enforcement
+    # "deve estar setado" é em RUNTIME, no shell do container (`$$` =
+    # `$` literal p/ o compose → o bash lê do env real do container).
+    environment:
+      PGHOST: ${POSTGRES_HOST:-postgres}
+      PGPORT: ${POSTGRES_PORT:-5432}
+      PGDATABASE: ${POSTGRES_DB:-znuny}
+      PGUSER: ${POSTGRES_USER:-znuny}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-znuny}
+      GERTI_SIDECAR_DB_PASSWORD: ${GERTI_SIDECAR_DB_PASSWORD:-}
+      GERTI_ADMIN_DB_PASSWORD: ${GERTI_ADMIN_DB_PASSWORD:-}
+    volumes:
+      - ./postgres/gerti-init:/gerti-init:ro
+    entrypoint: ["bash", "-c"]
+    command:
+      - >
+        : "$${GERTI_SIDECAR_DB_PASSWORD:?GERTI_SIDECAR_DB_PASSWORD ausente — defina em .env.prod na VPS}";
+        : "$${GERTI_ADMIN_DB_PASSWORD:?GERTI_ADMIN_DB_PASSWORD ausente — defina em .env.prod na VPS}";
+        exec psql -v ON_ERROR_STOP=1
+        -v sidecar_pw="'$${GERTI_SIDECAR_DB_PASSWORD}'"
+        -v admin_pw="'$${GERTI_ADMIN_DB_PASSWORD}'"
+        -f /gerti-init/001_gerti_schema_roles.sql
+
+  # D2.1 — Alembic como gerti_admin_user (BYPASSRLS, dono do DDL); sai 0.
+  sidecar-migrate:
+    profiles: ["gerti"]
+    build: { context: ./apps/sidecar, target: prod }
+    image: ground-control/sidecar:${GERTI_SIDECAR_VERSION:-dev}
+    restart: "no"
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [data]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://gerti_admin_user:${GERTI_ADMIN_DB_PASSWORD:-}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-znuny}
+    command: ["uv", "run", "alembic", "upgrade", "head"]
+
+  # D2.2 — app long-running como gerti_sidecar (RLS-subject, sem
+  # BYPASSRLS); só aceita tráfego após migrate concluir com sucesso.
+  sidecar:
+    profiles: ["gerti"]
+    build: { context: ./apps/sidecar, target: prod }
+    image: ground-control/sidecar:${GERTI_SIDECAR_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      postgres:        { condition: service_healthy }
+      sidecar-migrate: { condition: service_completed_successfully }
+    networks: [data, edge]
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://gerti_sidecar:${GERTI_SIDECAR_DB_PASSWORD:-}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-znuny}
+      LOG_LEVEL: INFO
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8001/v1/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s

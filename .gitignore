@@ -14,3 +14,4 @@ znuny/*.tar.gz
 # Docker volume dumps / logs
 *.log
 /tmp/
+.deploy-secrets.local
