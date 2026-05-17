@@ -69,8 +69,10 @@ ok()  { echo "  ✓ $*"; }
 bad() { echo "  ✗ $*"; FAIL=$((FAIL+1)); }
 
 # agentes
-AG="$(c_otrs "$CONSOLE Admin::User::List" 2>/dev/null | grep -cE 'william|bruno.cardoso|patricia.menezes|rafael.tavares|diego.fontana' || true)"
-[[ "$AG" -ge 5 ]] && ok "agentes seedados: $AG/5 (Admin::User::List)" || bad "agentes faltando ($AG/5)"
+# (Admin::User::List não existe no Znuny 7.2.3 — valida via SQL na tabela users)
+AG="$(psql_q "SELECT count(*) FROM users WHERE login IN ('william','bruno.cardoso','patricia.menezes','rafael.tavares','diego.fontana');")"
+AGN="$(psql_q "SELECT string_agg(login,', ' ORDER BY login) FROM users WHERE login IN ('william','bruno.cardoso','patricia.menezes','rafael.tavares','diego.fontana');")"
+[[ "$AG" -ge 5 ]] && ok "agentes seedados: $AG/5 ($AGN)" || bad "agentes faltando ($AG/5)"
 
 # empresa
 CC="$(psql_q "SELECT name FROM customer_company WHERE customer_id='AURORA';")"
