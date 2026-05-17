@@ -50,6 +50,12 @@ The following latent defects were found by static analysis of the plan against t
 
 ---
 
+## Domain rules (single source of truth — implementers MUST NOT diverge)
+
+**S3 — GLOSA RULE (ONE rule, applied identically in three places):** A glosa is a billing write-off request against a `consumption_event` (`consumption_event.glosa_id` → `glosa.id`, FK-less by design, H8). **A consumption is removed from the running balance / cycle closing total / `contract_balance_current` matview IF AND ONLY IF it is written off by a glosa whose `status = 'approved'`.** A consumption with `glosa_id IS NULL`, OR a glosa whose status is `pending`, OR a glosa whose status is `rejected` — **ALL still COUNT** (money is owed until the write-off is *approved*; a rejected write-off means the charge stands). This rule is implemented verbatim in: (1) `ConsumptionService.balance()` — `glosa_id IS NULL OR glosa_id NOT IN (approved ids)`; (2) `CycleService.close()` — events `id NOT IN (SELECT consumption_event_id FROM glosa WHERE status='approved')`; (3) `0009` matview FILTER — `glosa_id IS NULL OR NOT EXISTS (approved glosa)`. The three are logically equivalent. **Do not introduce a `rejected`-counts-again special case anywhere** — `rejected` simply never removed the consumption in the first place under this rule, so no "re-add" is needed.
+
+---
+
 ## Foundation facts (from Plano 1A — do not re-derive)
 
 - Package: `apps/sidecar`, `uv` manager. Gate: `cd apps/sidecar && uv run ruff check . && uv run ruff format --check . && uv run mypy src && DATABASE_URL=postgresql+asyncpg://x:y@localhost/z uv run pytest -q` (all green).
@@ -505,6 +511,7 @@ This task LOCKS the reusable RLS table template every later contract table copie
 
 **Files:**
 - Modify: `apps/sidecar/tests/conftest.py` (H6 testcontainer bump)
+- Modify: `infra/compose/postgres/init/001_schemas_and_roles.sql` (B4 default privileges — prod parity)
 - Create: `apps/sidecar/src/gerti_sidecar/models/contract.py`
 - Modify: `apps/sidecar/src/gerti_sidecar/models/__init__.py`
 - Create: `apps/sidecar/alembic/versions/0005_contract_core.py`
@@ -525,6 +532,26 @@ Run the full gate now (`ruff check . && ruff format --check . && mypy src && DAT
 cd /home/will/projetos/ground-control
 git add apps/sidecar/tests/conftest.py
 git commit -m "test(sidecar): alinhar testcontainer ao postgres:18 de produção (remove drift PG16/PG18)"
+```
+
+- [ ] **Step 0b: B4 — add `ALTER DEFAULT PRIVILEGES` for `gerti_admin_user` to the dev/test init**
+
+`infra/compose/postgres/init/001_schemas_and_roles.sql` currently has `ALTER DEFAULT PRIVILEGES FOR ROLE znuny_owner IN SCHEMA znuny ... TO gerti_app` but **NOTHING for objects `gerti_admin_user` creates in schema `gerti`**. Alembic runs as `gerti_admin_user`; without default privileges, every new table/sequence relies solely on the explicit per-migration `GRANT` (RLS helper + B2). That works, but prod's `gerti-db-init` (deploy D1) WILL carry these `ALTER DEFAULT PRIVILEGES`, so the test cluster must match prod exactly (zero drift — user mandate). **Add (the implementer edits the file in this step; do not pre-edit it now) immediately after the existing `ALTER DEFAULT PRIVILEGES FOR ROLE znuny_owner ...` block:**
+
+```sql
+-- B4: future tables/sequences created by gerti_admin_user in schema gerti
+-- are auto-granted to gerti_app (belt-and-suspenders with per-migration GRANTs).
+ALTER DEFAULT PRIVILEGES FOR ROLE gerti_admin_user IN SCHEMA gerti
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO gerti_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE gerti_admin_user IN SCHEMA gerti
+  GRANT USAGE, SELECT ON SEQUENCES TO gerti_app;
+```
+
+(Note: `ALTER DEFAULT PRIVILEGES` is keyed to the role that runs the `CREATE` — Alembic connects as `gerti_admin_user`, so `FOR ROLE gerti_admin_user` is correct, not `gerti_admin`.) Re-run the full gate after this edit (still **16 passed** — pure grant addition, no behavior change). Fold this into the Step 0 commit or commit separately:
+```bash
+cd /home/will/projetos/ground-control
+git add infra/compose/postgres/init/001_schemas_and_roles.sql
+git commit -m "fix(infra): ALTER DEFAULT PRIVILEGES gerti_admin_user→gerti_app no init dev (paridade c/ prod)"
 ```
 
 - [ ] **Step 1: Failing test**
@@ -814,6 +841,12 @@ def upgrade() -> None:
         "GRANT SELECT, INSERT, UPDATE, DELETE ON gerti.contract_billing_party "
         "TO gerti_app"
     )
+    # B2 (uniformity): last statement of upgrade(). contract PKs are UUID so
+    # no sequence exists yet, but emitting the idempotent grant here keeps the
+    # rule "every contract-domain migration grants ALL SEQUENCES" so a future
+    # Identity/serial column can never regress (GRANT ON ALL SEQUENCES is NOT
+    # retroactive — see B2 in Task 6 for the binding case, consumption_event).
+    op.execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA gerti TO gerti_app")
 
 
 def downgrade() -> None:
@@ -822,6 +855,8 @@ def downgrade() -> None:
                "ON gerti.contract_billing_party")
     op.drop_table("contract_billing_party", schema="gerti")
     _disable_tenant_rls("contract")
+    # B2: no sequence REVOKE — contract uses UUID PKs (no sequence); the
+    # uniformity grant below is harmless residual.
     op.drop_index("ix_contract_shared_pool_id", table_name="contract", schema="gerti")
     op.drop_index("ix_contract_ends_on_active", table_name="contract", schema="gerti")
     op.drop_index("ix_contract_tenant_status", table_name="contract", schema="gerti")
@@ -914,10 +949,49 @@ async def test_contract_rls(session, app_session_factory, seed_two_tenants):
             )
 ```
 
+- [ ] **Step 1b: S1 — assert ENABLE *and* FORCE RLS on EVERY `gerti.*` base table**
+
+Append to `apps/sidecar/tests/test_rls_contract_tables.py`. A missing `FORCE` (owner bypass) or missing `ENABLE` must fail locally — never reach the live prod cluster. The test self-skips until the full chain (`0008`, all 14 tables) is applied so per-task gates (Task 4–7) stay green; it HARD-asserts at the Task 13 full-suite gate and at prod D4. Ensure `import pytest` and `from sqlalchemy import text` are at the test module top (not inline):
+
+```python
+@pytest.mark.asyncio
+async def test_every_gerti_table_has_rls_enabled_and_forced(session):
+    """S1: relrowsecurity AND relforcerowsecurity true for every gerti.* base
+    table. Skips until the full chain (ticket_contract_link from 0008) exists
+    so per-task gates stay green; HARD-asserts at full-suite & prod (D4)."""
+    has_final = (await session.execute(text(
+        "SELECT to_regclass('gerti.ticket_contract_link') IS NOT NULL"
+    ))).scalar_one()
+    if not has_final:
+        pytest.skip("chain not yet at 0008 — S1 enforced at full suite/prod")
+    expected = {
+        "tenant", "znuny_instance",
+        "contract", "contract_billing_party",
+        "service_catalog_item", "shared_credit_pool",
+        "contract_scope_service", "contract_scope_ci",
+        "contract_cycle", "consumption_event", "glosa",
+        "contract_adjustment_rule", "contract_renewal_policy",
+        "ticket_contract_link",
+    }
+    rows = (await session.execute(text(
+        "SELECT relname, relrowsecurity, relforcerowsecurity "
+        "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "WHERE n.nspname = 'gerti' AND c.relkind = 'r'"
+    ))).all()
+    state = {r[0]: (r[1], r[2]) for r in rows}
+    missing = expected - set(state)
+    assert not missing, f"gerti tables absent: {missing}"
+    unforced = {t for t, (en, fo) in state.items()
+                if t in expected and not (en and fo)}
+    assert not unforced, f"RLS not ENABLE+FORCE on: {unforced}"
+```
+
+(`znuny_instance` is admin-managed and has no `tenant_id`; it must still be ENABLE+FORCE so no `gerti_app` session reads instance secrets. If the 1A foundation legitimately leaves it RLS-exempt by design, the implementer MUST add it to a documented `RLS_EXEMPT = {"znuny_instance"}` with a one-line rationale and drop it from `expected` — but the required default posture is ENABLE+FORCE for every `gerti.*` table. The two `import` lines go to the test module top, not inline.)
+
 - [ ] **Step 2: Run — expect pass** (template already implemented in Task 3)
 
 Run: `cd apps/sidecar && DATABASE_URL=postgresql+asyncpg://x:y@localhost/z uv run pytest tests/test_rls_contract_tables.py -q`
-Expected: 1 passed. If the WITH CHECK assertion fails, the policy is missing `WITH CHECK` — fix `0005` to include it (it does per Task 3) and re-run.
+Expected: `test_contract_rls` passed + `test_every_gerti_table_has_rls_enabled_and_forced` **skipped** at Task 4 (chain not yet at 0008). It flips to a hard-asserted PASS at the Task 13 full-suite gate and at prod D4. If the WITH CHECK assertion fails, the policy is missing `WITH CHECK` — fix `0005` (it has it per Task 3). If at Task 13 the S1 test reports `unforced`, the offending migration omitted `FORCE ROW LEVEL SECURITY` — add it and re-run.
 
 - [ ] **Step 3: Gate + commit**
 
@@ -971,6 +1045,47 @@ async def test_catalog_pool_scope(session, seed_two_tenants):
                                 covered_from=dt.date(2026, 1, 1)))
     await session.flush()
     assert svc.id and pool.id
+
+
+@pytest.mark.asyncio
+async def test_service_catalog_item_global_row_is_read_only_to_tenant(
+    session, app_session_factory, seed_two_tenants
+):
+    """B1: a tenant session can READ a global (tenant_id IS NULL) catalog row
+    but CANNOT update or delete it (split per-command RLS policies)."""
+    from sqlalchemy import text
+
+    from gerti_sidecar import db
+
+    a_id, _ = seed_two_tenants
+    # Seed a GLOBAL catalog row as admin (BYPASSRLS).
+    session.add(ServiceCatalogItem(
+        tenant_id=None, code="GLOBAL-VOIP", title="VoIP global",
+        default_queue_name="Suporte::N1", unit_price_brl=99))
+    await session.commit()
+
+    async with db.tenant_session_scope(a_id, factory=app_session_factory) as s:
+        # CAN read the global row.
+        codes = (await s.execute(
+            text("SELECT code FROM gerti.service_catalog_item "
+                 "WHERE code = 'GLOBAL-VOIP'"))).scalars().all()
+        assert codes == ["GLOBAL-VOIP"]
+        # CANNOT update it: 0 rows affected, NO error (USING filters it out).
+        res = await s.execute(
+            text("UPDATE gerti.service_catalog_item SET title = 'hijack' "
+                 "WHERE code = 'GLOBAL-VOIP'"))
+        assert res.rowcount == 0
+        # CANNOT delete it: 0 rows affected, NO error.
+        res = await s.execute(
+            text("DELETE FROM gerti.service_catalog_item "
+                 "WHERE code = 'GLOBAL-VOIP'"))
+        assert res.rowcount == 0
+
+    # Global row is still intact (verified via admin session).
+    title = (await session.execute(
+        text("SELECT title FROM gerti.service_catalog_item "
+             "WHERE code = 'GLOBAL-VOIP'"))).scalar_one()
+    assert title == "VoIP global"
 ```
 
 - [ ] **Step 2: Run — expect fail** (`ImportError: cannot import name 'ServiceCatalogItem'`)
@@ -1098,16 +1213,72 @@ Create `apps/sidecar/alembic/versions/0006_catalog_scope.py` — `revision="0006
    ```
 3. `op.create_table("service_catalog_item", ...)`, then `contract_scope_service`, then `contract_scope_ci`.
 
-RLS (all ENABLE+FORCE, GRANT `SELECT,INSERT,UPDATE,DELETE` to `gerti_app`):
-- `service_catalog_item`: `tenant_id` is NULLable (global catalog rows). Policy: `USING (tenant_id IS NULL OR tenant_id = current_setting('app.current_tenant', true)::uuid)` and **`WITH CHECK (tenant_id = current_setting('app.current_tenant', true)::uuid)`** (global rows are read-only to tenants; seed global rows as `gerti_admin`).
-- `shared_credit_pool`: `_enable_tenant_rls("shared_credit_pool")` (has `tenant_id`; the helper already includes `WITH CHECK`).
-- `contract_scope_service` / `contract_scope_ci`: no `tenant_id` — **H7**: both `USING` AND `WITH CHECK` = `contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = current_setting('app.current_tenant', true)::uuid)`, ENABLE+FORCE, GRANT.
+**S2 — `service_catalog_item` indexes (Spec §4, verbatim).** Right after `op.create_table("service_catalog_item", ...)` add EXACTLY:
 
-`downgrade()` (FK-safe reverse order): drop scope tables → drop policies/grants → `op.drop_constraint("fk_contract_shared_pool_id_shared_credit_pool", "contract", schema="gerti", type_="foreignkey")` → drop `ix_shared_credit_pool_tenant_id` → drop `service_catalog_item` → drop `shared_credit_pool`.
+```python
+# Spec §4: unique on (COALESCE(tenant_id, zero-uuid), code) so a tenant
+# cannot collide with a global row's code and globals are unique too.
+op.execute(
+    "CREATE UNIQUE INDEX uq_service_catalog_item_scope_code "
+    "ON gerti.service_catalog_item "
+    "(COALESCE(tenant_id, '00000000-0000-0000-0000-000000000000'::uuid), code)"
+)
+op.create_index(
+    "ix_service_catalog_item_tenant_active",
+    "service_catalog_item", ["tenant_id", "active"], schema="gerti",
+)
+```
+
+`downgrade()` drops both: `op.drop_index("ix_service_catalog_item_tenant_active", table_name="service_catalog_item", schema="gerti")` then `op.execute("DROP INDEX IF EXISTS gerti.uq_service_catalog_item_scope_code")`.
+
+**S4-B2 — sequence grant.** `service_catalog_item`/`shared_credit_pool` use `gen_random_uuid()` PKs (no sequence), so no per-table sequence grant is needed here; the catch-all `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA gerti TO gerti_app` (B2, see below) is still emitted at the end of `upgrade()` for uniformity and forward-safety. (B4's `ALTER DEFAULT PRIVILEGES` covers future tables; B2's `GRANT ON ALL SEQUENCES` covers any already-created identity/serial sequence — both are required because `GRANT ON ALL SEQUENCES` is NOT retroactive to sequences created by a later migration.)
+
+RLS:
+
+- **`shared_credit_pool`**: `_enable_tenant_rls("shared_credit_pool")` (has `tenant_id`; the helper already includes `WITH CHECK`).
+- **`contract_scope_service` / `contract_scope_ci`**: no `tenant_id` — **H7**: both `USING` AND `WITH CHECK` = `contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = current_setting('app.current_tenant', true)::uuid)`, ENABLE+FORCE, GRANT `SELECT,INSERT,UPDATE,DELETE` to `gerti_app`.
+- **`service_catalog_item`** (B1 — `tenant_id` is NULLable for global catalog rows; a single `FOR ALL` policy whose `USING` includes `tenant_id IS NULL` would let any tenant **UPDATE/DELETE a global row**, because `FOR ALL` applies that permissive `USING` to UPDATE/DELETE too). Use **split per-command policies** — global rows are SELECT-only to tenants; writes are strictly the caller's own `tenant_id`. ENABLE+FORCE, then GRANT `SELECT,INSERT,UPDATE,DELETE` to `gerti_app` (DML is gated by the policies). Emit EXACTLY:
+
+```python
+op.execute("ALTER TABLE gerti.service_catalog_item ENABLE ROW LEVEL SECURITY")
+op.execute("ALTER TABLE gerti.service_catalog_item FORCE ROW LEVEL SECURITY")
+op.execute(
+    "CREATE POLICY service_catalog_item_tenant_select "
+    "ON gerti.service_catalog_item FOR SELECT "
+    "USING (tenant_id IS NULL "
+    "OR tenant_id = current_setting('app.current_tenant', true)::uuid)"
+)
+op.execute(
+    "CREATE POLICY service_catalog_item_tenant_insert "
+    "ON gerti.service_catalog_item FOR INSERT "
+    "WITH CHECK (tenant_id = current_setting('app.current_tenant', true)::uuid)"
+)
+op.execute(
+    "CREATE POLICY service_catalog_item_tenant_update "
+    "ON gerti.service_catalog_item FOR UPDATE "
+    "USING (tenant_id = current_setting('app.current_tenant', true)::uuid) "
+    "WITH CHECK (tenant_id = current_setting('app.current_tenant', true)::uuid)"
+)
+op.execute(
+    "CREATE POLICY service_catalog_item_tenant_delete "
+    "ON gerti.service_catalog_item FOR DELETE "
+    "USING (tenant_id = current_setting('app.current_tenant', true)::uuid)"
+)
+op.execute(
+    "GRANT SELECT, INSERT, UPDATE, DELETE "
+    "ON gerti.service_catalog_item TO gerti_app"
+)
+```
+
+Seed global (`tenant_id IS NULL`) rows ONLY as `gerti_admin` (BYPASSRLS); a tenant session can read them but the `UPDATE`/`DELETE` policies'`USING` evaluates `NULL = '<tenant>'::uuid → NULL → false`, so a global row is **never** affected by a tenant write (0 rows, no error). The `FOR DELETE` policy has no `WITH CHECK` (Postgres ignores `WITH CHECK` for `DELETE`); the `FOR SELECT` policy has no `WITH CHECK` (not applicable to `SELECT`). This is intentional and correct.
+
+**B2 — sequence USAGE grant (end of `upgrade()`):** even though this migration's PKs are UUID, append `op.execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA gerti TO gerti_app")` as the last statement of `upgrade()` so the chain stays uniform with 0007 (see B2 there). Downgrade needs no `REVOKE` (harmless residual grant; no sequence is dropped here).
+
+`downgrade()` (FK-safe reverse order): drop scope tables (policies/grants/tables) → drop `service_catalog_item`: `DROP POLICY IF EXISTS` for `service_catalog_item_tenant_select`, `_tenant_insert`, `_tenant_update`, `_tenant_delete` (each `ON gerti.service_catalog_item`) → `REVOKE ALL ON gerti.service_catalog_item FROM gerti_app` → drop `ix_service_catalog_item_tenant_active` + `DROP INDEX IF EXISTS gerti.uq_service_catalog_item_scope_code` → drop `service_catalog_item` table → `op.drop_constraint("fk_contract_shared_pool_id_shared_credit_pool", "contract", schema="gerti", type_="foreignkey")` → drop `ix_shared_credit_pool_tenant_id` → drop `shared_credit_pool` (policy/grant/table). No sequence `REVOKE` needed.
 
 - [ ] **Step 5: Run model test — expect pass**; then full gate.
 
-Run: `cd apps/sidecar && DATABASE_URL=postgresql+asyncpg://x:y@localhost/z uv run pytest tests/test_model_catalog.py -q` → 1 passed. Then the full gate (all green).
+Run: `cd apps/sidecar && DATABASE_URL=postgresql+asyncpg://x:y@localhost/z uv run pytest tests/test_model_catalog.py -q` → **2 passed** (`test_catalog_pool_scope` + `test_service_catalog_item_global_row_is_read_only_to_tenant`, the B1 split-policy proof). Then the full gate (all green). If the B1 test sees `rowcount != 0` on UPDATE/DELETE, the policy is still a single `FOR ALL` — fix `0006` to the four split policies above and re-run.
 
 - [ ] **Step 6: Commit**
 
@@ -1349,6 +1520,23 @@ Paste the Task 3 `_enable_tenant_rls`/`_disable_tenant_rls` helpers verbatim (se
 
 ENABLE+FORCE on all three. Grants (minimal): `GRANT SELECT, INSERT, UPDATE ON gerti.consumption_event TO gerti_app` (UPDATE needed for the settlement columns; the trigger still forbids ledger mutation and DELETE — RLS + trigger + grant are now consistent); `GRANT SELECT, INSERT, UPDATE, DELETE ON gerti.contract_cycle TO gerti_app`; `GRANT SELECT, INSERT, UPDATE, DELETE ON gerti.glosa TO gerti_app`.
 
+**B2 — sequence USAGE grant (MANDATORY, last statement of `upgrade()`):**
+
+```python
+# consumption_event.id is sa.Identity(always=False) → Postgres creates an
+# implicit sequence (gerti.consumption_event_id_seq). gerti_app needs USAGE
+# (nextval) + SELECT (currval) on it, or every INSERT as gerti_sidecar fails
+# with "permission denied for sequence consumption_event_id_seq".
+# The 0002 baseline's `GRANT ... ON ALL SEQUENCES IN SCHEMA gerti` is NOT
+# retroactive — it only grants on sequences that existed AT THAT TIME. This
+# identity sequence is created NOW (0007), so it must be granted explicitly.
+op.execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA gerti TO gerti_app")
+```
+
+No `REVOKE` is needed in `downgrade()` — when `consumption_event` is dropped its owned identity sequence is dropped with it; a residual `GRANT ON ALL SEQUENCES` (against the then-existing set) is harmless and idempotent on re-upgrade.
+
+**Audit of 0005–0009 for Identity/serial sequences:** 0005 `contract`/`contract_billing_party` → UUID/`gen_random_uuid()` PKs, **no sequence** (no per-table grant needed; B4's `ALTER DEFAULT PRIVILEGES` and the uniformity grant still apply). 0006 `service_catalog_item`/`shared_credit_pool`/scope tables → UUID/composite PKs, **no sequence** (B2 uniformity grant emitted there, see Task 5). 0007 `consumption_event` → **`sa.Identity` → has a sequence → explicit grant required (above)**; `contract_cycle`/`glosa` → UUID PKs, no sequence. 0008 `contract_adjustment_rule`/`contract_renewal_policy`/`ticket_contract_link` → UUID PKs, **no sequence** (still emit the uniformity grant as the last statement of 0008's `upgrade()`: `op.execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA gerti TO gerti_app")`). 0009 matview → no table/sequence. **Net: only 0007 strictly requires it, but every migration 0005–0008 emits the same idempotent grant as its final `upgrade()` statement so the rule is "always grant" and no future identity column can regress.**
+
 `downgrade()` (FK-safe order): drop glosa (policy/grant/table) → drop trigger `trg_consumption_event_append_only` ON consumption_event → `DROP FUNCTION IF EXISTS gerti.consumption_event_append_only()` → drop consumption_event (policy/grant/indexes/table) → drop contract_cycle (policy/grant/indexes/table).
 
 - [ ] **Step 5: Run model test — expect pass**; full gate green.
@@ -1487,7 +1675,7 @@ class TicketContractLink(Base):
 
 Extend `models/__init__.py`.
 
-- [ ] **Step 4: Migration `0008_policy_ticketlink.py`** — `revision="0008_policy_ticketlink"`, `down_revision="0007_cycle_consumption"`. Create the 3 tables (`contract_adjustment_rule`, `contract_renewal_policy`, `ticket_contract_link`). **H1:** `ticket_contract_link.billing_status` → `server_default=sa.text("'pending'::gerti.billing_status")`. Spec #0 §4 indexes: `CREATE INDEX ON gerti.ticket_contract_link (contract_id)` and `CREATE INDEX ON gerti.ticket_contract_link (tenant_id, billing_status)`. RLS (paste Task 3 helpers verbatim, self-contained): `ticket_contract_link` has `tenant_id` → `_enable_tenant_rls("ticket_contract_link")` (helper already adds `WITH CHECK`); the two policy tables are `contract_id`-only → **H7**: both `USING` AND `WITH CHECK` = `contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = current_setting('app.current_tenant', true)::uuid)`, ENABLE+FORCE, GRANT `SELECT,INSERT,UPDATE,DELETE` to gerti_app. `downgrade()` reverses (drop indexes, policies, grants, tables; FK-safe).
+- [ ] **Step 4: Migration `0008_policy_ticketlink.py`** — `revision="0008_policy_ticketlink"`, `down_revision="0007_cycle_consumption"`. Create the 3 tables (`contract_adjustment_rule`, `contract_renewal_policy`, `ticket_contract_link`). **H1:** `ticket_contract_link.billing_status` → `server_default=sa.text("'pending'::gerti.billing_status")`. Spec #0 §4 indexes: `CREATE INDEX ON gerti.ticket_contract_link (contract_id)` and `CREATE INDEX ON gerti.ticket_contract_link (tenant_id, billing_status)`. RLS (paste Task 3 helpers verbatim, self-contained): `ticket_contract_link` has `tenant_id` → `_enable_tenant_rls("ticket_contract_link")` (helper already adds `WITH CHECK`); the two policy tables are `contract_id`-only → **H7**: both `USING` AND `WITH CHECK` = `contract_id IN (SELECT id FROM gerti.contract WHERE tenant_id = current_setting('app.current_tenant', true)::uuid)`, ENABLE+FORCE, GRANT `SELECT,INSERT,UPDATE,DELETE` to gerti_app. **B2 (uniformity):** the last statement of `upgrade()` MUST be `op.execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA gerti TO gerti_app")` (these 3 tables have UUID PKs / no sequence, but the "always grant" rule prevents any future Identity column regressing — `GRANT ON ALL SEQUENCES` is NOT retroactive; binding case is `consumption_event` in 0007). `downgrade()` reverses (drop indexes, policies, grants, tables; FK-safe). No sequence `REVOKE` (harmless residual).
 
 - [ ] **Step 5: Run model test — expect pass; full gate green.**
 
@@ -1933,12 +2121,13 @@ import dataclasses
 import datetime as dt
 import uuid
 
+import sqlalchemy as sa
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerti_sidecar.domain.errors import ConsumptionError
-from gerti_sidecar.models import Contract, ConsumptionEvent
-from gerti_sidecar.models.enums import ContractType
+from gerti_sidecar.models import Contract, ConsumptionEvent, Glosa
+from gerti_sidecar.models.enums import ContractType, GlosaStatus
 
 
 @dataclasses.dataclass(slots=True)
@@ -1999,23 +2188,39 @@ class ConsumptionService:
         contract = await self.session.get(Contract, contract_id)
         if contract is None:
             raise ConsumptionError("contrato inexistente neste tenant")
-        # glosa_id IS NULL → not written off (glosa lifecycle handled in cycle svc)
+        # S3 GLOSA RULE (single source of truth — see "Domain rules" §):
+        # ONLY an APPROVED glosa removes a consumption from the balance.
+        # pending & rejected glosas STILL COUNT (money is owed until the
+        # write-off is approved). An event is excluded iff its glosa_id
+        # points at a glosa whose status = 'approved'.
+        approved_glosa_ids = (
+            select(Glosa.id)
+            .where(Glosa.status == GlosaStatus.approved)
+            .scalar_subquery()
+        )
+        # NOTE the explicit `glosa_id IS NULL` arm: SQL `NULL NOT IN (..)` is
+        # NULL (would WRONGLY drop un-glosa'd events). Events with no glosa,
+        # or a pending/rejected glosa, MUST count.
+        not_written_off = sa.or_(
+            ConsumptionEvent.glosa_id.is_(None),
+            ConsumptionEvent.glosa_id.not_in(approved_glosa_ids),
+        )
         consumed_min = await self.session.scalar(
             select(func.coalesce(func.sum(ConsumptionEvent.billable_minutes), 0)).where(
                 ConsumptionEvent.contract_id == contract_id,
-                ConsumptionEvent.glosa_id.is_(None),
+                not_written_off,
             )
         )
         consumed_brl = await self.session.scalar(
             select(func.coalesce(func.sum(ConsumptionEvent.billable_amount_brl), 0)).where(
                 ConsumptionEvent.contract_id == contract_id,
-                ConsumptionEvent.glosa_id.is_(None),
+                not_written_off,
             )
         )
         consumed_count = await self.session.scalar(
             select(func.count()).where(
                 ConsumptionEvent.contract_id == contract_id,
-                ConsumptionEvent.glosa_id.is_(None),
+                not_written_off,
                 ConsumptionEvent.source_kind == "service_item",
             )
         )
@@ -2217,10 +2422,27 @@ import datetime as dt
 import pytest
 
 from gerti_sidecar import db
-from gerti_sidecar.domain.adjustment_service import AdjustmentService
+from gerti_sidecar.domain.adjustment_service import AdjustmentService, _add_months
 from gerti_sidecar.domain.contract_service import ContractService, NewContract
 from gerti_sidecar.models import ContractAdjustmentRule, ContractRenewalPolicy
 from gerti_sidecar.models.enums import ContractStatus, ContractType
+
+
+def test_add_months_last_day_clamp():
+    """S4: month-end anniversaries clamp to the target month's LAST day,
+    NOT a flat 28 (billing-date money bug)."""
+    # Jan-31 + 1m → Feb 28 (2026 non-leap), NOT Jan-28 wrong-clamp.
+    assert _add_months(dt.date(2026, 1, 31), 1) == dt.date(2026, 2, 28)
+    # Leap year: Jan-31 + 1m → Feb 29.
+    assert _add_months(dt.date(2024, 1, 31), 1) == dt.date(2024, 2, 29)
+    # 31 → April (30 days) → Apr 30.
+    assert _add_months(dt.date(2026, 3, 31), 1) == dt.date(2026, 4, 30)
+    # Day preserved when valid: Mar-31 + 12m → Mar 31 next year.
+    assert _add_months(dt.date(2026, 3, 31), 12) == dt.date(2027, 3, 31)
+    # Mid-month unaffected.
+    assert _add_months(dt.date(2026, 1, 15), 1) == dt.date(2026, 2, 15)
+    # Year rollover.
+    assert _add_months(dt.date(2026, 12, 31), 2) == dt.date(2027, 2, 28)
 
 
 @pytest.mark.asyncio
@@ -2257,6 +2479,7 @@ async def test_apply_index_and_renew(session, app_session_factory, seed_two_tena
 """Index adjustment (reajuste) + automatic renewal."""
 from __future__ import annotations
 
+import calendar
 import datetime as dt
 import uuid
 
@@ -2267,11 +2490,20 @@ from gerti_sidecar.models import Contract, ContractAdjustmentRule, ContractRenew
 
 
 def _add_months(d: dt.date, months: int) -> dt.date:
+    """Add `months` calendar months, preserving the day-of-month when the
+    target month has it, else clamping to that month's LAST day.
+
+    S4 — billing-date money bug fix: a naive `min(day, 28)` would move a
+    Jan-31 anniversary to the 28th of every month (losing 2-3 days of
+    billing period and silently shifting every subsequent cycle). Correct
+    semantics: keep the original day when valid (e.g. 31→Mar 31), otherwise
+    use the actual last day of the target month (31→Feb 28/29, →Apr 30).
+    """
     m = d.month - 1 + months
     year = d.year + m // 12
     month = m % 12 + 1
-    # clamp day to month length (28 is safe for contract anniversaries)
-    day = min(d.day, 28)
+    last_day = calendar.monthrange(year, month)[1]  # 28/29/30/31
+    day = d.day if d.day <= last_day else last_day
     return dt.date(year, month, day)
 
 
@@ -2335,7 +2567,7 @@ git commit -m "feat(sidecar): AdjustmentService — reajuste por índice (com te
 
 - [ ] **Step 1: Migration `0009_balance_view.py`**
 
-`revision="0009_balance_view"`, `down_revision="0008_policy_ticketlink"`. Use `op.execute` with the **EXACT** Spec #0 §4 DDL (do not paraphrase — the glosa-rejected `FILTER` matters; a contract written-off then `rejected` must count again):
+`revision="0009_balance_view"`, `down_revision="0008_policy_ticketlink"`. **S3 — the matview MUST use the SAME single glosa rule as `ConsumptionService.balance()` and `CycleService.close()`: a consumption is removed from the balance ONLY when it is written off by an `approved` glosa; `glosa_id IS NULL`, a `pending` glosa, OR a `rejected` glosa ALL still COUNT.** (The previous draft DDL filtered `glosa_id IS NULL OR status='rejected'`, which wrongly dropped `pending` consumptions — that diverged from `close()`/`balance()` and is corrected here.) The `FILTER` predicate keeps an event in the sum/count iff it is NOT written off — `glosa_id IS NULL` OR there is NO `approved` glosa for it:
 
 ```python
 op.execute(
@@ -2347,17 +2579,20 @@ op.execute(
       CASE c.type
         WHEN 'credit_brl' THEN
           c.initial_amount_brl - COALESCE(SUM(ce.billable_amount_brl) FILTER (
-            WHERE ce.glosa_id IS NULL OR EXISTS (
+            WHERE ce.glosa_id IS NULL OR NOT EXISTS (
               SELECT 1 FROM gerti.glosa g
-              WHERE g.id = ce.glosa_id AND g.status = 'rejected')), 0)
+              WHERE g.id = ce.glosa_id AND g.status = 'approved')), 0)
         WHEN 'hour_bank' THEN
           c.initial_hours - COALESCE(SUM(ce.billable_minutes) FILTER (
-            WHERE ce.glosa_id IS NULL OR EXISTS (
+            WHERE ce.glosa_id IS NULL OR NOT EXISTS (
               SELECT 1 FROM gerti.glosa g
-              WHERE g.id = ce.glosa_id AND g.status = 'rejected')), 0) / 60.0
+              WHERE g.id = ce.glosa_id AND g.status = 'approved')), 0) / 60.0
         WHEN 'service_count' THEN
           c.initial_service_count - COALESCE(COUNT(ce.*) FILTER (
-            WHERE ce.source_kind = 'service_item'), 0)
+            WHERE ce.source_kind = 'service_item' AND (
+              ce.glosa_id IS NULL OR NOT EXISTS (
+                SELECT 1 FROM gerti.glosa g
+                WHERE g.id = ce.glosa_id AND g.status = 'approved'))), 0)
         ELSE NULL
       END AS remaining
     FROM gerti.contract c
@@ -2434,6 +2669,8 @@ async def test_full_contract_lifecycle(session, app_session_factory, seed_two_te
 ```
 
 (Add `from sqlalchemy import select` and `from gerti_sidecar.models import Contract` to the test's top-level imports — H11: no inline imports, no dead `_session_contracts`/`hasattr` probe.)
+
+> **S1 final gate:** the full `expected` set in `test_every_gerti_table_has_rls_enabled_and_forced` (Task 4 Step 1b) only becomes fully satisfiable once **0008** is applied (all 14 tables exist). When running the suite incrementally per task it is expected to fail with `missing=...` until then; that is intentional (it documents the target). It MUST be GREEN as part of this Task 13 full-suite gate and in the deploy plan's prod verification (D4). Do not weaken the `expected` set to make an intermediate task pass — run the targeted per-task tests instead until 0008 lands.
 
 - [ ] **Step 3: Demo script (domain-level, no HTTP)**
 
