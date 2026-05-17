@@ -35,7 +35,17 @@ COPY src ./src
 COPY alembic ./alembic
 COPY alembic.ini ./
 RUN uv sync --frozen --no-install-project
-RUN groupadd -r gerti && useradd -r -g gerti gerti && chown -R gerti:gerti /app
+# O usuário não-root `gerti` é system-user sem home → `uv run` falhava
+# com "failed to create directory /home/gerti/.cache/uv: Permission
+# denied". HOME e cache dentro de /app (já chowned p/ gerti); uv não
+# baixa Python (usa o python3.12 da imagem) nem mexe no lockfile.
+ENV HOME=/app \
+    UV_CACHE_DIR=/app/.uv-cache \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_FROZEN=1
+RUN groupadd -r gerti && useradd -r -g gerti gerti \
+    && mkdir -p /app/.uv-cache \
+    && chown -R gerti:gerti /app
 USER gerti
 EXPOSE 8001
 HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=5 \
