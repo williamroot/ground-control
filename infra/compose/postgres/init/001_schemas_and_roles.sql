@@ -49,6 +49,13 @@ BEGIN
   END IF;
 END $$;
 
+-- BYPASSRLS é ATRIBUTO de role e NÃO é herdado por membership (só
+-- privilégios de tabela são). gerti_admin_user precisa do atributo
+-- DIRETO p/ onboarding/seed admin em tabelas FORCE RLS. Paridade com
+-- prod (postgres/gerti-init/001) — fecha o drift prod≠teste.
+ALTER ROLE gerti_admin_user BYPASSRLS;
+ALTER ROLE gerti_sidecar NOBYPASSRLS;
+
 -- B4: future tables/sequences created by gerti_admin_user in schema gerti
 -- are auto-granted to gerti_app (belt-and-suspenders with per-migration GRANTs).
 -- Placed AFTER gerti_admin_user is created (role must pre-exist for

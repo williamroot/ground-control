@@ -94,6 +94,17 @@ END $$;
 GRANT gerti_app   TO gerti_sidecar;
 GRANT gerti_admin TO gerti_admin_user;
 
+-- CRÍTICO: BYPASSRLS é ATRIBUTO de role e **NÃO é herdado por
+-- membership** no Postgres (só privilégios de tabela são). `gerti_admin`
+-- ter BYPASSRLS + `gerti_admin_user IN ROLE gerti_admin` NÃO faz o
+-- usuário LOGIN bypassar RLS. O onboarding/seed admin (criar
+-- znuny_instance/tenant, escrever em tabelas FORCE RLS) exige o atributo
+-- DIRETO no usuário que loga. Idempotente; só superusuário pode setar
+-- (este job roda como o superusuário do cluster). gerti_sidecar
+-- permanece RLS-subject (NUNCA BYPASSRLS).
+ALTER ROLE gerti_admin_user BYPASSRLS;
+ALTER ROLE gerti_sidecar NOBYPASSRLS;
+
 -- B4: toda tabela/sequence que o Alembic criar (como gerti_admin_user)
 -- no schema gerti é auto-concedida a gerti_app — belt-and-suspenders
 -- com os GRANTs por-migration (B2). FOR ROLE deve casar exatamente com
