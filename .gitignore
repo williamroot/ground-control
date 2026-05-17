@@ -1,0 +1,16 @@
+# Secrets / env
+.env
+.env.prod
+*.local
+
+# Downloaded artifacts
+znuny/*.tar.gz
+
+# OS / editor
+.DS_Store
+*.swp
+*~
+
+# Docker volume dumps / logs
+*.log
+/tmp/
