@@ -38,7 +38,7 @@ def _reset_settings_cache() -> Generator[None, None, None]:
 
 @pytest.fixture(scope="session")
 def postgres_container() -> Generator[PostgresContainer, None, None]:
-    with PostgresContainer("postgres:16", driver="asyncpg") as pg:
+    with PostgresContainer("postgres:18", driver="asyncpg") as pg:
         # roda init script
         import psycopg
 
