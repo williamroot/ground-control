@@ -1,0 +1,17 @@
+# ─────────────────────────────────────────────────────────────────────
+#  Dev override — auto-loaded by `docker compose`.
+#  Loads .env.prod (gitignored) so CLOUDFLARE_TUNNEL_TOKEN is picked up
+#  alongside .env, and exposes a few extra dev conveniences.
+# ─────────────────────────────────────────────────────────────────────
+services:
+  postgres:
+    ports:
+      - "5432:5432"      # local psql access in dev
+
+  opensearch:
+    ports:
+      - "9200:9200"      # local OpenSearch poking in dev
+
+  cloudflared:
+    env_file:
+      - .env.prod        # real tunnel token (gitignored); optional

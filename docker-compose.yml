@@ -1,0 +1,171 @@
+# ─────────────────────────────────────────────────────────────────────
+#  Ground Control — Znuny dev stack
+#  Networks: edge (cloudflared↔web) · app (web/daemon↔services)
+#            data (INTERNAL: postgres/redis/opensearch)
+# ─────────────────────────────────────────────────────────────────────
+name: ${COMPOSE_PROJECT_NAME:-ground-control}
+
+networks:
+  edge:
+  app:
+  data:
+    internal: true
+
+volumes:
+  postgres-data:
+  znuny-var:
+  opensearch-data:
+
+services:
+
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:18}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-znuny}
+      POSTGRES_USER: ${POSTGRES_USER:-znuny}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-znuny}
+      # Znuny needs UTF8 + C-ish collation; keep template defaults.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    volumes:
+      # PG18 Docker image stores data under a major-version subdir and
+      # expects the volume at /var/lib/postgresql (NOT .../data).
+      - postgres-data:/var/lib/postgresql
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-znuny} -d ${POSTGRES_DB:-znuny}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    volumes:
+      - /data
+    networks: [data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  opensearch:
+    image: opensearchproject/opensearch:2
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - DISABLE_SECURITY_PLUGIN=true
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-OpenSearch-Str0ng-Pass!}
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile:  { soft: 65536, hard: 65536 }
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    networks: [data]
+    healthcheck:
+      # security plugin disabled for dev → plain http on 9200
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
+  znuny-web:
+    build:
+      context: ./znuny
+      args:
+        ZNUNY_VERSION: ${ZNUNY_VERSION:-7.2.3}
+    image: ground-control/znuny:${ZNUNY_VERSION:-7.2.3}
+    restart: unless-stopped
+    command: ["web"]
+    environment:
+      OTRS_HOME: /opt/otrs
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-znuny}
+      POSTGRES_USER: ${POSTGRES_USER:-znuny}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-znuny}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_DB: ${REDIS_DB:-0}
+      OPENSEARCH_HOST: ${OPENSEARCH_HOST:-opensearch}
+      OPENSEARCH_PORT: ${OPENSEARCH_PORT:-9200}
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${OPENSEARCH_INITIAL_ADMIN_PASSWORD:-OpenSearch-Str0ng-Pass!}
+      ZNUNY_FQDN: ${ZNUNY_FQDN:-znuny-dev.was.dev.br}
+      ZNUNY_SYSTEM_ID: ${ZNUNY_SYSTEM_ID:-10}
+      ZNUNY_ADMIN_USER: ${ZNUNY_ADMIN_USER:-root@localhost}
+      ZNUNY_ADMIN_PASSWORD: ${ZNUNY_ADMIN_PASSWORD:-changeme}
+    volumes:
+      - znuny-var:/opt/otrs/var
+    ports:
+      - "${ZNUNY_HTTP_PORT:-8080}:80"
+    networks: [edge, app, data]
+    depends_on:
+      postgres:   { condition: service_healthy }
+      redis:      { condition: service_healthy }
+      opensearch: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:80/znuny/index.pl | grep -qi 'login' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+
+  znuny-daemon:
+    image: ground-control/znuny:${ZNUNY_VERSION:-7.2.3}
+    restart: unless-stopped
+    command: ["daemon"]
+    environment:
+      OTRS_HOME: /opt/otrs
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_DB: ${POSTGRES_DB:-znuny}
+      POSTGRES_USER: ${POSTGRES_USER:-znuny}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-znuny}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_DB: ${REDIS_DB:-0}
+      OPENSEARCH_HOST: ${OPENSEARCH_HOST:-opensearch}
+      OPENSEARCH_PORT: ${OPENSEARCH_PORT:-9200}
+      ZNUNY_FQDN: ${ZNUNY_FQDN:-znuny-dev.was.dev.br}
+      ZNUNY_SYSTEM_ID: ${ZNUNY_SYSTEM_ID:-10}
+      ZNUNY_ADMIN_USER: ${ZNUNY_ADMIN_USER:-root@localhost}
+      ZNUNY_ADMIN_PASSWORD: ${ZNUNY_ADMIN_PASSWORD:-changeme}
+    volumes:
+      - znuny-var:/opt/otrs/var
+    networks: [app, data]
+    depends_on:
+      postgres:  { condition: service_healthy }
+      redis:     { condition: service_healthy }
+      znuny-web: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "su otrs -s /bin/bash -c 'cd /opt/otrs && bin/otrs.Daemon.pl status' | grep -qi running"]
+      interval: 20s
+      timeout: 15s
+      retries: 15
+      start_period: 60s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    # Token-mode tunnel for hostname znuny-dev.was.dev.br. Until the
+    # user pastes a REAL connector token into .env.prod, cloudflared
+    # fails to authenticate and restarts — this is expected and does
+    # NOT break the rest of the stack (no service depends on it).
+    command:
+      - "tunnel"
+      - "--no-autoupdate"
+      - "run"
+      - "--token"
+      - "${CLOUDFLARE_TUNNEL_TOKEN:-MISSING_TOKEN}"
+    networks: [edge]
+    depends_on:
+      znuny-web: { condition: service_started }
