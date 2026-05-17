@@ -34,15 +34,22 @@ FROM deps AS prod
 COPY src ./src
 COPY alembic ./alembic
 COPY alembic.ini ./
-RUN uv sync --frozen --no-install-project
+# Instala o PRÓPRIO projeto no venv no BUILD (rede disponível). Sem
+# isto, `uv run` em runtime tentava buildar `gerti-sidecar` e resolver
+# `hatchling` no pypi — mas a rede `data` é internal:true (sem internet)
+# → "Could not connect, are you offline?". `--no-install-project` fica
+# só no estágio `deps` (cache de camada das dependências).
+RUN uv sync --frozen
 # O usuário não-root `gerti` é system-user sem home → `uv run` falhava
 # com "failed to create directory /home/gerti/.cache/uv: Permission
 # denied". HOME e cache dentro de /app (já chowned p/ gerti); uv não
-# baixa Python (usa o python3.12 da imagem) nem mexe no lockfile.
+# baixa Python (usa o python3.12 da imagem), não mexe no lockfile e
+# NÃO re-sincroniza em runtime (UV_NO_SYNC — rede internal, offline).
 ENV HOME=/app \
     UV_CACHE_DIR=/app/.uv-cache \
     UV_PYTHON_DOWNLOADS=never \
-    UV_FROZEN=1
+    UV_FROZEN=1 \
+    UV_NO_SYNC=1
 RUN groupadd -r gerti && useradd -r -g gerti gerti \
     && mkdir -p /app/.uv-cache \
     && chown -R gerti:gerti /app
