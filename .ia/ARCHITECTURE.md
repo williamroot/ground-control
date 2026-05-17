@@ -88,6 +88,23 @@ de contratos/consumo/faturamento no schema **`gerti`** (Spec #0). Estado:
   (postgres/redis/minio) + init SQL + smoke-test. **Separada** da stack
   Znuny de produção (`docker-compose.yml` raiz); não compartilham containers.
 
+### Deploy em prod (profile `gerti`, single-cluster)
+
+3 serviços **gated por `profiles:["gerti"]`** no `docker-compose.yml`
+raiz (NÃO sobem num `make up` da stack Znuny — aditivos, Postgres não
+reinicia):
+
+| Serviço | Papel | Role DB |
+|---|---|---|
+| `gerti-db-init` | one-shot idempotente: cria schema `gerti`+roles+RLS no `postgres:18` VIVO (psql superusuário, zero DROP, não toca `public`/`znuny`) | superusuário |
+| `sidecar-migrate` | one-shot: `alembic upgrade head` (dono do DDL); `service_completed_successfully` libera o app | `gerti_admin_user` (BYPASSRLS) |
+| `sidecar` | FastAPI long-running em `:8001`, redes `data`+`edge` | `gerti_sidecar` (RLS-subject, sem BYPASSRLS) |
+
+Exposto em `api-dev.was.dev.br` (2º hostname no tunnel `znuny-dev`,
+token-mode multi-host; ingress via read-modify-write). Runbook em
+[`OPS.md`](OPS.md) "Deploy do sidecar"; decisão em
+[`DECISIONS.md`](DECISIONS.md) D13.
+
 Detalhe completo: [`INTEGRATION.md`](INTEGRATION.md).
 
 ## Landing (`landing/`)

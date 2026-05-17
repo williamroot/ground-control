@@ -81,3 +81,63 @@ via `infra/` copiado sem editar código.
 sidecar). Convergir produção para esse cluster único (Znuny hoje usa
 `postgres:18` próprio; sidecar testa via testcontainers) é **item aberto
 documentado** em `INTEGRATION.md`, não regressão.
+
+## D12 — `gerti.znuny_instance` sob RLS escopada por tenant (gap S1)
+**Defeito real pego pelo gate, não mascarado.** `gerti.znuny_instance`
+(criada em `0001`, DML concedido a `gerti_app` em `0002`) **nunca**
+recebeu RLS ENABLE+FORCE em 0001–0008 → sessão `gerti_sidecar`
+(sem BYPASSRLS) lia/escrevia instâncias de **todos os tenants** sem
+escopo. O hard-assert S1 (`test_every_gerti_table_has_rls_enabled_and_forced`),
+desenhado para ativar exatamente no head 0008, expôs a falha
+(implementer **escalou em vez de enfraquecer o teste** — disciplina
+zero-tolerância). `znuny_instance` não tem `tenant_id`; o tenant
+alcança sua instância via `gerti.tenant.znuny_instance_id`.
+**Fix:** migration `0009_rls_znuny_instance` — ENABLE+FORCE +
+policy `znuny_instance_tenant_isolation` (USING **e** WITH CHECK):
+`id IN (SELECT znuny_instance_id FROM gerti.tenant WHERE id =
+NULLIF(current_setting('app.current_tenant', true), '')::uuid)`.
+Fail-closed (GUC vazia/'' → NULLIF→NULL → subquery vazia → 0 linhas);
+onboarding admin roda como `gerti_admin` (BYPASSRLS) e não é afetado;
+a subquery funciona porque a RLS do próprio `gerti.tenant` deixa a
+sessão ver só seu tenant. Matview renumerada `0009`→`0010`
+(`down_revision=0009_rls_znuny_instance`). Teste de regressão
+permanente (`test_znuny_instance_rls_scoped_by_tenant`): tenant A vê
+só a instância de A, GUC vazia → 0 linhas, sob role `gerti_sidecar`.
+Gate verde **26 passed, 0 skip**.
+
+## D13 — Deploy do sidecar: cluster Postgres ÚNICO, profile-gated, sem downtime
+Spec #0 manda **um cluster, dois schemas**. O cluster prod do Znuny já
+existe e é saudável; `./postgres/init` está vazio (só `.gitkeep`) e
+`docker-entrypoint-initdb.d` só roda no 1º init do cluster — não há
+caminho de init-script p/ introduzir `gerti` no cluster vivo. Subir um
+2º Postgres violaria Spec #0 e dobraria a superfície de ops/backup.
+**Decisão:** manter o `postgres:18` único; introduzir schema `gerti` +
+roles + RLS no cluster *em execução* via job one-shot idempotente
+`gerti-db-init` (psql como superusuário, SQL auditado linha-a-linha,
+zero DROP, zero escrita em `public`/`znuny`), depois Alembic como
+`gerti_admin_user` (BYPASSRLS, dono do DDL) e o app como
+`gerti_sidecar` (RLS-subject). **Todos os 3 serviços
+(`gerti-db-init`/`sidecar-migrate`/`sidecar`) sob `profiles:["gerti"]`**
+→ um `make up` da stack Znuny nunca os toca (aditivo, Postgres não
+reinicia, nada Znuny reconstruído). Exposição: `api-dev.was.dev.br`
+como 2º hostname no MESMO tunnel `znuny-dev` (token-mode multi-host),
+ingress via **read-modify-write** (GET→splice antes do 404→guard→PUT;
+PUT hand-written derrubaria `znuny-dev`+demo).
+
+**Footgun corrigido (não propagado do plano):** o snippet do plano usava
+`${GERTI_*_DB_PASSWORD:?…}` no `command` do `gerti-db-init`. O Compose
+interpola o arquivo **inteiro antes de filtrar profiles** → `:?` fazia
+`docker compose config`/`up` da stack **só-Znuny** abortar (quebrava o
+zero-downtime). **Fix verificado local:** segredos com default vazio no
+`environment:` (`${VAR:-}`), exigência movida p/ **runtime** no shell do
+container (`: "$${VAR:?…}"` — `$$` = `$` literal p/ o Compose, bash lê
+do env real). Confirmado: `docker compose config --services` SEM profile
+lista só os 6 serviços Znuny; com `--profile gerti` parseia OK.
+
+**Status (2026-05-17):** artefatos prontos e em `origin/main`. Execução
+na VPS `100.99.49.110` ficou **pendente — SSH inacessível** (porta 22
+timeout, ICMP 100% loss; node aparece no tailnet mas sshd/porta não
+respondem) durante a janela de deploy autônomo: bloqueio externo do
+lado da VPS, não fabricado. Runbook completo em `OPS.md` "Deploy do
+sidecar"; segredos fortes gerados e entregues out-of-band. Retomar =
+`git pull` + passos 1–5 + D3 (zero mudança de código pendente).

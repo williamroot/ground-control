@@ -79,10 +79,11 @@ Estado atual (ponto de convergência — item aberto):
 | Item | Status |
 |---|---|
 | Plano 1A (fundação: estrutura, RLS, sidecar skeleton, testes) | **Pronto, verificado** |
-| #1C Task 1 (enums de contrato + migration `0004_contract_enums`) | **Pronto, verificado** |
-| #1C T2–T13 (engine de contrato: modelos, repos, ciclos, glosa) | Pendente — plano em `docs/superpowers/plans/2026-05-17-spec-1c-contract-domain.md` |
+| #1C T1–T13 (engine de contrato: enums, modelos, RLS, repos, ciclos, glosa, reajuste, matview, e2e) | **Pronto, verificado** — gate 33 passed/0 skip, S1 RLS hard-assert verde no head `0010`, review final independente APPROVE |
+| Gap S1 (`gerti.znuny_instance` sem RLS desde 0001) | **Corrigido** — `0009_rls_znuny_instance` ENABLE+FORCE escopada por tenant (ADR D12) |
+| Artefatos de deploy (compose profile `gerti`, `postgres/gerti-init/`, runbook) | **Prontos, no `origin/main`** — execução na VPS pendente (SSH inacessível no momento; ver OPS "Deploy do sidecar") |
 | #1B GertiHooks.opm (webhooks/dynamic fields no Znuny) | Não iniciado |
-| Convergência prod p/ cluster Postgres único compartilhado | Item aberto (ver (b)) |
+| Convergência prod p/ cluster Postgres único compartilhado | **Resolvida no design**: `gerti-db-init` (job idempotente, profile-gated) introduz schema `gerti`+roles+RLS no `postgres:18` vivo; ver (b) e D13 |
 | Portal (Spec #1F) | Placeholder vazio |
 
 ## (f) Como rodar/testar o sidecar neste repo

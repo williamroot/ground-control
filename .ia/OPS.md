@@ -64,6 +64,76 @@ com a stack de pé. Detalhes, credenciais e roteiro em [`DEMO.md`](DEMO.md).
 O motor é `scripts/seed-demo.pl` (API nativa Znuny, executado como `otrs`
 dentro de `znuny-web`); `scripts/seed-authcheck.pl` valida credenciais.
 
+### Deploy do sidecar de contratos (Spec #1C — profile `gerti`)
+
+Plano canônico: [`../docs/superpowers/plans/2026-05-17-spec-1c-deploy.md`](../docs/superpowers/plans/2026-05-17-spec-1c-deploy.md).
+**Aditivo e gated por profile**: nenhum serviço `gerti` sobe sem
+`--profile gerti`; um `make up` da stack Znuny fica intocado (Postgres
+não reinicia, nada do Znuny é reconstruído). Single-cluster: schema
+`gerti` no MESMO `postgres:18` do Znuny (Spec #0). Verificado local:
+`docker compose config --services` SEM profile lista só os 6 serviços
+Znuny (o footgun `${VAR:?}` que quebraria isso foi eliminado — segredos
+têm default vazio no `environment:` e são exigidos em runtime no shell
+do container, não no parse do compose).
+
+**Pré-requisito (humano, one-time):** em `~/ground-control/.env.prod`
+na VPS (gitignored — NUNCA commitar), adicionar as duas linhas
+`GERTI_SIDECAR_DB_PASSWORD=…` e `GERTI_ADMIN_DB_PASSWORD=…` (valores
+fortes; ver `.env.prod.example`). O agente gera os segredos e os
+entrega out-of-band (Human-needed #2 do plano).
+
+```bash
+ssh ubuntu@100.99.49.110
+cd ground-control && git pull                       # traz compose + gerti-init + sidecar
+# 1) garantir GERTI_SIDECAR_DB_PASSWORD / GERTI_ADMIN_DB_PASSWORD em .env.prod
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 2) D1 — schema gerti + roles + RLS no cluster VIVO (idempotente)
+$DC run --rm gerti-db-init       # verá o SELECT listando gerti_* roles + schemas
+
+# 3) D2 — build + migrate (Alembic como gerti_admin_user) + app
+$DC build sidecar
+$DC up -d sidecar                # sidecar-migrate roda e sai 0; sidecar sobe healthy
+$DC ps                           # sidecar healthy; sidecar-migrate Exit 0
+
+# 4) prova de schema + RLS real em prod (zero-tolerância)
+docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "select count(*) from gerti.contract;"      # 0 linhas, tabela existe
+docker compose exec -T postgres psql -U gerti_sidecar -d "$POSTGRES_DB" \
+  -c "select * from gerti.tenant;"               # 0 linhas (GUC ausente → fail-closed)
+docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+  "select relname,relrowsecurity,relforcerowsecurity from pg_class c \
+   join pg_namespace n on n.oid=relnamespace where nspname='gerti' and relkind='r';"
+#  → relrowsecurity AND relforcerowsecurity = t p/ TODA tabela gerti.*
+
+# 5) Znuny/landing intactos
+curl -fsS https://znuny-dev.was.dev.br/znuny/index.pl | grep -qi login && echo ZNUNY_OK
+curl -fsS https://groundcontrol.was.dev.br >/dev/null && echo LANDING_OK
+```
+
+**D3 — expor `api-dev.was.dev.br`** (ingress no MESMO tunnel `znuny-dev`,
+token-mode multi-hostname): usar o script **read-modify-write** do plano
+de deploy §D3 (GET config → splice da regra `api-dev` ANTES do catch-all
+`http_status:404` → guard aborta se `znuny-dev` sumir → PUT do objeto
+inteiro → re-GET assert ambos hostnames). DNS `CNAME api-dev →
+<tunnel_id>.cfargotunnel.com` proxied. **Nunca** PUT de config
+hand-written (substitui o array inteiro e derruba `znuny-dev` + demo
+Aurora). Verificar: `curl -fsS https://api-dev.was.dev.br/v1/health`.
+
+**Rollback (sidecar só, Znuny intocado):**
+`$DC stop sidecar` → `git checkout <sha-anterior> -- apps/sidecar docker-compose.yml`
+→ `$DC up -d sidecar`. Migration ruim: `$DC run --rm sidecar-migrate uv run alembic downgrade -1`.
+**NUNCA** `make reset` (destrói o DB Znuny compartilhado).
+
+> **Status (2026-05-17):** artefatos de deploy prontos, commitados e
+> no `origin/main` (compose profile `gerti`, `postgres/gerti-init/`,
+> `.env.prod.example`). A execução na VPS ficou **pendente: SSH p/
+> `100.99.49.110` inacessível** (porta 22 timeout / ICMP 100% loss,
+> embora o node apareça no tailnet) no momento do deploy autônomo —
+> bloqueio externo do lado da VPS. Assim que o SSH voltar, o deploy é
+> um `git pull` + os passos 1–5 + D3 acima (nenhuma mudança de código
+> pendente).
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)
