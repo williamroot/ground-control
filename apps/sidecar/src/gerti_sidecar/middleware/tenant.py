@@ -69,10 +69,16 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if subdomain is None:
             return await call_next(request)
 
-        if db.SessionLocal is None:
+        # Resolução subdomínio->tenant é um lookup de DIRETÓRIO pré-auth
+        # (só identidade, nunca dado de tenant). gerti.tenant é FORCE RLS;
+        # sem GUC um session RLS-subject retornaria 0 linhas (404 falso).
+        # Usa o caminho BYPASSRLS estreito quando configurado (D16); todo
+        # DADO de tenant continua RLS-subject via tenant_session_scope.
+        resolver = db.AdminSessionLocal or db.SessionLocal
+        if resolver is None:
             raise RuntimeError("DB não inicializado")
 
-        async with db.SessionLocal() as session:
+        async with resolver() as session:
             result = await session.execute(
                 select(Tenant).where(Tenant.subdomain == subdomain, Tenant.status == "active")
             )

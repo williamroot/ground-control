@@ -202,3 +202,26 @@ Semântica:
 **Evidência.** `docs/superpowers/spikes/2026-05-17-r1-znuny-customer-auth.md`
 (transcrições reais: `Admin::WebService::List`, `ls Session/`, fonte de
 `SessionCreate.pm`/`Common.pm`, `\d gerti.znuny_instance` + a linha).
+
+## D16 — TenantMiddleware resolve subdomínio->tenant por um caminho BYPASSRLS estreito (somente identidade); todo dado de tenant permanece RLS-subject
+
+**Contexto.** `gerti.tenant` é FORCE RLS (D-0003); em prod o sidecar
+conecta como `gerti_sidecar` (RLS-subject, BYPASSRLS não herdado via
+role membership — #1C); o `TenantMiddleware` resolve o subdomínio ANTES
+de qualquer GUC, então um session RLS-subject retorna 0 linhas e 404
+para todo tenant válido.
+
+**Decisão.** Introduzir `Settings.database_admin_url` (opcional),
+`db.admin_engine`/`db.AdminSessionLocal` (criados em `init_db` quando o
+DSN existe, descartados em `dispose_db`); `TenantMiddleware` usa
+`AdminSessionLocal or SessionLocal` SÓ para o
+`select(Tenant).where(subdomain==...)` (lookup de diretório, só
+identidade); todo DADO de tenant continua RLS-subject via
+`tenant_session_scope`. Prod: compose injeta `DATABASE_ADMIN_URL` do
+`gerti_admin_user`+`${GERTI_ADMIN_DB_PASSWORD:-}` (nunca `${VAR:?}` —
+footgun D13). Dev/test sem DSN admin: `AdminSessionLocal=None` => cai no
+`SessionLocal` (que os testes ligam ao admin engine, como
+`test_tenant_middleware.py`).
+
+**Evidência.** `test_tenant_resolution_admin_path.py` (subdomínio válido
+resolve 200-class via path BYPASSRLS; RLS ainda fail-closed no dado).

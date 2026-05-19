@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     # banco ------------------------------------------------------------
     database_url: PostgresDsn
 
+    # admin DSN usado SÓ pela resolução subdomínio->tenant (BYPASSRLS,
+    # somente identidade — ver D16). Opcional: ausente => cai no
+    # SessionLocal normal (dev/test ligam SessionLocal ao admin engine).
+    database_admin_url: PostgresDsn | None = None
+
     # logging ----------------------------------------------------------
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
@@ -42,6 +47,19 @@ class Settings(BaseSettings):
         if scheme != "postgresql+asyncpg":
             raise ValueError(
                 f"database_url deve usar driver asyncpg (got {scheme}); "
+                "use 'postgresql+asyncpg://...'"
+            )
+        return v
+
+    @field_validator("database_admin_url")
+    @classmethod
+    def admin_must_be_async_dsn(cls, v: PostgresDsn | None) -> PostgresDsn | None:
+        if v is None:
+            return v
+        scheme = str(v).split(":", 1)[0]
+        if scheme != "postgresql+asyncpg":
+            raise ValueError(
+                f"database_admin_url deve usar driver asyncpg (got {scheme}); "
                 "use 'postgresql+asyncpg://...'"
             )
         return v

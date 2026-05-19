@@ -39,6 +39,8 @@ def make_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession
 # Testes podem substituir via fixture.
 engine: AsyncEngine | None = None
 SessionLocal: async_sessionmaker[AsyncSession] | None = None
+admin_engine: AsyncEngine | None = None
+AdminSessionLocal: async_sessionmaker[AsyncSession] | None = None
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
@@ -65,18 +67,35 @@ async def session_scope() -> AsyncGenerator[AsyncSession, None]:
 
 def init_db(settings: Settings) -> None:
     """Inicializa engine e session factory globais a partir das settings."""
-    global engine, SessionLocal
+    global engine, SessionLocal, admin_engine, AdminSessionLocal
     engine = make_engine(settings)
     SessionLocal = make_session_factory(engine)
+    if settings.database_admin_url is not None:
+        admin_engine = create_async_engine(
+            str(settings.database_admin_url),
+            echo=settings.debug,
+            pool_pre_ping=True,
+            pool_size=2,
+            max_overflow=2,
+            pool_recycle=1800,
+        )
+        AdminSessionLocal = make_session_factory(admin_engine)
+    else:
+        admin_engine = None
+        AdminSessionLocal = None
 
 
 async def dispose_db() -> None:
     """Fecha o pool de conexões; chamar no shutdown."""
-    global engine, SessionLocal
+    global engine, SessionLocal, admin_engine, AdminSessionLocal
     if engine is not None:
         await engine.dispose()
+    if admin_engine is not None:
+        await admin_engine.dispose()
     engine = None
     SessionLocal = None
+    admin_engine = None
+    AdminSessionLocal = None
 
 
 @asynccontextmanager
