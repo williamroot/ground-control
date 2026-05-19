@@ -1082,9 +1082,12 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
       # db.SessionLocal, so /v1/contracts data is GENUINELY served by the
       # RLS-subject gerti_sidecar role under the app.current_tenant GUC —
       # RLS is really exercised on the contracts read (not bypassed).
-      db.AdminSessionLocal = async_sessionmaker(
-          engine, expire_on_commit=False, class_=AsyncSession)
-      db.SessionLocal = app_session_factory
+      monkeypatch.setattr(
+          db,
+          "AdminSessionLocal",
+          async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession),
+      )
+      monkeypatch.setattr(db, "SessionLocal", app_session_factory)
       app = create_app()
       st = get_settings()
       h = {"host": "aurora.suporte.gerti.com.br"}
@@ -1166,6 +1169,8 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
   ```
   cd /home/will/projetos/ground-control && git add apps/sidecar/src/gerti_sidecar/routers/contracts.py apps/sidecar/src/gerti_sidecar/main.py apps/sidecar/tests/test_contracts_router.py && git -c commit.gpgsign=false commit -m "feat(#1F-a): GET /v1/contracts (auth, tenant-scoped, saldo #1C)"
   ```
+
+> **Reconciliação (test-isolation):** binds de `db.*` via `monkeypatch.setattr` (auto-restore) — convenção do Task 3; plano escrito antes.
 
 ---
 
