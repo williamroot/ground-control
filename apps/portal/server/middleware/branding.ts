@@ -19,7 +19,7 @@ export const DEFAULT_BRANDING: Branding = {
   support_email: null,
 }
 
-const SUB_RE = /^([a-z0-9][a-z0-9-]{0,62})\.suporte\.gerti\.com\.br$/
+const SUB_RE = /^([a-z0-9][a-z0-9-]{0,62})\.suporte\.(?:gerti\.com\.br|was\.dev\.br)$/
 
 export function resolveSubdomain(host: string, forwarded: string): string | null {
   const h = (forwarded || host || '').split(':')[0].toLowerCase()

@@ -97,3 +97,52 @@ async def test_xforwarded_host_resolves_tenant_and_cross_tenant_403(
             },
         )
         assert xtenant.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_was_dev_br_subdomain_resolves_aurora_branding(
+    engine, app_session_factory, session, monkeypatch
+):
+    """#1F-a: *.suporte.was.dev.br (zona CF do token de teste) deve resolver
+    o mesmo tenant que *.suporte.gerti.com.br — o SUBDOMAIN_RE aceita ambas
+    as bases via alternação ancorada."""
+    monkeypatch.setenv("SESSION_SECRET", "test-secret-32-chars-minimum-xxxx")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    get_settings.cache_clear()
+    await seed_demo_contracts.seed(session)
+    await session.commit()
+    await seed_demo_branding.seed(session)
+    await session.commit()
+
+    monkeypatch.setattr(
+        db,
+        "AdminSessionLocal",
+        async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession),
+    )
+    monkeypatch.setattr(db, "SessionLocal", app_session_factory)
+    app = create_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        # S1: XFH=aurora.suporte.was.dev.br → tenant Aurora → branding branded.
+        resp = await c.get(
+            "/v1/branding",
+            headers={
+                "host": "sidecar:8001",
+                "x-forwarded-host": "aurora.suporte.was.dev.br",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["display_name"] == "Aurora Móveis"
+
+        # Guard: host completamente desconhecido (não é *.suporte.gerti.com.br
+        # nem *.suporte.was.dev.br) → o middleware extrai subdomain=None para
+        # hosts sem padrão reconhecido OU, para hosts com subdomínio em base
+        # desconhecida, não casa o regex → 404.
+        resp_unknown = await c.get(
+            "/v1/branding",
+            headers={
+                "host": "sidecar:8001",
+                "x-forwarded-host": "aurora.suporte.evil.example.com",
+            },
+        )
+        assert resp_unknown.status_code == 404

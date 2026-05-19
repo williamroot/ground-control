@@ -235,6 +235,13 @@ Schema `gerti` e Znuny permanecem intactos. **NUNCA** `make reset`
 > runbook acima. A execução na VPS é etapa separada (deploy agent
 > concorrente); este runbook é o procedimento de referência.
 
+> **Domínios dos tenants de teste (Spec #1F-a):** Os 2 white-labels de
+> teste (Aurora / TechNova) são expostos sob `*.suporte.was.dev.br` (zona
+> controlada pelo token CF disponível), além de `*.suporte.gerti.com.br`.
+> O resolver (sidecar `SUBDOMAIN_RE` e portal `SUB_RE`) aceita **ambas**
+> as bases via alternação ancorada — domínio de produção
+> `*.suporte.gerti.com.br` permanece inalterado (Spec §1F-a).
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)

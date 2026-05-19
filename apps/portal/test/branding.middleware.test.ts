@@ -11,4 +11,15 @@ describe('branding middleware helpers', () => {
     expect(DEFAULT_BRANDING.display_name).toBe('Portal')
     expect(DEFAULT_BRANDING.display_name).not.toMatch(/gerti/i)
   })
+  // #1F-a: *.suporte.was.dev.br (zona CF do token de teste) deve resolver
+  // subdomain — mesma captura que *.suporte.gerti.com.br.
+  it('resolves subdomain from *.suporte.was.dev.br (test CF zone)', () => {
+    expect(resolveSubdomain('aurora.suporte.was.dev.br', '')).toBe('aurora')
+    expect(resolveSubdomain('technova.suporte.was.dev.br', '')).toBe('technova')
+    expect(resolveSubdomain('', 'aurora.suporte.was.dev.br')).toBe('aurora')
+  })
+  it('unknown host (neither zone) resolves to null → default branding', () => {
+    expect(resolveSubdomain('aurora.suporte.evil.example.com', '')).toBeNull()
+    expect(resolveSubdomain('aurora.suporte.other.io', '')).toBeNull()
+  })
 })

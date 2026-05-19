@@ -41,7 +41,7 @@ ROOT_HOSTS: Final[set[str]] = {
 }
 
 SUBDOMAIN_RE: Final[re.Pattern[str]] = re.compile(
-    r"^(?P<sub>[a-z0-9][a-z0-9-]{0,62})\.suporte\.gerti\.com\.br$"
+    r"^(?P<sub>[a-z0-9][a-z0-9-]{0,62})\.suporte\.(?:gerti\.com\.br|was\.dev\.br)$"
 )
 
 
