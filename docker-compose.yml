@@ -238,14 +238,41 @@ services:
     depends_on:
       postgres:        { condition: service_healthy }
       sidecar-migrate: { condition: service_completed_successfully }
-    networks: [data, edge]
+    networks: [data, edge, app]
     environment:
       ENVIRONMENT: production
       DATABASE_URL: postgresql+asyncpg://gerti_sidecar:${GERTI_SIDECAR_DB_PASSWORD:-}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-znuny}
       LOG_LEVEL: INFO
+      SESSION_SECRET: ${GERTI_SESSION_SECRET:-}
+      # Caminho BYPASSRLS estreito SÓ p/ resolução subdomínio->tenant
+      # (D16). Mesmo host/db do DATABASE_URL, role gerti_admin_user.
+      DATABASE_ADMIN_URL: postgresql+asyncpg://gerti_admin_user:${GERTI_ADMIN_DB_PASSWORD:-}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-znuny}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8001/v1/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  # ───────────────────────────────────────────────────────────────────
+  #  Gerti Portal Cliente white-label (Spec #1F-a) — profile `gerti`.
+  #  Aditivo: nada sobe sem --profile gerti. Fala só com `sidecar`.
+  #  Deploy runbook: .ia/OPS.md "Deploy do portal".
+  # ───────────────────────────────────────────────────────────────────
+  portal:
+    profiles: ["gerti"]
+    build: { context: ./apps/portal }
+    image: ground-control/portal:${GERTI_PORTAL_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      sidecar: { condition: service_healthy }
+    networks: [app, edge]
+    environment:
+      SIDECAR_URL: http://sidecar:8001
+      PORTAL_BASE_DOMAIN: ${PORTAL_BASE_DOMAIN:-suporte.gerti.com.br}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 25s
