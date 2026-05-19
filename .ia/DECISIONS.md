@@ -141,3 +141,64 @@ respondem) durante a janela de deploy autônomo: bloqueio externo do
 lado da VPS, não fabricado. Runbook completo em `OPS.md` "Deploy do
 sidecar"; segredos fortes gerados e entregues out-of-band. Retomar =
 `git pull` + passos 1–5 + D3 (zero mudança de código pendente).
+
+## D14 — Validação de credencial de customer Znuny (R1, fatia #1F-a)
+
+**Contexto.** O sidecar precisa validar uma credencial de *customer*
+Znuny no login do Portal Cliente SEM depender de GertiHooks/#1B (ainda
+inexistente). SPIKE R1 investigou o Znuny prod vivo via `ssh gc`
+(jump alias via node `postgres`; Tailscale direto quebrado — ver
+`.ia/OPS.md`). Inventário (`Admin::WebService::List`) retornou
+**lista vazia** (`Listing all web services... Done.`) — nenhum
+webservice cadastrado, nada a dumpar. `ls
+.../GenericInterface/Operation/Session/` retornou `Common.pm
+SessionCreate.pm SessionGet.pm SessionRemove.pm` → operação core
+`Session::SessionCreate` PRESENTE (código Znuny 7.2, não #1B). A fonte
+de `SessionCreate.pm` documenta os campos `UserLogin` **ou**
+`CustomerUserLogin` + `Password`; `Session::Common::CreateSessionID`
+roteia `CustomerUserLogin` para `Kernel::System::CustomerAuth->Auth`
+(auth de CUSTOMER, respeita `Customer::AuthModule`), retorna undef em
+credencial inválida → `SessionCreate.pm` devolve `SessionCreate.AuthFail`.
+
+**Decisão: PRIMARY.** Mecanismo = webservice Generic Interface REST
+(provider) expondo a operação core `Session::SessionCreate`, transporte
+`HTTP::REST`, rota **`POST /Session`** mapeada para a operação
+`SessionCreate` (`Type: Session::SessionCreate`). O sidecar faz
+`POST {base_url}/nph-genericinterface.pl/Webservice/<Name>/Session`
+com body JSON usando o campo de login de customer **exato
+`CustomerUserLogin`** + `Password` (texto plano). Resposta com
+`Data.SessionID` ⇒ credencial válida; `SessionCreate.AuthFail`/`Error`/
+HTTP 4xx ⇒ inválida; falha de transporte ⇒ indisponível. O webservice
+**ainda não existe** no Znuny prod (lista vazia) — criá-lo/importá-lo é
+etapa de deploy (Task 5/6); a definição YAML exata está no arquivo de
+evidência. FALLBACK (query read-only `customer_user` + `CryptType`)
+**não foi necessário nem exercido**.
+
+**Contrato CONGELADO (verbatim, para Task 5):**
+
+```python
+class ZnunyUnavailable(RuntimeError):
+    ...
+
+async def authenticate_customer(login: str, password: str) -> bool:
+    ...
+```
+
+Semântica:
+- credencial válida (HTTP 2xx, body com `SessionID`) → `return True`
+- credencial inválida (`Error`/`SessionCreate.AuthFail`/HTTP 4xx) →
+  `return False`
+- erro de conexão / timeout / HTTP 5xx → `raise ZnunyUnavailable`
+
+**Endpoint/token.** Da linha ÚNICA de `gerti.znuny_instance`
+(`id=b437f4d5-8266-4270-9253-ef536c8ff59c`, `name="Gerti Prod
+(znuny-dev)"`, `mode=pool`, `status=active`):
+- `base_url` = `https://znuny-dev.was.dev.br`
+- token de acesso ao webservice via `webservice_token_secret_ref` =
+  `vault://gerti/znuny-dev/webservice`
+- `db_dsn_secret_ref` = `vault://gerti/znuny-dev/db` (só seria usado no
+  FALLBACK — NÃO é o caso).
+
+**Evidência.** `docs/superpowers/spikes/2026-05-17-r1-znuny-customer-auth.md`
+(transcrições reais: `Admin::WebService::List`, `ls Session/`, fonte de
+`SessionCreate.pm`/`Common.pm`, `\d gerti.znuny_instance` + a linha).
