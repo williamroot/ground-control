@@ -11,6 +11,7 @@ from gerti_sidecar.models.contract_policy import (
 from gerti_sidecar.models.contract_scope import ContractScopeCi, ContractScopeService
 from gerti_sidecar.models.cycle import ContractCycle
 from gerti_sidecar.models.tenant import Tenant
+from gerti_sidecar.models.tenant_branding import TenantBranding
 from gerti_sidecar.models.ticket_link import TicketContractLink
 from gerti_sidecar.models.znuny_instance import ZnunyInstance
 
@@ -28,6 +29,7 @@ __all__ = [
     "ServiceCatalogItem",
     "SharedCreditPool",
     "Tenant",
+    "TenantBranding",
     "TicketContractLink",
     "ZnunyInstance",
 ]

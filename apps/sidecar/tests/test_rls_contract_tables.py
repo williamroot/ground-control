@@ -87,6 +87,7 @@ async def test_every_gerti_table_has_rls_enabled_and_forced(session):
         "contract_adjustment_rule",
         "contract_renewal_policy",
         "ticket_contract_link",
+        "tenant_branding",
     }
     rows = (
         await session.execute(
