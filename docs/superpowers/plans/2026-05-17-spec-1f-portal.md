@@ -917,9 +917,12 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
       await session.commit()
       # Resolution path = admin engine (BYPASSRLS, mirrors
       # test_tenant_middleware.py); data path = RLS-subject (gerti_sidecar).
-      db.AdminSessionLocal = async_sessionmaker(
-          engine, expire_on_commit=False, class_=AsyncSession)
-      db.SessionLocal = app_session_factory
+      monkeypatch.setattr(
+          db,
+          "AdminSessionLocal",
+          async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession),
+      )
+      monkeypatch.setattr(db, "SessionLocal", app_session_factory)
       app = create_app()
       h = {"host": "aurora.suporte.gerti.com.br"}
       transport = ASGITransport(app=app)
@@ -1023,6 +1026,8 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
   ```
   cd /home/will/projetos/ground-control && git add apps/sidecar/src/gerti_sidecar/routers/auth.py apps/sidecar/src/gerti_sidecar/main.py apps/sidecar/tests/test_auth_login_router.py && git -c commit.gpgsign=false commit -m "feat(#1F-a): POST /v1/auth/login + /logout (cookie gsid HttpOnly)"
   ```
+
+> **Reconciliação (test-isolation):** binds de `db.*` via `monkeypatch.setattr` (auto-restore), não atribuição global — senão vazam p/ `test_tenant_middleware`; convenção descoberta no Task 3, plano escrito antes.
 
 ---
 
