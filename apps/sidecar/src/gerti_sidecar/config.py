@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     # banco ------------------------------------------------------------
     database_url: PostgresDsn
 
+    # portal session (Spec #1F-a) ------------------------------------
+    session_secret: str = "dev-insecure-session-secret-change-me"
+    session_cookie_name: str = "gsid"
+    session_ttl_seconds: int = 28800  # 8h
+
     # admin DSN usado SÓ pela resolução subdomínio->tenant (BYPASSRLS,
     # somente identidade — ver D16). Opcional: ausente => cai no
     # SessionLocal normal (dev/test ligam SessionLocal ao admin engine).
@@ -71,6 +76,11 @@ class Settings(BaseSettings):
     @property
     def is_test(self) -> bool:
         return self.environment == "test"
+
+    @property
+    def session_cookie_secure(self) -> bool:
+        # Plain-HTTP test/dev clients drop Secure cookies (H4).
+        return self.environment not in ("development", "test")
 
 
 @lru_cache

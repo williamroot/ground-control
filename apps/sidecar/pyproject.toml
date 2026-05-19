@@ -18,6 +18,7 @@ dependencies = [
     "python-multipart>=0.0.20,<0.1",
     "httpx>=0.28.0,<0.29",
     "structlog>=24.4.0,<25",
+    "pyjwt>=2.9",
 ]
 
 [project.optional-dependencies]
@@ -49,6 +50,8 @@ ignore = ["S101"]  # asserts em testes são OK
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S"]
 "src/gerti_sidecar/routers/**" = ["B008"]  # FastAPI Depends() em defaults é idiomático
+"src/gerti_sidecar/auth/**" = ["B008"]  # FastAPI Depends() em defaults é idiomático
+"src/gerti_sidecar/config.py" = ["S105"]  # default dev placeholder; valor real vem de env (12-factor)
 
 [tool.mypy]
 python_version = "3.12"
