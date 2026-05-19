@@ -765,6 +765,8 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
 **Files:** Create `apps/sidecar/src/gerti_sidecar/integrations/__init__.py` · Create `apps/sidecar/src/gerti_sidecar/integrations/znuny_gi.py` · Create `apps/sidecar/tests/test_znuny_gi.py`.
 
+> **Reconciliação D14:** o campo de login é `CustomerUserLogin` (auth de CUSTOMER), não `UserLogin` (auth de agente) — o plano foi escrito pré-spike; D14 é autoritativo.
+
 > Implement the mechanism FROZEN in D14 (Task 1). The code below is the **PRIMARY** (`Session::SessionCreate` REST webservice) shape; if D14 chose the FALLBACK, implement the read-only `customer_user`/`CryptType` variant instead, keeping the IDENTICAL public signature `authenticate_customer(login, password) -> bool` + `ZnunyUnavailable`. Tests mock the HTTP — zero network in testcontainers (H7).
 
 - [ ] **Step 1 — Failing test.** Create `apps/sidecar/tests/test_znuny_gi.py`:
@@ -790,7 +792,10 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
   @pytest.mark.asyncio
   async def test_authenticate_customer_paths(monkeypatch):
+      captured: dict = {}
+
       async def ok_post(self, url, **kw):  # noqa: ANN001
+          captured["json"] = kw.get("json")
           return _MockResp(200, {"SessionID": "abc"})
 
       async def reject_post(self, url, **kw):  # noqa: ANN001
@@ -804,6 +809,13 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
       monkeypatch.setattr(httpx.AsyncClient, "post", ok_post)
       assert await znuny_gi.authenticate_customer("joe", "pw") is True
+
+      # D14 regression guard: customer-login body uses CustomerUserLogin
+      # (Kernel::System::CustomerAuth) — never UserLogin (agent auth).
+      body = captured["json"]
+      assert body["CustomerUserLogin"] == "joe"
+      assert "Password" in body
+      assert "UserLogin" not in body
 
       monkeypatch.setattr(httpx.AsyncClient, "post", reject_post)
       assert await znuny_gi.authenticate_customer("joe", "bad") is False
@@ -845,7 +857,7 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
   async def authenticate_customer(login: str, password: str) -> bool:
       url, token = _resolve_endpoint()
-      body = {"UserLogin": login, "Password": password, "AccessToken": token}
+      body = {"CustomerUserLogin": login, "Password": password, "AccessToken": token}
       try:
           async with httpx.AsyncClient(timeout=10.0) as client:
               resp = await client.post(url, json=body)
