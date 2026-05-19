@@ -4,7 +4,7 @@
 
 **Goal:** Stand up the white-label client portal end-to-end as a *vertical slice*: each Gerti tenant reaches `<tenant>.suporte.gerti.com.br`, sees a portal painted with **their** brand, logs in with a credential validated against the single Znuny (via the sidecar's Generic Interface — no OIDC), and sees **their** contracts + balances reusing the #1C `ConsumptionService.balance` engine, isolated per tenant by RLS. NOTHING from Spec §9 YAGNI (tickets, service catalog, dynamic forms, executive dashboards/KPIs, billing approval, branding admin UI, logo upload, i18n, multi-Znuny, OIDC/PKCE/`useOidc`) is built, scaffolded, or mentioned as a task.
 
-**Architecture:** Extends the #1C sidecar (`apps/sidecar`, repo `ground-control` branch `main`, alembic chain head `0010_balance_view`, `TenantMiddleware` resolving `<sub>.suporte.gerti.com.br` to `request.state.tenant` + `app.current_tenant` GUC, FORCE RLS on every `gerti.*` table). Adds: one branding table (`gerti.tenant_branding`, 1:1 with tenant, same RLS template as #1C) read pre-auth under the subdomain GUC; a thin Znuny GI client `integrations/znuny_gi.py` (`authenticate_customer(login, password) -> bool`, raising `ZnunyUnavailable`) whose mechanism is **frozen by the Task 1 R1 spike**; a JWT HS256 session (`gsid` cookie) with a `get_current_session` dependency that fails closed and rejects cross-tenant cookies; five new routers (`/v1/branding`, `/v1/auth/login`, `/v1/auth/logout`, `/v1/me`, `/v1/contracts`) wired into `main.py` exactly like `health.router`; an idempotent `seed_demo_branding.py` mirroring `seed_demo_contracts.py`; and a new Nuxt 3 SSR portal in `apps/portal/` that resolves branding server-side (Nitro middleware, no theme flash), proxies auth, and renders the tenant's contracts. The Nuxt layer NEVER talks to Znuny — the sidecar is the only door. New deploy is **additive**: a `portal` service under `profiles:["gerti"]` in the root `docker-compose.yml`, plus a Cloudflare ingress for `aurora.suporte.gerti.com.br` via the documented read-modify-write pattern.
+**Architecture:** Extends the #1C sidecar (`apps/sidecar`, repo `ground-control` branch `main`, alembic chain head `0010_balance_view`, `TenantMiddleware` resolving `<sub>.suporte.gerti.com.br` to `request.state.tenant` + `app.current_tenant` GUC, FORCE RLS on every `gerti.*` table). Adds: one branding table (`gerti.tenant_branding`, 1:1 with tenant, same RLS template as #1C) read pre-auth under the subdomain GUC; a thin Znuny GI client `integrations/znuny_gi.py` (`authenticate_customer(login, password) -> bool`, raising `ZnunyUnavailable`) whose mechanism is **frozen by the Task 1 R1 spike**; a JWT HS256 session (`gsid` cookie) with a `get_current_session` dependency that fails closed and rejects cross-tenant cookies; five new routers (`/v1/branding`, `/v1/auth/login`, `/v1/auth/logout`, `/v1/me`, `/v1/contracts`) wired into `main.py` exactly like `health.router`; an idempotent `seed_demo_branding.py` mirroring `seed_demo_contracts.py` that seeds **TWO testable white-label tenants** (Aurora — branding only, tenant+contracts from #1C; and a new fictitious TechNova — its own `gerti.tenant`+branding+small contract set on the SAME single Znuny, plus a minimal Znuny `CustomerCompany`/`CustomerUser` test fixture via a sibling idempotent Perl seeder wired into `scripts/seed-demo.sh`); and a new Nuxt 3 SSR portal in `apps/portal/` that resolves branding server-side (Nitro middleware, no theme flash), proxies auth, and renders the tenant's contracts. The Nuxt layer NEVER talks to Znuny — the sidecar is the only door. New deploy is **additive**: a `portal` service under `profiles:["gerti"]` in the root `docker-compose.yml`, plus Cloudflare ingress for **both** `aurora.suporte.gerti.com.br` and `technova.suporte.gerti.com.br` via the documented read-modify-write pattern (the #1C D3 guard preserves `znuny-dev`+`api-dev`).
 
 **Tech Stack:** Python 3.12, uv, FastAPI, SQLAlchemy 2 async, Alembic, asyncpg, Pydantic v2, PyJWT (HS256), httpx (async, mocked in tests), pytest + pytest-asyncio + testcontainers (`postgres:18`); Nuxt 3 SSR, Nitro, @nuxt/ui v3, TailwindCSS, Pinia, TypeScript, Vitest + @nuxt/test-utils, pnpm (`--frozen-lockfile`); Docker Compose (additive profile), Cloudflare Tunnel (token-mode, multi-hostname).
 
@@ -47,6 +47,7 @@ Static-analysis traps found against the audited code + Postgres/Nuxt/cookie sema
 | H13 | `pnpm install` without a committed lockfile is non-reproducible; the offline build needs `--frozen-lockfile`. | `pnpm-lock.yaml` generated+committed in Task 9; every portal gate uses `pnpm -C apps/portal install --frozen-lockfile`. (Tasks 9, 14) |
 | H14 | R1 (validate Znuny customer credential with NO GertiHooks/#1B) is highest risk; building auth before it is decided causes rework. | Task 1 is a BLOCKING spike with concrete `ssh gc` commands, decision criteria, read-only-schema FALLBACK, and a FROZEN function contract recorded as ADR **D14**. No later task starts until D14 is written. (Task 1) |
 | H15 | `TenantMiddleware.dispatch` runs `select(Tenant).where(subdomain==...)` with no `app.current_tenant` GUC; in prod the sidecar connects as `gerti_sidecar` (RLS-subject, BYPASSRLS NOT inherited via role membership — #1C) and `gerti.tenant` is FORCE RLS, so the lookup returns 0 rows -> `tenant is None` -> **404 for every valid subdomain** (prod bug + every router test that binds `db.SessionLocal=app_session_factory` silently asserts 404). #1F is the first feature to exercise HTTP tenant-resolution in prod (in #1C only `/v1/health`, a META_PATH, ran). | Introduce a narrow BYPASSRLS read path used ONLY for subdomain->tenant resolution (`config.database_admin_url` optional, `db.admin_engine`/`db.AdminSessionLocal`, `TenantMiddleware` uses `AdminSessionLocal` if not None else `SessionLocal`; all tenant DATA stays RLS-subject via `tenant_session_scope`). Tests mirror `test_tenant_middleware.py`: bind `db.AdminSessionLocal` (the resolution path) to the admin `engine` while the data path exercises RLS. Prod compose sets `DATABASE_ADMIN_URL` from `gerti_admin_user`+`${GERTI_ADMIN_DB_PASSWORD:-}`. ADR **D16**. (Task 3) |
+| H16 | The vertical slice must deliver TWO testable white-label tenants so cross-tenant isolation is demonstrable, not asserted on faith. TechNova (the 2nd tenant) needs its OWN `gerti.tenant` + `tenant_branding` + a small contract set, AND a minimal Znuny `CustomerCompany`/`CustomerUser` so `POST /v1/auth/login` validates against the real Znuny for tenant 2 (Aurora already has these from #1C). Both subdomains must be provisioned in the SAME D3 read-modify-write splice while preserving `znuny-dev`+`api-dev`. | 2 test tenants: TechNova needs its own `gerti.tenant` + branding + contracts + a minimal Znuny CustomerCompany/CustomerUser for real login; cross-tenant cookie rejection is the white-label proof; both subdomains provisioned in one D3 splice preserving znuny-dev+api-dev. `seed_demo_branding.seed()` returns `(aurora_id, technova_id)`, seeds Aurora branding only + the full TechNova tenant (same single `znuny_instance` — §2.1) reusing `seed_demo_contracts`' uuid5/append-only-safe pattern; `scripts/seed-technova.pl` (idempotent, 1 company + 1 user `admin.tech@technova.example` / `TechNova@Demo2026`) wired into `scripts/seed-demo.sh`; Task 14 splices BOTH hostnames before the `http_status:404` catch-all with the #1C D3 abort-guard asserting `znuny-dev`+`api-dev` survive; Task 13 e2e asserts different branding per subdomain, per-tenant contract isolation, and cross-tenant `gsid` rejection 403. (Tasks 8, 13, 14) |
 
 ---
 
@@ -1151,13 +1152,23 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
 ---
 
-## Task 8 — `seed_demo_branding.py` (idempotent, mirrors `seed_demo_contracts.py`)
+## Task 8 — `seed_demo_branding.py` (idempotent, **2 white-label test tenants**: Aurora + TechNova) + Znuny TechNova customer fixture
 
-**Files:** Create `apps/sidecar/scripts/seed_demo_branding.py` · Create `apps/sidecar/tests/test_seed_demo_branding.py`.
+**Scope note (approved breadth, NOT a §9 breach):** still strictly "branding + portal vertical slice", just delivered for **TWO** testable white-label tenants so cross-tenant white-label isolation is demonstrable. NO admin UI, NO onboarding automation, NO OIDC, NO tickets/catalog/dashboards. The 2nd tenant ("TechNova", fictitious) reuses the EXACT `seed_demo_contracts` Contract/Cycle/ConsumptionEvent model+pattern; the Znuny side gets a minimal 1-company/1-user fixture (test fixture like #1C's Aurora Znuny seed, NOT #1G onboarding).
+
+**Tenant identities (frozen — spelled identically across Tasks 8, 13, 14):**
+- **Aurora** — `znuny_customer_id='AURORA'`, `subdomain='aurora'`, tenant id `5effe6fd-005e-43e4-9b1a-81107eb7f1a9` (already in prod from #1C; tenant+contracts seeded by `seed_demo_contracts`). The branding seeder seeds ONLY Aurora's `tenant_branding` row — it MUST NOT recreate the tenant/instance/contracts.
+- **TechNova** — `znuny_customer_id='TECHNOVA'`, `subdomain='technova'`, legal name "TechNova Soluções em Tecnologia Ltda.", trade name "TechNova". NEW: the branding seeder idempotently ensures `gerti.tenant` (pointing at the SAME single `znuny_instance` — constraint §2.1: always 1 Znuny), its `tenant_branding` row (a deliberately DIFFERENT palette/name so the white-label difference is visually obvious), and a SMALL contract set (2 contracts: one `hour_bank`, one `credit_brl`, each with a couple of consumption events) reusing the `seed_demo_contracts` model+pattern, so TechNova's authenticated `/v1/contracts` is non-empty and demonstrably DIFFERENT from Aurora's 6.
+- **TechNova Znuny demo login (documented, public test password):** customer user `admin.tech@technova.example`, password **`TechNova@Demo2026`** (same `<Marca>@Demo2026` convention as Aurora's `Aurora@Demo2026`), CustomerCompany CustomerID `TECHNOVA`. Created by a minimal idempotent Znuny step (Sub-section 8B) so `POST /v1/auth/login` validates against the real Znuny for tenant 2 just like Aurora.
+
+**Files:** Create `apps/sidecar/scripts/seed_demo_branding.py` · Create `apps/sidecar/tests/test_seed_demo_branding.py` · Create `scripts/seed-technova.pl` · Modify `scripts/seed-demo.sh` · Modify `.ia/DEMO.md`.
+
+### Sub-section 8A — `seed_demo_branding.py` (Aurora branding + full TechNova tenant)
 
 - [ ] **Step 1 — Failing test.** Create `apps/sidecar/tests/test_seed_demo_branding.py`:
   ```python
-  """seed_demo_branding: idempotente, semeia branding da Aurora."""
+  """seed_demo_branding: idempotente; Aurora (só branding) + TechNova
+  (tenant + branding + contratos), cross-tenant visivelmente distinto."""
 
   from __future__ import annotations
 
@@ -1167,7 +1178,7 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
   import pytest
   from sqlalchemy import select
 
-  from gerti_sidecar.models import Tenant, TenantBranding
+  from gerti_sidecar.models import Contract, Tenant, TenantBranding
 
   _SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
   if str(_SCRIPTS) not in sys.path:
@@ -1178,36 +1189,82 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
 
   @pytest.mark.asyncio
-  async def test_branding_seed_is_idempotent(session):
+  async def test_branding_seed_two_tenants_idempotent(session):
+      # #1C seed creates the Aurora tenant + the single znuny_instance + 6 contracts.
       await seed_demo_contracts.seed(session)
       await session.commit()
-      tid1 = await seed_demo_branding.seed(session)
+      r1 = await seed_demo_branding.seed(session)
       await session.commit()
-      tid2 = await seed_demo_branding.seed(session)
+      r2 = await seed_demo_branding.seed(session)
       await session.commit()
-      assert tid1 == tid2
-      b = (await session.execute(
-          select(TenantBranding).where(TenantBranding.tenant_id == tid1))
+      assert r1 == r2  # (aurora_id, technova_id) stable across re-runs
+
+      aurora_id, technova_id = r1
+      assert aurora_id != technova_id
+
+      ba = (await session.execute(
+          select(TenantBranding).where(TenantBranding.tenant_id == aurora_id))
       ).scalar_one()
-      assert b.display_name == "Aurora Móveis"
-      t = (await session.execute(
-          select(Tenant).where(Tenant.id == tid1))).scalar_one()
-      assert t.znuny_customer_id == "AURORA"
+      bt = (await session.execute(
+          select(TenantBranding).where(TenantBranding.tenant_id == technova_id))
+      ).scalar_one()
+      assert ba.display_name == "Aurora Móveis"
+      assert bt.display_name == "TechNova"
+      # White-label difference must be visually obvious.
+      assert ba.primary_color != bt.primary_color
+      assert ba.display_name != bt.display_name
+
+      ta = (await session.execute(
+          select(Tenant).where(Tenant.id == aurora_id))).scalar_one()
+      tt = (await session.execute(
+          select(Tenant).where(Tenant.id == technova_id))).scalar_one()
+      assert ta.znuny_customer_id == "AURORA"
+      assert tt.znuny_customer_id == "TECHNOVA"
+      assert tt.subdomain == "technova"
+      # Constraint §2.1: both tenants point at the SAME single znuny_instance.
+      assert ta.znuny_instance_id == tt.znuny_instance_id
+
+      # Aurora keeps its 6 #1C contracts; TechNova has its own small set,
+      # demonstrably DIFFERENT (count + codes) from Aurora's.
+      ca = (await session.execute(
+          select(Contract).where(Contract.tenant_id == aurora_id))).scalars().all()
+      ct = (await session.execute(
+          select(Contract).where(Contract.tenant_id == technova_id))).scalars().all()
+      assert len(ca) == 6
+      assert len(ct) == 2
+      assert {c.code for c in ca}.isdisjoint({c.code for c in ct})
   ```
 - [ ] **Step 2 — Run, expect fail.** `cd /home/will/projetos/ground-control/apps/sidecar && uv run pytest -q tests/test_seed_demo_branding.py` -> `ModuleNotFoundError: seed_demo_branding`.
-- [ ] **Step 3 — Implement.** Create `apps/sidecar/scripts/seed_demo_branding.py`:
+- [ ] **Step 3 — Implement.** Create `apps/sidecar/scripts/seed_demo_branding.py`. It MUST reuse `seed_demo_contracts`' private helpers/pattern (deterministic `uuid5` webhook ids → never violates the append-only trigger; check-before-insert by natural key; `= já existe` on re-run) for TechNova's contracts; it must NOT touch Aurora's tenant/instance/contracts (those are #1C's). Runs as `gerti_admin_user` (BYPASSRLS — recall #1C: BYPASSRLS is a **direct role attribute** on `gerti_admin_user`, the init SQL already grants it; it is NOT inherited via role membership).
   ```python
-  """Seed idempotente do branding white-label da Aurora (Spec #1F-a).
+  """Seed idempotente do white-label de DOIS tenants de teste (Spec #1F-a).
 
-  Espelha scripts/seed_demo_contracts.py: argparse, create_async_engine
-  via DATABASE_URL, async_sessionmaker, seed(s) importável + main() fino.
-  Check-before-insert pela chave natural Tenant.znuny_customer_id=='AURORA'.
+  Espelha scripts/seed_demo_contracts.py: argparse, create_async_engine via
+  DATABASE_URL, async_sessionmaker, seed(s) importável + main() fino.
+
+  Tenant 1 = Aurora (znuny_customer_id='AURORA'): JÁ existe em prod (#1C
+  semeou tenant + znuny_instance + 6 contratos). Aqui semeamos SÓ a linha
+  tenant_branding da Aurora — NÃO recriamos tenant/instância/contratos.
+
+  Tenant 2 = TechNova (znuny_customer_id='TECHNOVA', subdomain='technova'):
+  garante idempotentemente gerti.tenant (apontando para a MESMA única
+  gerti.znuny_instance — §2.1: sempre 1 Znuny), sua linha tenant_branding
+  (paleta/nome propositalmente DIFERENTES p/ o white-label ser óbvio) e um
+  conjunto PEQUENO de contratos (1 hour_bank + 1 credit_brl, cada um com
+  alguns ConsumptionEvent) reusando o modelo+padrão de seed_demo_contracts
+  (webhook ids uuid5 determinísticos → nunca viola o trigger append-only).
+
+  Check-before-insert por chave natural; reexecução imprime "= já existe".
+  Roda como gerti_admin_user (BYPASSRLS — atributo de role direto, init SQL
+  já concede; NÃO herdado via role membership). seed(s) -> (aurora_id,
+  technova_id).
   """
 
   from __future__ import annotations
 
   import argparse
   import asyncio
+  import datetime as dt
   import os
   import uuid
 
@@ -1218,13 +1275,52 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
       create_async_engine,
   )
 
-  from gerti_sidecar.models import Tenant, TenantBranding
+  from gerti_sidecar.models import (
+      ConsumptionEvent,
+      Contract,
+      Tenant,
+      TenantBranding,
+      ZnunyInstance,
+  )
+  from gerti_sidecar.models.enums import ContractType
+
+  import seed_demo_contracts  # mesmo diretório scripts/; reuso de padrão
 
   AURORA_CUSTOMER_ID = "AURORA"
+  TECHNOVA_CUSTOMER_ID = "TECHNOVA"
+  TECHNOVA_SUBDOMAIN = "technova"
+
+  # Namespace uuid5 PRÓPRIO da TechNova (distinto do _NS do seed #1C) p/
+  # webhook ids determinísticos — reexecução não dobra consumo (append-only).
+  _TN_NS = uuid.UUID("b0bb0b0b-0000-4000-8000-000000000002")
+
+  # Contratos da TechNova: pequeno, DIFERENTE dos 6 da Aurora (códigos
+  # disjuntos), reusando o modelo/padrão de seed_demo_contracts.
+  _TN_CONTRACTS: list[dict[str, object]] = [
+      {
+          "code": "TNV-HORAS-2026",
+          "type": ContractType.hour_bank,
+          "initial_hours": 24,
+          "unit_price_brl": 210,
+          "billing_period_months": 1,
+          "closing_period_months": 1,
+      },
+      {
+          "code": "TNV-CREDITO-2026",
+          "type": ContractType.credit_brl,
+          "initial_amount_brl": 12000,
+          "unit_price_brl": 230,
+          "billing_period_months": 1,
+          "closing_period_months": 3,
+      },
+  ]
 
 
-  async def seed(s: AsyncSession) -> uuid.UUID:
-      """Idempotently seed the Aurora branding. Returns the tenant id."""
+  def _tn_wid(tag: str) -> uuid.UUID:
+      return uuid.uuid5(_TN_NS, tag)
+
+
+  async def _seed_aurora_branding(s: AsyncSession) -> uuid.UUID:
       tenant = (
           await s.execute(
               select(Tenant).where(Tenant.znuny_customer_id == AURORA_CUSTOMER_ID)
@@ -1254,24 +1350,183 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
       return tenant.id
 
 
-  async def summary(s: AsyncSession) -> None:
-      b = (
+  async def _get_or_create_technova_tenant(s: AsyncSession) -> Tenant:
+      t = (
           await s.execute(
-              select(TenantBranding)
-              .join(Tenant, Tenant.id == TenantBranding.tenant_id)
-              .where(Tenant.znuny_customer_id == AURORA_CUSTOMER_ID)
+              select(Tenant).where(Tenant.znuny_customer_id == TECHNOVA_CUSTOMER_ID)
           )
       ).scalar_one_or_none()
-      if b is None:
-          print("(sem branding Aurora — rode o seed)")
+      if t is not None:
+          print(f"= já existe  Tenant {TECHNOVA_CUSTOMER_ID}")
+          return t
+      # §2.1: SEMPRE exatamente 1 Znuny — TechNova aponta para a MESMA
+      # instância única (a que o seed #1C criou). Não criamos uma nova.
+      inst = (
+          await s.execute(
+              select(ZnunyInstance).where(
+                  ZnunyInstance.name == seed_demo_contracts.INSTANCE_NAME
+              )
+          )
+      ).scalar_one_or_none()
+      if inst is None:
+          raise RuntimeError(
+              "ZnunyInstance única inexistente — rode seed_demo_contracts.py antes."
+          )
+      t = Tenant(
+          legal_name="TechNova Soluções em Tecnologia Ltda.",
+          trade_name="TechNova",
+          document="27.911.540/0001-08",
+          znuny_customer_id=TECHNOVA_CUSTOMER_ID,
+          znuny_instance_id=inst.id,
+          subdomain=TECHNOVA_SUBDOMAIN,
+          status="active",
+      )
+      s.add(t)
+      await s.flush()
+      print(f"+ criado     Tenant {TECHNOVA_CUSTOMER_ID}")
+      return t
+
+
+  async def _seed_technova_branding(s: AsyncSession, tenant_id: uuid.UUID) -> None:
+      existing = await s.get(TenantBranding, tenant_id)
+      if existing is not None:
+          print(f"= já existe  TenantBranding {TECHNOVA_CUSTOMER_ID}")
           return
-      print(f"display_name : {b.display_name}")
-      print(f"primary      : {b.primary_color}  accent: {b.accent_color}")
-      print(f"theme        : {b.default_theme}  support: {b.support_email}")
+      # Paleta/nome propositalmente DISTINTOS da Aurora (#0EA5E9 azul) p/ o
+      # white-label ser visualmente óbvio: violeta + tema escuro.
+      s.add(
+          TenantBranding(
+              tenant_id=tenant_id,
+              display_name="TechNova",
+              logo_url="https://assets.gerti.com.br/technova/logo.svg",
+              primary_color="#7C3AED",
+              accent_color="#4C1D95",
+              default_theme="dark",
+              support_email="suporte@technova.example",
+          )
+      )
+      await s.flush()
+      print(f"+ criado     TenantBranding {TECHNOVA_CUSTOMER_ID} (TechNova)")
+
+
+  async def _get_or_create_technova_contract(
+      s: AsyncSession, tenant_id: uuid.UUID, spec: dict[str, object]
+  ) -> Contract:
+      code = str(spec["code"])
+      c = (
+          await s.execute(
+              select(Contract).where(
+                  Contract.tenant_id == tenant_id, Contract.code == code
+              )
+          )
+      ).scalar_one_or_none()
+      if c is not None:
+          print(f"= já existe  Contract {code}")
+          return c
+      # Insert ORM direto (mesmo padrão de seed_demo_contracts: seed admin
+      # sem GUC app.current_tenant — ContractService levantaria).
+      c = Contract(
+          tenant_id=tenant_id,
+          code=code,
+          type=spec["type"],  # type: ignore[arg-type]
+          starts_on=seed_demo_contracts.START,
+          ends_on=seed_demo_contracts.END,
+          initial_amount_brl=spec.get("initial_amount_brl"),  # type: ignore[arg-type]
+          initial_hours=spec.get("initial_hours"),  # type: ignore[arg-type]
+          unit_price_brl=spec.get("unit_price_brl"),  # type: ignore[arg-type]
+          billing_period_months=int(spec["billing_period_months"]),  # type: ignore[call-overload]
+          closing_period_months=int(spec["closing_period_months"]),  # type: ignore[call-overload]
+          created_by="seed-demo",
+      )
+      s.add(c)
+      await s.flush()
+      print(f"+ criado     Contract {code} ({c.type})")
+      return c
+
+
+  async def _seed_technova_consumption(
+      s: AsyncSession, contract_id: uuid.UUID, code: str
+  ) -> None:
+      # 2 eventos por contrato, idempotentes por webhook_event_id uuid5
+      # determinístico (jamais viola o trigger append-only ao reexecutar).
+      minutes = [60, 90]
+      for i, mins in enumerate(minutes):
+          wid = _tn_wid(f"{code}:jan:{i}")
+          ev = (
+              await s.execute(
+                  select(ConsumptionEvent).where(
+                      ConsumptionEvent.webhook_event_id == wid
+                  )
+              )
+          ).scalar_one_or_none()
+          if ev is not None:
+              print(f"= já existe  ConsumptionEvent {code} #{i}")
+              continue
+          s.add(
+              ConsumptionEvent(
+                  contract_id=contract_id,
+                  occurred_at=dt.datetime(2026, 1, 12 + i, tzinfo=dt.UTC),
+                  source_kind="ticket_work",
+                  source_ref=f"{code}:jan:{i}",
+                  billable_minutes=mins,
+                  recorded_by="seed-demo",
+                  webhook_event_id=wid,
+              )
+          )
+          await s.flush()
+          print(f"+ criado     ConsumptionEvent {code} #{i} ({mins}min)")
+
+
+  async def seed(s: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
+      """Idempotently seed BOTH test tenants' white-label.
+
+      Returns (aurora_tenant_id, technova_tenant_id).
+      """
+      aurora_id = await _seed_aurora_branding(s)
+      tn = await _get_or_create_technova_tenant(s)
+      await _seed_technova_branding(s, tn.id)
+      for spec in _TN_CONTRACTS:
+          c = await _get_or_create_technova_contract(s, tn.id, spec)
+          await _seed_technova_consumption(s, c.id, str(spec["code"]))
+      return aurora_id, tn.id
+
+
+  async def summary(s: AsyncSession) -> None:
+      for cid in (AURORA_CUSTOMER_ID, TECHNOVA_CUSTOMER_ID):
+          row = (
+              await s.execute(
+                  select(Tenant, TenantBranding)
+                  .join(TenantBranding, TenantBranding.tenant_id == Tenant.id)
+                  .where(Tenant.znuny_customer_id == cid)
+              )
+          ).first()
+          if row is None:
+              print(f"(sem branding {cid} — rode o seed)")
+              continue
+          t, b = row
+          n = len(
+              (
+                  await s.execute(
+                      select(Contract).where(Contract.tenant_id == t.id)
+                  )
+              ).scalars().all()
+          )
+          print()
+          print(f"Tenant       : {t.trade_name} ({cid})  id={t.id}")
+          print(f"display_name : {b.display_name}")
+          print(f"primary      : {b.primary_color}  accent: {b.accent_color}")
+          print(f"theme        : {b.default_theme}  support: {b.support_email}")
+          print(f"contratos    : {n}")
+          if cid == AURORA_CUSTOMER_ID:
+              print(f"TENANT_ID_AURORA={t.id}")
+          else:
+              print(f"TENANT_ID_TECHNOVA={t.id}")
 
 
   async def main() -> None:
-      parser = argparse.ArgumentParser(description="Seed branding Aurora (idempotente)")
+      parser = argparse.ArgumentParser(
+          description="Seed branding de 2 tenants de teste (idempotente)"
+      )
       parser.add_argument("--summary", action="store_true", help="só imprime o estado")
       args = parser.parse_args()
       engine = create_async_engine(os.environ["DATABASE_URL"])
@@ -1293,10 +1548,79 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
   if __name__ == "__main__":
       asyncio.run(main())
   ```
-- [ ] **Step 4 — Run, expect pass.** Run the **Sidecar gate** verbatim. Expected: **42 passed**.
-- [ ] **Step 5 — Commit.**
+  > **Executing subagent:** `seed_demo_branding` imports `seed_demo_contracts` as a sibling module — both live in `apps/sidecar/scripts/`. Tests already insert `scripts/` onto `sys.path` before importing either; the production runner invokes it from `apps/sidecar` with `scripts/` importable exactly as `seed_demo_contracts.py` is run today (see its module docstring). Confirm `seed_demo_contracts` exports `INSTANCE_NAME`, `START`, `END` (it does — verified in AUDIT) before relying on them; if a name differs, use the real one (do NOT hand-wave).
+- [ ] **Step 4 — Run, expect pass.** Run the **Sidecar gate** verbatim. Expected: **42 passed** (Task 7's 41 + this 1 seed test).
+
+### Sub-section 8B — TechNova Znuny customer fixture (so `POST /v1/auth/login` validates against the real Znuny for tenant 2)
+
+> **Why:** the portal login validates the credential against the single Znuny via `authenticate_customer` (D14). Aurora already has a Znuny `CustomerCompany` + 5 `CustomerUser`s from the existing `scripts/seed-demo.pl` (run inside the `znuny-web` container as `otrs`, idempotent — see `.ia/DEMO.md`). TechNova needs a minimal equivalent so login works for tenant 2. This is a **test fixture** (exactly like #1C's Aurora Znuny seed), NOT #1G onboarding: 1 CustomerCompany + 1 CustomerUser only.
+
+- [ ] **Step 1 — Sibling minimal idempotent Perl seeder.** Create `scripts/seed-technova.pl` mirroring the idempotent CustomerCompany/CustomerUser blocks of `scripts/seed-demo.pl` ([3] EMPRESA CLIENTE + [4] CUSTOMER USERS, lines ~258–308 of that file — `CustomerCompanyGet`→`CustomerCompanyUpdate|CustomerCompanyAdd`, `CustomerUserDataGet`→`CustomerUserUpdate|CustomerUserAdd`, then `SetPassword`), but with ONLY:
+  ```perl
+  #!/usr/bin/perl
+  # seed-technova.pl — fixture MÍNIMO de login Znuny p/ o 2º tenant de teste
+  # (Spec #1F-a). IDEMPOTENTE. Roda DENTRO do container znuny-web como 'otrs'.
+  # NÃO é onboarding (#1G): só 1 CustomerCompany + 1 CustomerUser para o
+  # login do portal validar contra o Znuny real para o tenant TechNova.
+  use strict; use warnings;
+  use lib '/opt/otrs'; use lib '/opt/otrs/Kernel/cpan-lib'; use lib '/opt/otrs/Custom';
+  use Kernel::System::ObjectManager;
+  local $Kernel::OM = Kernel::System::ObjectManager->new();
+  my $CC = $Kernel::OM->Get('Kernel::System::CustomerCompany');
+  my $CU = $Kernel::OM->Get('Kernel::System::CustomerUser');
+  my $ROOT = 1;
+
+  my %COMPANY = (
+      CustomerID          => 'TECHNOVA',
+      CustomerCompanyName => 'TechNova Soluções em Tecnologia Ltda.',
+      CustomerCompanyCountry => 'Brazil',
+      CustomerCompanyURL  => 'https://www.technova.example',
+      CustomerCompanyComment => 'Tenant de teste #1F-a (white-label 2).',
+  );
+  my %USER = (
+      UserLogin     => 'admin.tech@technova.example',
+      UserFirstname => 'Admin',
+      UserLastname  => 'TechNova',
+      UserEmail     => 'admin.tech@technova.example',
+      UserCustomerID => 'TECHNOVA',
+      UserTitle     => 'Administrador (tenant de teste)',
+  );
+  my $PASS = 'TechNova@Demo2026';   # senha demo pública, padrão <Marca>@Demo2026
+
+  my %cc = $CC->CustomerCompanyGet( CustomerID => $COMPANY{CustomerID} );
+  if ( $cc{CustomerID} ) {
+      $CC->CustomerCompanyUpdate( %COMPANY,
+          CustomerCompanyID => $COMPANY{CustomerID}, ValidID => 1, UserID => $ROOT );
+      print "= empresa 'TECHNOVA' já existia — atualizada\n";
+  } else {
+      $CC->CustomerCompanyAdd( %COMPANY, ValidID => 1, UserID => $ROOT )
+          or die "FALHA ao criar empresa TECHNOVA\n";
+      print "+ empresa 'TECHNOVA' criada\n";
+  }
+
+  my %u = $CU->CustomerUserDataGet( User => $USER{UserLogin} );
+  if ( $u{UserLogin} ) {
+      $CU->CustomerUserUpdate( %USER, ID => $USER{UserLogin},
+          Source => 'CustomerUser', ValidID => 1, UserID => $ROOT );
+      print "= cliente 'admin.tech\@technova.example' já existia — atualizado\n";
+  } else {
+      $CU->CustomerUserAdd( %USER, Source => 'CustomerUser',
+          ValidID => 1, UserID => $ROOT )
+          or die "FALHA ao criar cliente admin.tech\@technova.example\n";
+      print "+ cliente 'admin.tech\@technova.example' criado\n";
+  }
+  $CU->SetPassword( UserLogin => $USER{UserLogin}, PW => $PASS );
+  print "= senha do cliente TechNova aplicada\n";
   ```
-  cd /home/will/projetos/ground-control && git add apps/sidecar/scripts/seed_demo_branding.py apps/sidecar/tests/test_seed_demo_branding.py && git -c commit.gpgsign=false commit -m "feat(#1F-a): scripts/seed_demo_branding.py idempotente (Aurora)"
+- [ ] **Step 2 — Wire into `scripts/seed-demo.sh` (idempotent, same `docker compose cp` + run-as-otrs mechanism).** Modify `scripts/seed-demo.sh`: after the existing block that copies+runs `seed-demo.pl` (the `c_otrs "perl $PERL_IN_CT"` line), add an analogous block that `$DC cp scripts/seed-technova.pl "$WEB:/opt/otrs/var/seed-technova.pl"`, `chown otrs:otrs`, then `c_otrs "perl /opt/otrs/var/seed-technova.pl"`. Add to the e2e verification section a check mirroring the existing Aurora one: `psql_q "SELECT name FROM customer_company WHERE customer_id='TECHNOVA';"` non-empty AND `c_otrs "perl $AUTH_IN_CT customer admin.tech\@technova.example 'TechNova@Demo2026'"` returns `OK:*`. Keep `--reset` symmetric (delete `customer_user`/`customer_company` `WHERE customer_id='TECHNOVA'` too). Do NOT remove or weaken any existing Aurora step.
+- [ ] **Step 3 — Document in `.ia/DEMO.md`.** Add a row to the customer-users table (or a short "2º tenant de teste (#1F-a)" subsection): CustomerID `TECHNOVA`, login `admin.tech@technova.example`, senha demo `TechNova@Demo2026`, propósito "fixture de login do portal white-label tenant 2 (não é cliente real)". State the exact run command (idempotent), run **inside the `znuny-web` container as `otrs`** via the same seeder:
+  ```
+  ssh gc 'cd ~/ground-control && ./scripts/seed-demo.sh'        # semeia/re-semeia Aurora + TechNova (idempotente)
+  ssh gc 'cd ~/ground-control && ./scripts/seed-demo.sh --verify'  # valida login Aurora + TechNova
+  ```
+- [ ] **Step 4 — Commit.**
+  ```
+  cd /home/will/projetos/ground-control && git add apps/sidecar/scripts/seed_demo_branding.py apps/sidecar/tests/test_seed_demo_branding.py scripts/seed-technova.pl scripts/seed-demo.sh .ia/DEMO.md && git -c commit.gpgsign=false commit -m "feat(#1F-a): seed 2 white-labels de teste (Aurora branding + tenant TechNova) + fixture Znuny TechNova"
   ```
 
 ---
@@ -1741,11 +2065,14 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
     })
   })
   ```
-- [ ] **Step 3 — Sidecar e2e smoke.** Create `apps/sidecar/tests/test_portal_e2e_smoke.py`:
+- [ ] **Step 3 — Sidecar e2e smoke (cross-tenant white-label isolation proof).** Create `apps/sidecar/tests/test_portal_e2e_smoke.py`. This is the **core white-label/RLS proof** and asserts THREE cross-tenant properties: (1) branding resolves DIFFERENTLY per subdomain (aurora vs technova → different `display_name`/colors); (2) an authenticated Aurora session sees ONLY Aurora's 6 contracts and an authenticated TechNova session sees ONLY TechNova's 2 contracts; (3) a `gsid` cookie minted for tenant A presented on tenant B's subdomain is **rejected 403** (the `get_current_session` cross-tenant guard). Keep using testcontainers + the existing #1C fixtures + mocked Znuny GI per the plan's pattern.
   ```python
-  """E2E smoke (#1F-a): seed Aurora branding+contracts -> branding por Host
-  aurora.suporte.gerti.com.br -> login (Znuny mockado) -> cookie ->
-  /v1/contracts devolve os 6 contratos da Aurora do seed #1C."""
+  """E2E smoke (#1F-a): prova de isolamento white-label cross-tenant.
+
+  seed #1C (Aurora tenant+6 contratos) + seed_demo_branding (Aurora branding
+  + tenant TechNova + branding + 2 contratos) -> branding DIFERENTE por
+  subdomínio -> login (Znuny mockado) por tenant -> /v1/contracts só do
+  tenant da sessão -> cookie do tenant A no subdomínio B = 403."""
 
   from __future__ import annotations
 
@@ -1770,13 +2097,15 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
 
   @pytest.mark.asyncio
-  async def test_portal_vertical_slice(engine, app_session_factory, session, monkeypatch):
+  async def test_portal_vertical_slice_two_tenants(
+      engine, app_session_factory, session, monkeypatch
+  ):
       monkeypatch.setenv("SESSION_SECRET", "test-secret-32-chars-minimum-xxxx")
       monkeypatch.setenv("ENVIRONMENT", "test")
       get_settings.cache_clear()
       await seed_demo_contracts.seed(session)
       await session.commit()
-      await seed_demo_branding.seed(session)
+      aurora_id, technova_id = await seed_demo_branding.seed(session)
       await session.commit()
 
       # Resolution path = admin engine (BYPASSRLS, mirrors
@@ -1786,28 +2115,59 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
           engine, expire_on_commit=False, class_=AsyncSession)
       db.SessionLocal = app_session_factory
       app = create_app()
-      h = {"host": "aurora.suporte.gerti.com.br"}
+      h_a = {"host": "aurora.suporte.gerti.com.br"}
+      h_t = {"host": "technova.suporte.gerti.com.br"}
 
       async def good(login, password):  # noqa: ANN001
           return True
 
       transport = ASGITransport(app=app)
       async with AsyncClient(transport=transport, base_url="http://t") as c:
-          br = await c.get("/v1/branding", headers=h)
-          assert br.status_code == 200
-          assert br.json()["display_name"] == "Aurora Móveis"
+          # (1) Branding resolves DIFFERENTLY per subdomain.
+          ba = await c.get("/v1/branding", headers=h_a)
+          bt = await c.get("/v1/branding", headers=h_t)
+          assert ba.status_code == 200 and bt.status_code == 200
+          assert ba.json()["display_name"] == "Aurora Móveis"
+          assert bt.json()["display_name"] == "TechNova"
+          assert ba.json()["primary_color"] != bt.json()["primary_color"]
 
           monkeypatch.setattr(auth_router, "authenticate_customer", good)
-          lr = await c.post("/v1/auth/login", headers=h,
-                            json={"username": "aurora-user", "password": "pw"})
-          assert lr.status_code == 200
-          assert "gsid" in c.cookies
 
-          cr = await c.get("/v1/contracts", headers=h)
-          assert cr.status_code == 200
-          assert len(cr.json()) == 6
+          # (2a) Aurora session sees ONLY Aurora's 6 contracts.
+          la = await c.post("/v1/auth/login", headers=h_a,
+                            json={"username": "eduardo.salvi", "password": "pw"})
+          assert la.status_code == 200
+          cookie_a = c.cookies.get("gsid")
+          assert cookie_a is not None
+          ca = await c.get("/v1/contracts", headers=h_a)
+          assert ca.status_code == 200
+          assert len(ca.json()) == 6
+
+          # (2b) TechNova session sees ONLY TechNova's 2 contracts.
+          c.cookies.clear()
+          lt = await c.post("/v1/auth/login", headers=h_t,
+                            json={"username": "admin.tech@technova.example",
+                                  "password": "pw"})
+          assert lt.status_code == 200
+          cookie_t = c.cookies.get("gsid")
+          assert cookie_t is not None
+          ct = await c.get("/v1/contracts", headers=h_t)
+          assert ct.status_code == 200
+          assert len(ct.json()) == 2
+
+          # (3) gsid minted for Aurora presented on TechNova's subdomain
+          # -> rejected 403 (get_current_session cross-tenant guard).
+          c.cookies.clear()
+          c.cookies.set("gsid", cookie_a)
+          xtenant = await c.get("/v1/contracts", headers=h_t)
+          assert xtenant.status_code == 403
+          # ...and TechNova's cookie on Aurora's subdomain is also 403.
+          c.cookies.clear()
+          c.cookies.set("gsid", cookie_t)
+          xtenant2 = await c.get("/v1/contracts", headers=h_a)
+          assert xtenant2.status_code == 403
   ```
-  > **Executing subagent — before relying on `assert len(cr.json()) == 6`:** confirm the #1C seed actually defines 6 Aurora contracts, e.g. `cd /home/will/projetos/ground-control/apps/sidecar && uv run python -c "import sys; sys.path.insert(0,'scripts'); import seed_demo_contracts as s; print(len(s._CONTRACTS))"` -> must print `6`. If the real count differs, set the assertion to that count (do NOT hand-wave).
+  > **Executing subagent — before relying on `len(ca.json()) == 6` / `len(ct.json()) == 2`:** confirm the #1C seed defines 6 Aurora contracts (`cd /home/will/projetos/ground-control/apps/sidecar && uv run python -c "import sys; sys.path.insert(0,'scripts'); import seed_demo_contracts as s; print(len(s._CONTRACTS))"` -> `6`) and that `seed_demo_branding._TN_CONTRACTS` has 2 entries. If a real count differs, set the assertion to that count (do NOT hand-wave).
 - [ ] **Step 4 — Run gates.** Run the **Sidecar gate** verbatim -> **43 passed**. Run the **Portal gate** verbatim -> all green.
 - [ ] **Step 5 — Commit.**
   ```
@@ -1887,11 +2247,16 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
   ```
   ssh gc 'cd ~/ground-control && git pull'
   ssh gc 'cd ~/ground-control && DC="docker compose --env-file .env --env-file .env.prod --profile gerti"; $DC build portal && $DC up -d portal && $DC ps'
+  # Branding/contratos dos 2 tenants de teste (gerti_admin_user, BYPASSRLS — idempotente):
+  ssh gc 'cd ~/ground-control/apps/sidecar && DATABASE_URL="postgresql+asyncpg://gerti_admin_user:${GERTI_ADMIN_DB_PASSWORD}@postgres:5432/znuny" uv run python scripts/seed_demo_branding.py'
+  # Fixture de login Znuny p/ TechNova (1 company + 1 user, dentro do znuny-web como otrs — idempotente):
+  ssh gc 'cd ~/ground-control && ./scripts/seed-demo.sh'
   ```
-  Cloudflare ingress for `aurora.suporte.gerti.com.br` -> `http://portal:3000` via the **read-modify-write** pattern (D3 of `docs/superpowers/plans/2026-05-17-spec-1c-deploy.md`): GET the `cfd_tunnel` configuration of the `znuny-dev` tunnel; splice the new rule with `jq` immediately BEFORE the trailing `http_status:404` catch-all; abort if `znuny-dev.was.dev.br` (and existing `api-dev`) is missing from the spliced object; PUT the FULL object back; re-GET and assert ALL existing hostnames AND `aurora.suporte.gerti.com.br` are present and the last element is still `http_status:404`. DNS: `CNAME aurora.suporte -> <tunnel_id>.cfargotunnel.com` **proxied** (if the token lacks `Zone:DNS:Edit`, create manually — non-blocking for code). Verify: `curl -fsS https://aurora.suporte.gerti.com.br/ | grep -qi 'Aurora Móveis'` and `curl -fsS https://znuny-dev.was.dev.br/znuny/index.pl | grep -qi login` (Znuny intact). **Never** PUT a hand-written config.
+  (`seed_demo_branding.py` requires the #1C `seed_demo_contracts.py` to have run first — Aurora tenant/instance/6 contracts already exist in prod from #1C, so this only adds Aurora branding + the full TechNova tenant. `./scripts/seed-demo.sh` is idempotent and now also runs `scripts/seed-technova.pl` so `admin.tech@technova.example` / `TechNova@Demo2026` authenticates against the real Znuny for tenant 2.)
+  Cloudflare ingress for **BOTH** `aurora.suporte.gerti.com.br` AND `technova.suporte.gerti.com.br` -> `http://portal:3000` via the **read-modify-write** pattern (D3 of `docs/superpowers/plans/2026-05-17-spec-1c-deploy.md` §D3 + `.ia/OPS.md`). **Resolve account/tunnel id** exactly like #1C D3: decode the base64 connector token in `.env.prod` (`{"a":<account_id>,"t":<tunnel_id>,...}`) — OR via the CF API (`GET /accounts` → `GET /accounts/{acct}/cfd_tunnel?is_deleted=false` → the tunnel whose `configurations` ingress contains `znuny-dev.was.dev.br`; that is the tunnel `ground-control` — **do NOT confuse with `groundcontrol-landing`**, which serves `groundcontrol.was.dev.br`). The CF API token is in env `CF_API_TOKEN` (scopes `Cloudflare Tunnel:Edit` + `Zone:DNS:Edit`, zone `was.dev.br`). Then: GET the `cfd_tunnel` configuration; with `jq`, first drop any pre-existing `aurora.suporte.gerti.com.br`/`technova.suporte.gerti.com.br` rules (idempotent), then splice **BOTH** new hostname rules immediately BEFORE the trailing `http_status:404` catch-all; **abort-guard (the #1C D3 guard) MUST assert `znuny-dev.was.dev.br` AND `api-dev.was.dev.br` are BOTH still present** in the spliced object AND that BOTH `aurora.suporte.gerti.com.br` and `technova.suporte.gerti.com.br` are present — abort with NO PUT if any of the four is missing; PUT the FULL modified object back; re-GET and assert ALL FOUR hostnames (`znuny-dev.was.dev.br`, `api-dev.was.dev.br`, `aurora.suporte.gerti.com.br`, `technova.suporte.gerti.com.br`) are present and the last element is still `http_status:404`. DNS: idempotent CNAME for BOTH subdomains (check-then-write: `GET /zones/{zone}/dns_records?name=<sub>.suporte.gerti.com.br` → `POST` if absent / `PUT` if present) -> `<tunnel_id>.cfargotunnel.com`, **proxied** (if the token lacks `Zone:DNS:Edit`, create BOTH manually — non-blocking for code). Verify: `curl -fsS https://aurora.suporte.gerti.com.br/ | grep -qi 'Aurora Móveis'` AND `curl -fsS https://technova.suporte.gerti.com.br/ | grep -qi 'TechNova'` (DIFFERENT branding per subdomain) AND `curl -fsS https://znuny-dev.was.dev.br/znuny/index.pl | grep -qi login` AND `curl -fsS https://api-dev.was.dev.br/v1/health` (200) AND `curl -fsS https://groundcontrol.was.dev.br >/dev/null` (200) — znuny-dev / api-dev / groundcontrol unchanged. **Never** PUT a hand-written config.
 - [ ] **Step 6 — Commit.**
   ```
-  cd /home/will/projetos/ground-control && git add apps/portal/Dockerfile apps/portal/.dockerignore docker-compose.yml && git -c commit.gpgsign=false commit -m "feat(#1F-a): serviço portal aditivo no compose + ingress Cloudflare"
+  cd /home/will/projetos/ground-control && git add apps/portal/Dockerfile apps/portal/.dockerignore docker-compose.yml && git -c commit.gpgsign=false commit -m "feat(#1F-a): serviço portal aditivo no compose + ingress Cloudflare (2 subdomínios aurora+technova, guard znuny-dev+api-dev)"
   ```
 
 ---
@@ -1900,9 +2265,9 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
 **Files:** Modify `.ia/ARCHITECTURE.md` · `.ia/INTEGRATION.md` · `.ia/OPS.md` · `.ia/DECISIONS.md`.
 
-- [ ] **Step 1 — ARCHITECTURE.md.** Add a "Portal Cliente (#1F-a)" section: Nuxt 3 SSR `apps/portal` on networks `app`+`edge`, Nitro branding middleware (subdomain->`/v1/branding`, 60s cache, neutral default), server-proxied auth re-emitting `gsid` first-party, sidecar as the only Znuny door; topology line `Browser -> cloudflared -> portal:3000 -> sidecar:8001 -> (Znuny GI | gerti schema RLS)`.
-- [ ] **Step 2 — INTEGRATION.md.** In "Construído vs pendente", add rows: `tenant_branding` table+RLS (built); `/v1/branding`, `/v1/auth/login`, `/v1/auth/logout`, `/v1/me`, `/v1/contracts` (built); `znuny_gi.authenticate_customer` (built, mechanism per D14); portal SSR (built). Note OIDC/#1D still deferred (login-layer swap-only later).
-- [ ] **Step 3 — OPS.md.** Add "Deploy do portal (Spec #1F-a — profile `gerti`)": `git pull` + `$DC build portal && $DC up -d portal`, the Cloudflare read-modify-write ingress for `aurora.suporte.gerti.com.br`, DNS CNAME note, verification curls, rollback (`$DC stop portal`; Znuny untouched; NEVER `make reset`).
+- [ ] **Step 1 — ARCHITECTURE.md.** Add a "Portal Cliente (#1F-a)" section: Nuxt 3 SSR `apps/portal` on networks `app`+`edge`, Nitro branding middleware (subdomain->`/v1/branding`, 60s cache, neutral default), server-proxied auth re-emitting `gsid` first-party, sidecar as the only Znuny door; **two testable white-label tenants** (Aurora `aurora.suporte.gerti.com.br` + TechNova `technova.suporte.gerti.com.br`) on the SAME single Znuny (§2.1), cross-tenant cookie rejection (403) as the white-label proof; topology line `Browser -> cloudflared -> portal:3000 -> sidecar:8001 -> (Znuny GI | gerti schema RLS)`.
+- [ ] **Step 2 — INTEGRATION.md.** In "Construído vs pendente", add rows: `tenant_branding` table+RLS (built); `/v1/branding`, `/v1/auth/login`, `/v1/auth/logout`, `/v1/me`, `/v1/contracts` (built); `znuny_gi.authenticate_customer` (built, mechanism per D14); portal SSR (built); 2 white-label test tenants Aurora+TechNova seeded idempotently (`seed_demo_branding.py` + Znuny `scripts/seed-technova.pl` via `scripts/seed-demo.sh`) (built). Note OIDC/#1D still deferred (login-layer swap-only later); branding admin UI / tenant onboarding still #1G (these 2 tenants are seeded test fixtures, not onboarding).
+- [ ] **Step 3 — OPS.md.** Add "Deploy do portal (Spec #1F-a — profile `gerti`)": `git pull` + `$DC build portal && $DC up -d portal`; the Cloudflare read-modify-write ingress for **BOTH** `aurora.suporte.gerti.com.br` AND `technova.suporte.gerti.com.br` (account/tunnel id resolved from `.env.prod` connector token base64 or via CF API by the tunnel containing `znuny-dev.was.dev.br` = tunnel `ground-control`, NOT `groundcontrol-landing`; guard preserves `znuny-dev`+`api-dev`; never hand-written PUT); idempotent CNAME for both subdomains; the TechNova Znuny customer fixture (`ssh gc 'cd ~/ground-control && ./scripts/seed-demo.sh'`, idempotent, runs `seed-technova.pl` inside `znuny-web` as `otrs`; demo login `admin.tech@technova.example` / `TechNova@Demo2026`); verification curls (Aurora vs TechNova different branding; znuny-dev/api-dev/groundcontrol 200); rollback (`$DC stop portal`; Znuny untouched; NEVER `make reset`).
 - [ ] **Step 4 — DECISIONS.md.** Confirm **D14** present from Task 1 and **D16** present from Task 3 (TenantMiddleware BYPASSRLS resolution path — already authored when the admin path was introduced; do NOT re-author, only verify it is the last-but-one ADR). Append **D15 — Deploy do Portal: serviço aditivo profile-gated, sidecar como única porta**: `portal` (Nuxt 3 SSR) is a `profiles:["gerti"]` compose service; nets `app`+`edge`; talks only to `sidecar:8001`; multi-stage image with build-only deps (runtime `internal:true`); Cloudflare ingress by read-modify-write (same D3 pattern), never hand-written PUT; `SESSION_SECRET` via `${GERTI_SESSION_SECRET:-}` and `DATABASE_ADMIN_URL` from `gerti_admin_user`+`${GERTI_ADMIN_DB_PASSWORD:-}` (never `:?` at compose level — D13 footgun); rollback = `stop portal`, Znuny untouched. Final ADR order: D14 (Task 1), D16 (Task 3), D15 (here).
 - [ ] **Step 5 — Commit.**
   ```
@@ -1918,8 +2283,8 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 | Spec § | Covered by |
 |---|---|
 | §1 Objetivo (white-label ponta-a-ponta) | Tasks 2–14 |
-| §2.1 Sempre 1 Znuny | Tasks 1, 5 (single `gerti.znuny_instance` row) |
-| §2.2 Tudo white-label, default neutro | Tasks 8, 10 (`DEFAULT_BRANDING` != Gerti) |
+| §2.1 Sempre 1 Znuny | Tasks 1, 5, 8 (TechNova aponta para a MESMA única `gerti.znuny_instance`; nenhuma instância nova) |
+| §2.2 Tudo white-label, default neutro | Tasks 8 (2 tenants brandeados, paletas distintas), 10 (`DEFAULT_BRANDING` != Gerti) |
 | §2.3 Auth mínima = credencial Znuny via sidecar | Tasks 1, 4, 5, 6 |
 | §2.4 Uma visão: contratos+saldo (#1C) | Task 7 |
 | §2.5 Portal em apps/portal Nuxt 3 SSR | Tasks 9–12 |
@@ -1935,23 +2300,23 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 | §4.3 /login, /, logout + proxy routes | Tasks 11, 12 |
 | §4.3 tema CSS vars / config | Tasks 9, 12 |
 | §5 Fluxos (não-auth, login, autenticado) | Tasks 3, 6, 7, 12, 13 |
-| §6 Erros & segurança (404/401/403/503, anti cross-tenant) | Tasks 3, 4, 6 (H3/H5/H6) |
+| §6 Erros & segurança (404/401/403/503, anti cross-tenant) | Tasks 3, 4, 6 (H3/H5/H6); Task 13 e2e prova rejeição 403 cross-tenant entre Aurora↔TechNova |
 | §7 R1 spike + ADR fallback | Task 1 |
 | §7 R2 cookie cross-subdomínio | Tasks 4, 6 (SameSite=Lax + tenant check) |
 | §7 R3 flash | Tasks 10, 12 (H11) |
 | §8 Testes sidecar | Tasks 2–8, 13 |
 | §8 Testes portal (Vitest) | Tasks 10, 13 |
-| §8 E2E smoke | Task 13 |
+| §8 E2E smoke | Task 13 (cross-tenant white-label isolation: branding diferente por subdomínio, contratos por tenant, cookie cross-tenant 403) |
 | §9 YAGNI (exclusions) | **ABSENT by construction — see below** |
 | §10 Definição de pronto | Tasks 13 (e2e), 14 (deploy aditivo), 15 (.ia) |
 
 ### YAGNI exclusion confirmation
 
-No task, file, or step creates or mentions as work: OIDC/PKCE flow or `useOidc`; ticket listing/detail/creation; service catalog or dynamic form renderer; executive dashboards/KPIs; billing approval; branding admin UI; logo upload (logo is an external `logo_url` string only); i18n; multi-Znuny / dedicated instances. Auth is exclusively username/password -> sidecar -> Znuny GI (`authenticate_customer`) -> JWT HS256 `gsid` cookie. The only authenticated data view is the tenant's contracts+balance via #1C `ConsumptionService.balance`. **Confirmed absent.**
+No task, file, or step creates or mentions as work: OIDC/PKCE flow or `useOidc`; ticket listing/detail/creation; service catalog or dynamic form renderer; executive dashboards/KPIs; billing approval; **branding admin UI; tenant onboarding automation**; logo upload (logo is an external `logo_url` string only); i18n; multi-Znuny / dedicated instances. Auth is exclusively username/password -> sidecar -> Znuny GI (`authenticate_customer`) -> JWT HS256 `gsid` cookie. The only authenticated data view is the tenant's contracts+balance via #1C `ConsumptionService.balance`. The **2 white-label test tenants (Aurora + TechNova)** are an APPROVED scoped-breadth change (user decision): still strictly "branding + portal vertical slice", just ×2, so cross-tenant isolation is *demonstrable* rather than asserted on faith. TechNova is created exclusively by **idempotent seed scripts** (`seed_demo_branding.py` + `scripts/seed-technova.pl`, the latter a minimal 1-company/1-user Znuny test fixture exactly like #1C's Aurora Znuny seed) — there is NO admin UI, NO onboarding flow, NO new Znuny instance, NO API to create tenants. This is NOT a §9/YAGNI breach. **Confirmed absent.**
 
 ### Placeholder scan
 
-Targets `TODO`, `FIXME`, `similar to Task`, `add error handling`, `<placeholder>`, bare `...`: none present in any task. Every code step contains complete, runnable code. The only conditional is Task 5's note that the implementation follows D14's decided mechanism (PRIMARY shown in full; FALLBACK explicitly bounded to the identical public signature) — a spike-driven decision point, not a placeholder; the public contract is frozen and identical either way.
+Targets `TODO`, `FIXME`, `similar to Task`, `add error handling`, `<placeholder>`, bare `...`: none present in any task, including the amended Task 8 (full runnable `seed_demo_branding.py` + full runnable `scripts/seed-technova.pl`) and Task 13 (full runnable e2e). Every code step contains complete, runnable code. The only conditionals are (a) Task 5's note that the implementation follows D14's decided mechanism (PRIMARY shown in full; FALLBACK explicitly bounded to the identical public signature) — a spike-driven decision point, not a placeholder; and (b) the "Executing subagent" verification notes in Tasks 8/13 telling the worker to confirm real seed counts/exported names before relying on numeric assertions — these are explicit verification instructions, not unfinished code. The public contracts are frozen and identical either way.
 
 ### Type / name consistency check
 
@@ -1962,9 +2327,12 @@ Targets `TODO`, `FIXME`, `similar to Task`, `add error handling`, `<placeholder>
 - `tenant_branding` table / `0011_tenant_branding` revision / `TenantBranding` model — Task 2; S1 set extended (H2); consumed Tasks 3, 4, 7, 8, 13.
 - `database_admin_url` (`Settings`, optional) / `admin_engine` / `AdminSessionLocal` (`db.py`) — introduced Task 3 (H15, ADR D16); `init_db`/`dispose_db` updated Task 3; `TenantMiddleware` uses `AdminSessionLocal or SessionLocal` for subdomain resolution ONLY; bound to the admin `engine` in the test wiring of Tasks 3, 4, 6, 7, 13 (mirrors `test_tenant_middleware.py`); compose `DATABASE_ADMIN_URL` Task 14; ADR is **D16** (D14/D15 unchanged). Spelled identically everywhere.
 - `Balance.kind`/`Balance.remaining` from #1C `ConsumptionService` — read-only in Task 7 (`Saldo` mirrors fields exactly), asserted Tasks 7 & 13.
-- `seed` importable from `seed_demo_branding` mirroring `seed_demo_contracts.seed` signature `(s) -> uuid.UUID` — Task 8; used Tasks 8 & 13.
-- Test counts monotonic & consistent from the verified baseline 34: Task 2 +1 (35), Task 3 +2 (37 — the D16 admin-path test in 3A and the branding-router test in 3B), Task 4 +1 (38), Task 5 +1 (39), Task 6 +1 (40), Task 7 +1 (41), Task 8 +1 (42), Task 13 +1 sidecar e2e smoke (43). Sequence: 34 -> 35 -> 37 -> 38 -> 39 -> 40 -> 41 -> 42 -> 43 (Task 1 = no test, spike-only; Tasks 9–12 portal-only). Each step's stated count equals the previous task's count plus exactly the number of new test functions that task adds; the only +2 step (Task 3) adds exactly two test files with one test function each.
+- `seed` importable from `seed_demo_branding` — signature **`async def seed(s: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]`** returning `(aurora_tenant_id, technova_tenant_id)`; defined Task 8, consumed Tasks 8 & 13 identically (Task 13 destructures `aurora_id, technova_id = await seed_demo_branding.seed(session)`). It reuses `seed_demo_contracts`' module-level `INSTANCE_NAME`/`START`/`END` and the deterministic-uuid5/append-only-safe ConsumptionEvent pattern; Aurora branding only (tenant/instance/contracts are #1C's), full TechNova tenant on the SAME single `znuny_instance`.
+- New TechNova identifiers — spelled IDENTICALLY across Tasks 8, 13, 14 & docs: `znuny_customer_id='TECHNOVA'`, `subdomain='technova'`, hostname `technova.suporte.gerti.com.br`, `display_name="TechNova"`, Znuny CustomerCompany CustomerID `TECHNOVA`, customer login `admin.tech@technova.example`, demo password `TechNova@Demo2026` (same `<Marca>@Demo2026` convention as Aurora's `Aurora@Demo2026`), seeder `scripts/seed-technova.pl` wired into `scripts/seed-demo.sh`.
+- Test counts monotonic & consistent from the verified baseline 34: Task 2 +1 (35), Task 3 +2 (37 — the D16 admin-path test in 3A and the branding-router test in 3B), Task 4 +1 (38), Task 5 +1 (39), Task 6 +1 (40), Task 7 +1 (41), Task 8 +1 (42 — the single `test_branding_seed_two_tenants_idempotent` function), Task 13 +1 sidecar e2e smoke (43 — the single `test_portal_vertical_slice_two_tenants` function; the strengthened cross-tenant assertions are added WITHIN that one function, not as new test functions). Sequence: 34 -> 35 -> 37 -> 38 -> 39 -> 40 -> 41 -> 42 -> 43 (Task 1 = no test, spike-only; Tasks 9–12 portal-only). The 2-tenant breadth adds NO new sidecar test *functions* (the existing Task 8 and Task 13 functions were broadened in place), so every subsequent stated count is unchanged and the progression stays arithmetically monotonic; **new final sidecar gate count = 43 passed**. Each step's stated count equals the previous task's count plus exactly the number of new test functions that task adds; the only +2 step (Task 3) adds exactly two test files with one test function each.
 
 - ADR numbering: **D14** (Task 1, R1 auth spike) and **D16** (Task 3, TenantMiddleware BYPASSRLS resolution path) are authored where introduced; **D15** (Task 15, portal deploy) is unchanged in intent. D14/D15 content was NOT altered by this amendment; only D16 is new. Final order in `.ia/DECISIONS.md`: D14, D16, D15.
 
-All gaps found during self-review were fixed inline before saving: the gate critical defect (H15 — `TenantMiddleware` resolving the FORCE-RLS `gerti.tenant` lookup through an RLS-subject session, returning a false 404 for every valid subdomain in prod and silently inverting every router-test assertion) is fixed by introducing the narrow BYPASSRLS resolution path (ADR D16) folded into Task 3 and by rewiring Tasks 3/4/6/7/13 to bind `db.AdminSessionLocal` to the admin `engine` (mirroring `test_tenant_middleware.py`) while the tenant DATA path stays RLS-subject; `/v1/contracts` RLS is genuinely exercised because `get_tenant_session` uses module `db.SessionLocal`=`app_session_factory` (RLS-subject) under the GUC (explicit decision recorded in Task 7's preamble); S1 set extension wired into Task 2 Step 1; `branding-context` server endpoint added in Task 12 so the layout's `useAsyncData` has a real source; `sidecar` joined to the `app` network in Task 14 so `portal` can reach it; Task 14 ingress guard widened to also assert the pre-existing `api-dev` hostname survives the splice (consistent with #1C D3). Scope unchanged: nothing from Spec §9 YAGNI added; Task 1's R1 spike untouched; `0011`'s RLS template untouched.
+All gaps found during self-review were fixed inline before saving: the gate critical defect (H15 — `TenantMiddleware` resolving the FORCE-RLS `gerti.tenant` lookup through an RLS-subject session, returning a false 404 for every valid subdomain in prod and silently inverting every router-test assertion) is fixed by introducing the narrow BYPASSRLS resolution path (ADR D16) folded into Task 3 and by rewiring Tasks 3/4/6/7/13 to bind `db.AdminSessionLocal` to the admin `engine` (mirroring `test_tenant_middleware.py`) while the tenant DATA path stays RLS-subject; `/v1/contracts` RLS is genuinely exercised because `get_tenant_session` uses module `db.SessionLocal`=`app_session_factory` (RLS-subject) under the GUC (explicit decision recorded in Task 7's preamble); S1 set extension wired into Task 2 Step 1; `branding-context` server endpoint added in Task 12 so the layout's `useAsyncData` has a real source; `sidecar` joined to the `app` network in Task 14 so `portal` can reach it; Task 14 ingress guard widened to also assert the pre-existing `api-dev` hostname survives the splice (consistent with #1C D3).
+
+**2-tenant breadth amendment (approved scoped change, this revision):** Task 8 now seeds TWO testable white-label tenants — Aurora (branding row only; tenant/instance/6 contracts remain #1C's) and a new fictitious TechNova (its own `gerti.tenant` + `tenant_branding` with a deliberately distinct violet/dark palette + a small 2-contract set, all on the SAME single `gerti.znuny_instance` per §2.1, reusing `seed_demo_contracts`' deterministic-uuid5/append-only-safe pattern) plus a minimal idempotent Znuny `CustomerCompany`/`CustomerUser` fixture (`scripts/seed-technova.pl`, login `admin.tech@technova.example` / `TechNova@Demo2026`, wired into `scripts/seed-demo.sh`) so `POST /v1/auth/login` validates tenant 2 against the real Znuny exactly like Aurora. `seed_demo_branding.seed()` now returns `(aurora_id, technova_id)` and Task 13's e2e is the cross-tenant white-label proof (different branding per subdomain; per-tenant contract isolation; `gsid` minted for tenant A rejected 403 on tenant B). Task 14 splices BOTH `aurora.suporte`/`technova.suporte` hostnames in ONE D3 read-modify-write while the #1C D3 abort-guard asserts `znuny-dev`+`api-dev` BOTH survive; idempotent CNAME for both. H16 records the trap+fix. No new sidecar test *functions* (the Task 8 and Task 13 functions were broadened in place), so the gate progression is unchanged and monotonic — **final sidecar gate = 43 passed**. Scope unchanged: nothing from Spec §9 YAGNI added (no admin UI, no onboarding automation, no OIDC, no tickets/catalog/dashboards — TechNova is a seeded test fixture, not onboarding); Task 1's R1 spike untouched; the `0011` RLS template untouched; the Task 3 BYPASSRLS/ADR-D16 fix untouched; ADR numbering (D14 spike / D15 deploy / D16 middleware) untouched.
