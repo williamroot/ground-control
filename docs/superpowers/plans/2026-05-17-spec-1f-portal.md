@@ -21,7 +21,7 @@
 - **`test_rls_contract_tables.py::test_every_gerti_table_has_rls_enabled_and_forced`** enumerates ALL `gerti.*` base tables into an `expected` set and asserts `relrowsecurity AND relforcerowsecurity`. The S1 set MUST grow to include `tenant_branding`.
 - **`seed_demo_contracts.py`:** argparse, `create_async_engine(os.environ["DATABASE_URL"])`, `async_sessionmaker`, importable `seed(s)` / `summary` / `reset`, check-before-insert by `Tenant.znuny_customer_id == "AURORA"`, thin `main()`. `AURORA_CUSTOMER_ID = "AURORA"`, subdomain `aurora`.
 - **Gate baseline (verified):** `cd apps/sidecar && uv run ruff check . && uv run ruff format --check . && uv run mypy src && DATABASE_URL=postgresql+asyncpg://x:y@localhost/z uv run pytest -q` -> **34 passed** (34 test functions across `tests/test_*.py`).
-- **Latest ADR = D13** in `.ia/DECISIONS.md`. This plan adds **D14** (R1 auth mechanism, from the Task 1 spike) and **D15** (portal deploy).
+- **Latest ADR = D13** in `.ia/DECISIONS.md`. This plan adds **D14** (R1 auth mechanism, from the Task 1 spike), **D15** (portal deploy), and **D16** (TenantMiddleware resolves subdomain->tenant via a narrow BYPASSRLS identity path; all tenant data stays RLS-subject — authored in Task 3).
 - **OPS access:** `ssh gc` (jump alias; direct Tailscale path is broken — see `.ia/OPS.md`). Cloudflare ingress = read-modify-write of the `cfd_tunnel` configuration (D3 of `2026-05-17-spec-1c-deploy.md`); whole-object PUT, splice before the `http_status:404` catch-all, abort-guard if existing hostname missing.
 
 ---
@@ -46,6 +46,7 @@ Static-analysis traps found against the audited code + Postgres/Nuxt/cookie sema
 | H12 | Branding cache must be keyed per subdomain with TTL or brands leak / go stale. | In-memory `Map<subdomain,{data,exp}>`, 60s TTL, key = resolved subdomain; failure -> neutral default (NOT cached as success). (Task 10) |
 | H13 | `pnpm install` without a committed lockfile is non-reproducible; the offline build needs `--frozen-lockfile`. | `pnpm-lock.yaml` generated+committed in Task 9; every portal gate uses `pnpm -C apps/portal install --frozen-lockfile`. (Tasks 9, 14) |
 | H14 | R1 (validate Znuny customer credential with NO GertiHooks/#1B) is highest risk; building auth before it is decided causes rework. | Task 1 is a BLOCKING spike with concrete `ssh gc` commands, decision criteria, read-only-schema FALLBACK, and a FROZEN function contract recorded as ADR **D14**. No later task starts until D14 is written. (Task 1) |
+| H15 | `TenantMiddleware.dispatch` runs `select(Tenant).where(subdomain==...)` with no `app.current_tenant` GUC; in prod the sidecar connects as `gerti_sidecar` (RLS-subject, BYPASSRLS NOT inherited via role membership — #1C) and `gerti.tenant` is FORCE RLS, so the lookup returns 0 rows -> `tenant is None` -> **404 for every valid subdomain** (prod bug + every router test that binds `db.SessionLocal=app_session_factory` silently asserts 404). #1F is the first feature to exercise HTTP tenant-resolution in prod (in #1C only `/v1/health`, a META_PATH, ran). | Introduce a narrow BYPASSRLS read path used ONLY for subdomain->tenant resolution (`config.database_admin_url` optional, `db.admin_engine`/`db.AdminSessionLocal`, `TenantMiddleware` uses `AdminSessionLocal` if not None else `SessionLocal`; all tenant DATA stays RLS-subject via `tenant_session_scope`). Tests mirror `test_tenant_middleware.py`: bind `db.AdminSessionLocal` (the resolution path) to the admin `engine` while the data path exercises RLS. Prod compose sets `DATABASE_ADMIN_URL` from `gerti_admin_user`+`${GERTI_ADMIN_DB_PASSWORD:-}`. ADR **D16**. (Task 3) |
 
 ---
 
@@ -284,18 +285,178 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
 ---
 
-## Task 3 — `GET /v1/branding` router (unauthenticated, subdomain-scoped, 404-not-500)
+## Task 3 — TenantMiddleware BYPASSRLS lookup path (ADR D16) + `GET /v1/branding` router (unauthenticated, subdomain-scoped, 404-not-500)
 
-**Files:** Create `apps/sidecar/src/gerti_sidecar/routers/branding.py` · Modify `apps/sidecar/src/gerti_sidecar/main.py` · Create `apps/sidecar/tests/test_branding_router.py`.
+**Files:** Modify `apps/sidecar/src/gerti_sidecar/config.py` · Modify `apps/sidecar/src/gerti_sidecar/db.py` · Modify `apps/sidecar/src/gerti_sidecar/middleware/tenant.py` · Modify `.ia/DECISIONS.md` (append D16) · Create `apps/sidecar/src/gerti_sidecar/routers/branding.py` · Modify `apps/sidecar/src/gerti_sidecar/main.py` · Create `apps/sidecar/tests/test_tenant_resolution_admin_path.py` · Create `apps/sidecar/tests/test_branding_router.py`.
 
-- [ ] **Step 1 — Failing test.** Create `apps/sidecar/tests/test_branding_router.py`:
+> **WHY this is here (the gate critical defect, H15):** `TenantMiddleware.dispatch` resolves the tenant with `select(Tenant).where(Tenant.subdomain==..., Tenant.status=="active")` using `db.SessionLocal()` and **no `app.current_tenant` GUC set**. `gerti.tenant` is FORCE ROW LEVEL SECURITY with policy `id = NULLIF(current_setting('app.current_tenant', true),'')::uuid` (`0003_force_rls_tenant.py`). In prod the sidecar connects as `gerti_sidecar` (RLS-subject, BYPASSRLS NOT inherited via role membership — verified in #1C), so the lookup returns 0 rows -> `tenant is None` -> the middleware returns **404 for every valid subdomain**. This is a real prod bug (#1F is the first feature to exercise HTTP tenant-resolution in prod — in #1C only `/v1/health`, a META_PATH, ran) AND it makes every router test that binds `db.SessionLocal=app_session_factory` silently assert 404 instead of 200/401. Subdomain->tenant resolution is inherently a pre-auth cross-tenant *directory* lookup that reads only tenant identity, never tenant data — so it gets a narrow BYPASSRLS path; all tenant DATA stays RLS-subject via `tenant_session_scope`. The proven pattern is `tests/test_tenant_middleware.py` (binds `db.SessionLocal` to the admin `engine`). This task introduces the path, fixes the middleware, and rewires every router test (Tasks 3, 4, 6, 7, 13) to mirror it.
+
+### Sub-section 3A — BYPASSRLS resolution path + D16
+
+- [ ] **Step 1 — Failing test (admin path).** Create `apps/sidecar/tests/test_tenant_resolution_admin_path.py`:
   ```python
-  """GET /v1/branding: subdomain-scoped, no auth, 404 on root/unknown host."""
+  """TenantMiddleware resolves subdomain via a BYPASSRLS path; data stays RLS.
+
+  AdminSessionLocal (admin engine, BYPASSRLS) resolves the subdomain ->
+  Tenant directory lookup; the route's tenant_session_scope data session
+  stays RLS-subject (gerti_sidecar) and is still fail-closed without GUC.
+  """
 
   from __future__ import annotations
 
   import pytest
   from httpx import ASGITransport, AsyncClient
+  from sqlalchemy import text
+  from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+  from gerti_sidecar import db
+  from gerti_sidecar.main import create_app
+  from gerti_sidecar.models import Tenant, TenantBranding, ZnunyInstance
+
+
+  @pytest.mark.asyncio
+  async def test_tenant_resolution_uses_admin_path(
+      engine, app_session_factory, session
+  ):
+      inst = ZnunyInstance(
+          name="i", base_url="http://z", db_dsn_secret_ref="x",
+          webservice_token_secret_ref="x", webhook_signing_secret_ref="x", mode="pool",
+      )
+      session.add(inst)
+      await session.flush()
+      t = Tenant(legal_name="Aurora", trade_name="Aurora", document="1",
+                 znuny_customer_id="AURORA", znuny_instance_id=inst.id, subdomain="aurora")
+      session.add(t)
+      await session.flush()
+      session.add(TenantBranding(tenant_id=t.id, display_name="Aurora Móveis"))
+      await session.commit()
+
+      # Resolution path = admin engine (BYPASSRLS); data path = RLS-subject.
+      db.AdminSessionLocal = async_sessionmaker(
+          engine, expire_on_commit=False, class_=AsyncSession)
+      db.SessionLocal = app_session_factory
+      app = create_app()
+      transport = ASGITransport(app=app)
+      async with AsyncClient(transport=transport, base_url="http://t") as c:
+          # valid subdomain resolves (200-class, NOT 404) because the
+          # directory lookup goes through the BYPASSRLS path
+          ok = await c.get("/v1/branding",
+                           headers={"host": "aurora.suporte.gerti.com.br"})
+          assert ok.status_code == 200
+          assert ok.json()["display_name"] == "Aurora Móveis"
+
+      # RLS still fail-closed on tenant DATA without the GUC (proves the
+      # narrow path did NOT widen the data plane).
+      async with app_session_factory() as s:
+          rows = (await s.execute(
+              text("SELECT display_name FROM gerti.tenant_branding"))).scalars().all()
+      assert rows == []
+  ```
+- [ ] **Step 2 — Run, expect fail.** `cd /home/will/projetos/ground-control/apps/sidecar && uv run pytest -q tests/test_tenant_resolution_admin_path.py` -> `AttributeError: module 'gerti_sidecar.db' has no attribute 'AdminSessionLocal'`.
+- [ ] **Step 3 — Settings.** Modify `config.py`: add inside `Settings` (after `database_url`):
+  ```python
+      # admin DSN usado SÓ pela resolução subdomínio->tenant (BYPASSRLS,
+      # somente identidade — ver D16). Opcional: ausente => cai no
+      # SessionLocal normal (dev/test ligam SessionLocal ao admin engine).
+      database_admin_url: PostgresDsn | None = None
+  ```
+  and a validator next to `must_be_async_dsn`:
+  ```python
+      @field_validator("database_admin_url")
+      @classmethod
+      def admin_must_be_async_dsn(cls, v: PostgresDsn | None) -> PostgresDsn | None:
+          if v is None:
+              return v
+          scheme = str(v).split(":", 1)[0]
+          if scheme != "postgresql+asyncpg":
+              raise ValueError(
+                  f"database_admin_url deve usar driver asyncpg (got {scheme}); "
+                  "use 'postgresql+asyncpg://...'"
+              )
+          return v
+  ```
+  Setting is accessed ONLY via `init_db(settings)` at lifespan time (never at module import) — same discipline as H1; conftest's autouse `_reset_settings_cache` + new tests setting env before constructing the app keep the `@lru_cache get_settings()` honest.
+- [ ] **Step 4 — DB engine.** Modify `apps/sidecar/src/gerti_sidecar/db.py`:
+  - Add module globals next to `engine`/`SessionLocal`:
+    ```python
+    admin_engine: AsyncEngine | None = None
+    AdminSessionLocal: async_sessionmaker[AsyncSession] | None = None
+    ```
+  - In `init_db`, after creating `engine`/`SessionLocal`, add (and extend the `global`):
+    ```python
+    def init_db(settings: Settings) -> None:
+        """Inicializa engine e session factory globais a partir das settings."""
+        global engine, SessionLocal, admin_engine, AdminSessionLocal
+        engine = make_engine(settings)
+        SessionLocal = make_session_factory(engine)
+        if settings.database_admin_url is not None:
+            admin_engine = create_async_engine(
+                str(settings.database_admin_url),
+                echo=settings.debug,
+                pool_pre_ping=True,
+                pool_size=2,
+                max_overflow=2,
+                pool_recycle=1800,
+            )
+            AdminSessionLocal = make_session_factory(admin_engine)
+        else:
+            admin_engine = None
+            AdminSessionLocal = None
+    ```
+  - In `dispose_db`, dispose the admin engine too:
+    ```python
+    async def dispose_db() -> None:
+        """Fecha o pool de conexões; chamar no shutdown."""
+        global engine, SessionLocal, admin_engine, AdminSessionLocal
+        if engine is not None:
+            await engine.dispose()
+        if admin_engine is not None:
+            await admin_engine.dispose()
+        engine = None
+        SessionLocal = None
+        admin_engine = None
+        AdminSessionLocal = None
+    ```
+- [ ] **Step 5 — Middleware.** Modify `apps/sidecar/src/gerti_sidecar/middleware/tenant.py`: replace the resolution-session block ONLY (the `if db.SessionLocal is None: ... async with db.SessionLocal() as session:` lines) with:
+  ```python
+          # Resolução subdomínio->tenant é um lookup de DIRETÓRIO pré-auth
+          # (só identidade, nunca dado de tenant). gerti.tenant é FORCE RLS;
+          # sem GUC um session RLS-subject retornaria 0 linhas (404 falso).
+          # Usa o caminho BYPASSRLS estreito quando configurado (D16); todo
+          # DADO de tenant continua RLS-subject via tenant_session_scope.
+          resolver = db.AdminSessionLocal or db.SessionLocal
+          if resolver is None:
+              raise RuntimeError("DB não inicializado")
+
+          async with resolver() as session:
+              result = await session.execute(
+                  select(Tenant).where(Tenant.subdomain == subdomain, Tenant.status == "active")
+              )
+              tenant = result.scalar_one_or_none()
+              if tenant is None:
+  ```
+  (The rest of the `dispatch` body — the 404 `JSONResponse`, `request.state.tenant = tenant`, `call_next`, `x-gerti-tenant` header — is unchanged; only the session factory selection changes. Nothing else in the file changes.)
+- [ ] **Step 6 — Author ADR D16.** Append to `.ia/DECISIONS.md` a `## D16 — TenantMiddleware resolve subdomínio->tenant por um caminho BYPASSRLS estreito (somente identidade); todo dado de tenant permanece RLS-subject` section: **Contexto** — `gerti.tenant` é FORCE RLS (D-0003); em prod o sidecar conecta como `gerti_sidecar` (RLS-subject, BYPASSRLS não herdado via role membership — #1C); o `TenantMiddleware` resolve o subdomínio ANTES de qualquer GUC, então um session RLS-subject retorna 0 linhas e 404 para todo tenant válido. **Decisão** — introduzir `Settings.database_admin_url` (opcional), `db.admin_engine`/`db.AdminSessionLocal` (criados em `init_db` quando o DSN existe, descartados em `dispose_db`); `TenantMiddleware` usa `AdminSessionLocal or SessionLocal` SÓ para o `select(Tenant).where(subdomain==...)` (lookup de diretório, só identidade); todo DADO de tenant continua RLS-subject via `tenant_session_scope`. Prod: compose injeta `DATABASE_ADMIN_URL` do `gerti_admin_user`+`${GERTI_ADMIN_DB_PASSWORD:-}` (nunca `${VAR:?}` — footgun D13). Dev/test sem DSN admin: `AdminSessionLocal=None` => cai no `SessionLocal` (que os testes ligam ao admin engine, como `test_tenant_middleware.py`). **Evidência** — `test_tenant_resolution_admin_path.py` (subdomínio válido resolve 200-class via path BYPASSRLS; RLS ainda fail-closed no dado).
+- [ ] **Step 7 — Run, expect pass (admin path).** `cd /home/will/projetos/ground-control/apps/sidecar && uv run pytest -q tests/test_tenant_resolution_admin_path.py` -> passes (depends on Sub-section 3B's router existing; if run before 3B, expect route-missing — run the full **Sidecar gate** at Step 6 of 3B).
+
+### Sub-section 3B — `GET /v1/branding` router
+
+- [ ] **Step 1 — Failing test.** Create `apps/sidecar/tests/test_branding_router.py`:
+  ```python
+  """GET /v1/branding: subdomain-scoped, no auth, 404 on root/unknown host.
+
+  Mirrors test_tenant_middleware.py: the subdomain->tenant resolution path
+  is bound to the admin `engine` (BYPASSRLS) via db.AdminSessionLocal so the
+  FORCE-RLS gerti.tenant lookup succeeds; the tenant DATA path
+  (db.SessionLocal=app_session_factory) stays RLS-subject and is exercised
+  under the app.current_tenant GUC set by tenant_session_scope.
+  """
+
+  from __future__ import annotations
+
+  import pytest
+  from httpx import ASGITransport, AsyncClient
+  from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
   from gerti_sidecar import db
   from gerti_sidecar.main import create_app
@@ -321,6 +482,9 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
           primary_color="#0EA5E9", support_email="suporte@aurora.example"))
       await session.commit()
 
+      # Resolution path = admin engine (BYPASSRLS); data path = RLS-subject.
+      db.AdminSessionLocal = async_sessionmaker(
+          engine, expire_on_commit=False, class_=AsyncSession)
       db.SessionLocal = app_session_factory
       app = create_app()
       transport = ASGITransport(app=app)
@@ -392,10 +556,10 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
       )
   ```
 - [ ] **Step 4 — Wire router.** Modify `main.py`: change import to `from gerti_sidecar.routers import branding, health` and after the existing `app.include_router(health.router, prefix=settings.api_v1_prefix)` add `app.include_router(branding.router, prefix=settings.api_v1_prefix)`.
-- [ ] **Step 5 — Run, expect pass.** Run the **Sidecar gate** verbatim. Expected: **36 passed**.
+- [ ] **Step 5 — Run, expect pass (full task gate).** Run the **Sidecar gate** verbatim. Expected: **37 passed** (Task 2's 35 + the admin-path test from 3A + the branding router test from 3B = +2).
 - [ ] **Step 6 — Commit.**
   ```
-  cd /home/will/projetos/ground-control && git add apps/sidecar/src/gerti_sidecar/routers/branding.py apps/sidecar/src/gerti_sidecar/main.py apps/sidecar/tests/test_branding_router.py && git -c commit.gpgsign=false commit -m "feat(#1F-a): GET /v1/branding subdomain-scoped (404 em host raiz)"
+  cd /home/will/projetos/ground-control && git add apps/sidecar/src/gerti_sidecar/config.py apps/sidecar/src/gerti_sidecar/db.py apps/sidecar/src/gerti_sidecar/middleware/tenant.py .ia/DECISIONS.md apps/sidecar/src/gerti_sidecar/routers/branding.py apps/sidecar/src/gerti_sidecar/main.py apps/sidecar/tests/test_tenant_resolution_admin_path.py apps/sidecar/tests/test_branding_router.py && git -c commit.gpgsign=false commit -m "feat(#1F-a): BYPASSRLS lookup do TenantMiddleware (ADR D16) + GET /v1/branding subdomain-scoped (404 em host raiz)"
   ```
 
 ---
@@ -412,6 +576,7 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
   import pytest
   from httpx import ASGITransport, AsyncClient
+  from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
   from gerti_sidecar import db
   from gerti_sidecar.auth.session import encode_session
@@ -436,6 +601,10 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
       session.add(TenantBranding(tenant_id=t.id, display_name="Aurora Móveis"))
       await session.commit()
 
+      # Resolution path = admin engine (BYPASSRLS, mirrors
+      # test_tenant_middleware.py); data path = RLS-subject (gerti_sidecar).
+      db.AdminSessionLocal = async_sessionmaker(
+          engine, expire_on_commit=False, class_=AsyncSession)
       db.SessionLocal = app_session_factory
       app = create_app()
       st = get_settings()
@@ -583,7 +752,7 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
       )
   ```
 - [ ] **Step 7 — Wire router.** Modify `main.py`: import `from gerti_sidecar.routers import branding, health, me` and after the branding include add `app.include_router(me.router, prefix=settings.api_v1_prefix)`.
-- [ ] **Step 8 — Run, expect pass.** Run the **Sidecar gate** verbatim. Expected: **37 passed**.
+- [ ] **Step 8 — Run, expect pass.** Run the **Sidecar gate** verbatim. Expected: **38 passed**.
 - [ ] **Step 9 — Commit.**
   ```
   cd /home/will/projetos/ground-control && git add apps/sidecar/pyproject.toml apps/sidecar/uv.lock apps/sidecar/src/gerti_sidecar/config.py apps/sidecar/src/gerti_sidecar/auth apps/sidecar/src/gerti_sidecar/routers/me.py apps/sidecar/src/gerti_sidecar/main.py apps/sidecar/tests/test_auth_session.py && git -c commit.gpgsign=false commit -m "feat(#1F-a): sessão JWT HS256 + get_current_session + GET /v1/me"
@@ -689,7 +858,7 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
           raise ZnunyUnavailable("resposta não-JSON do Znuny") from exc
       return bool(data.get("SessionID")) and "Error" not in data
   ```
-- [ ] **Step 4 — Run, expect pass.** Run the **Sidecar gate** verbatim. Expected: **38 passed**.
+- [ ] **Step 4 — Run, expect pass.** Run the **Sidecar gate** verbatim. Expected: **39 passed**.
 - [ ] **Step 5 — Commit.**
   ```
   cd /home/will/projetos/ground-control && git add apps/sidecar/src/gerti_sidecar/integrations apps/sidecar/tests/test_znuny_gi.py && git -c commit.gpgsign=false commit -m "feat(#1F-a): integrations/znuny_gi.authenticate_customer (contrato D14)"
@@ -709,6 +878,7 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
   import pytest
   from httpx import ASGITransport, AsyncClient
+  from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
   from gerti_sidecar import db
   from gerti_sidecar.config import get_settings
@@ -732,6 +902,10 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
       await session.flush()
       session.add(TenantBranding(tenant_id=t.id, display_name="Aurora Móveis"))
       await session.commit()
+      # Resolution path = admin engine (BYPASSRLS, mirrors
+      # test_tenant_middleware.py); data path = RLS-subject (gerti_sidecar).
+      db.AdminSessionLocal = async_sessionmaker(
+          engine, expire_on_commit=False, class_=AsyncSession)
       db.SessionLocal = app_session_factory
       app = create_app()
       h = {"host": "aurora.suporte.gerti.com.br"}
@@ -831,7 +1005,7 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
       return response
   ```
 - [ ] **Step 4 — Wire router.** Modify `main.py`: import `from gerti_sidecar.routers import auth, branding, health, me` and after `me` add `app.include_router(auth.router, prefix=settings.api_v1_prefix)`.
-- [ ] **Step 5 — Run, expect pass.** Run the **Sidecar gate** verbatim. Expected: **39 passed**.
+- [ ] **Step 5 — Run, expect pass.** Run the **Sidecar gate** verbatim. Expected: **40 passed**.
 - [ ] **Step 6 — Commit.**
   ```
   cd /home/will/projetos/ground-control && git add apps/sidecar/src/gerti_sidecar/routers/auth.py apps/sidecar/src/gerti_sidecar/main.py apps/sidecar/tests/test_auth_login_router.py && git -c commit.gpgsign=false commit -m "feat(#1F-a): POST /v1/auth/login + /logout (cookie gsid HttpOnly)"
@@ -843,6 +1017,8 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
 **Files:** Create `apps/sidecar/src/gerti_sidecar/routers/contracts.py` · Modify `apps/sidecar/src/gerti_sidecar/main.py` · Create `apps/sidecar/tests/test_contracts_router.py`.
 
+> **RLS-exercise decision for `/v1/contracts` (chosen, explicit):** `get_tenant_session` runs `tenant_session_scope(tenant.id)` with NO `factory=`, so it uses module `db.SessionLocal`. The test binds `db.SessionLocal = app_session_factory` (the unprivileged RLS-subject `gerti_sidecar` role) and binds the SEPARATE `db.AdminSessionLocal` to the admin `engine` for subdomain resolution ONLY. Therefore the contracts read is genuinely served by the RLS-subject role under the `app.current_tenant` GUC — RLS is really exercised on the data path here; NO FastAPI dependency override is needed and the route is NOT covered by an admin factory for its data. The "200 via subdomain through middleware" assertion (resolution via the BYPASSRLS `AdminSessionLocal`) and the "RLS genuinely enforced on contract data" guarantee (data via the RLS-subject `SessionLocal`) are now on TWO distinct factories and no longer contradict each other (this is exactly the gate defect being fixed). Task 2 additionally pins direct RLS fail-closed for `tenant_branding` via `tenant_session_scope(..., factory=app_session_factory)`.
+
 - [ ] **Step 1 — Failing test.** Create `apps/sidecar/tests/test_contracts_router.py`:
   ```python
   """GET /v1/contracts: auth required, tenant-scoped, balances via #1C."""
@@ -853,6 +1029,7 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
   import pytest
   from httpx import ASGITransport, AsyncClient
+  from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
   from gerti_sidecar import db
   from gerti_sidecar.auth.session import encode_session
@@ -880,6 +1057,15 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
           starts_on=dt.date(2026, 1, 1), ends_on=dt.date(2026, 12, 31),
           initial_amount_brl=10000, created_by="seed"))
       await session.commit()
+      # Resolution path = admin engine (BYPASSRLS, mirrors
+      # test_tenant_middleware.py). Data path: db.SessionLocal =
+      # app_session_factory (RLS-subject). get_tenant_session ->
+      # tenant_session_scope(tenant.id) (no factory=) uses module
+      # db.SessionLocal, so /v1/contracts data is GENUINELY served by the
+      # RLS-subject gerti_sidecar role under the app.current_tenant GUC —
+      # RLS is really exercised on the contracts read (not bypassed).
+      db.AdminSessionLocal = async_sessionmaker(
+          engine, expire_on_commit=False, class_=AsyncSession)
       db.SessionLocal = app_session_factory
       app = create_app()
       st = get_settings()
@@ -957,7 +1143,7 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
       return out
   ```
 - [ ] **Step 4 — Wire router.** Modify `main.py`: import `from gerti_sidecar.routers import auth, branding, contracts, health, me` and after `auth` add `app.include_router(contracts.router, prefix=settings.api_v1_prefix)`.
-- [ ] **Step 5 — Run, expect pass.** Run the **Sidecar gate** verbatim. Expected: **40 passed**.
+- [ ] **Step 5 — Run, expect pass.** Run the **Sidecar gate** verbatim. Expected: **41 passed**.
 - [ ] **Step 6 — Commit.**
   ```
   cd /home/will/projetos/ground-control && git add apps/sidecar/src/gerti_sidecar/routers/contracts.py apps/sidecar/src/gerti_sidecar/main.py apps/sidecar/tests/test_contracts_router.py && git -c commit.gpgsign=false commit -m "feat(#1F-a): GET /v1/contracts (auth, tenant-scoped, saldo #1C)"
@@ -1107,7 +1293,7 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
   if __name__ == "__main__":
       asyncio.run(main())
   ```
-- [ ] **Step 4 — Run, expect pass.** Run the **Sidecar gate** verbatim. Expected: **41 passed**.
+- [ ] **Step 4 — Run, expect pass.** Run the **Sidecar gate** verbatim. Expected: **42 passed**.
 - [ ] **Step 5 — Commit.**
   ```
   cd /home/will/projetos/ground-control && git add apps/sidecar/scripts/seed_demo_branding.py apps/sidecar/tests/test_seed_demo_branding.py && git -c commit.gpgsign=false commit -m "feat(#1F-a): scripts/seed_demo_branding.py idempotente (Aurora)"
@@ -1568,6 +1754,7 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
   import pytest
   from httpx import ASGITransport, AsyncClient
+  from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
   from gerti_sidecar import db
   from gerti_sidecar.config import get_settings
@@ -1592,6 +1779,11 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
       await seed_demo_branding.seed(session)
       await session.commit()
 
+      # Resolution path = admin engine (BYPASSRLS, mirrors
+      # test_tenant_middleware.py); data path = RLS-subject (gerti_sidecar)
+      # via db.SessionLocal -> get_tenant_session -> tenant_session_scope.
+      db.AdminSessionLocal = async_sessionmaker(
+          engine, expire_on_commit=False, class_=AsyncSession)
       db.SessionLocal = app_session_factory
       app = create_app()
       h = {"host": "aurora.suporte.gerti.com.br"}
@@ -1615,7 +1807,8 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
           assert cr.status_code == 200
           assert len(cr.json()) == 6
   ```
-- [ ] **Step 4 — Run gates.** Run the **Sidecar gate** verbatim -> **42 passed**. Run the **Portal gate** verbatim -> all green.
+  > **Executing subagent — before relying on `assert len(cr.json()) == 6`:** confirm the #1C seed actually defines 6 Aurora contracts, e.g. `cd /home/will/projetos/ground-control/apps/sidecar && uv run python -c "import sys; sys.path.insert(0,'scripts'); import seed_demo_contracts as s; print(len(s._CONTRACTS))"` -> must print `6`. If the real count differs, set the assertion to that count (do NOT hand-wave).
+- [ ] **Step 4 — Run gates.** Run the **Sidecar gate** verbatim -> **43 passed**. Run the **Portal gate** verbatim -> all green.
 - [ ] **Step 5 — Commit.**
   ```
   cd /home/will/projetos/ground-control && git add apps/portal/test/auth-guard.test.ts apps/portal/test/theme-render.test.ts apps/sidecar/tests/test_portal_e2e_smoke.py && git -c commit.gpgsign=false commit -m "test(#1F-a): unit do portal + e2e smoke (Aurora ponta-a-ponta)"
@@ -1681,7 +1874,14 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
         retries: 10
         start_period: 25s
   ```
-  Also change the `sidecar` service `networks:` from `[data, edge]` to `[data, edge, app]` so `portal` (on `app`) reaches `sidecar:8001`, and add `SESSION_SECRET: ${GERTI_SESSION_SECRET:-}` to the `sidecar` service `environment:` (NEVER `${VAR:?}` at compose level — D13 footgun).
+  Also change the `sidecar` service `networks:` from `[data, edge]` to `[data, edge, app]` so `portal` (on `app`) reaches `sidecar:8001`, and add to the `sidecar` service `environment:` (NEVER `${VAR:?}` at compose level — D13 footgun):
+  ```yaml
+        SESSION_SECRET: ${GERTI_SESSION_SECRET:-}
+        # Caminho BYPASSRLS estreito SÓ p/ resolução subdomínio->tenant
+        # (D16). Mesmo host/db do DATABASE_URL, role gerti_admin_user.
+        DATABASE_ADMIN_URL: postgresql+asyncpg://gerti_admin_user:${GERTI_ADMIN_DB_PASSWORD:-}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-znuny}
+  ```
+  `GERTI_ADMIN_DB_PASSWORD` is already an env used by `sidecar-migrate` (`.env.prod`/`.env.prod.example`); no new secret is introduced.
 - [ ] **Step 4 — Verify compose stays additive.** `cd /home/will/projetos/ground-control && docker compose config --services` -> MUST list only the 6 Znuny services (no `portal`/`sidecar`); `docker compose --profile gerti config --services` -> includes `portal`.
 - [ ] **Step 5 — Deploy + Cloudflare ingress (via `ssh gc`).** Document and execute:
   ```
@@ -1696,17 +1896,17 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 
 ---
 
-## Task 15 — Final `.ia/` docs + ADRs D14/D15
+## Task 15 — Final `.ia/` docs + ADRs D14/D15/D16
 
 **Files:** Modify `.ia/ARCHITECTURE.md` · `.ia/INTEGRATION.md` · `.ia/OPS.md` · `.ia/DECISIONS.md`.
 
 - [ ] **Step 1 — ARCHITECTURE.md.** Add a "Portal Cliente (#1F-a)" section: Nuxt 3 SSR `apps/portal` on networks `app`+`edge`, Nitro branding middleware (subdomain->`/v1/branding`, 60s cache, neutral default), server-proxied auth re-emitting `gsid` first-party, sidecar as the only Znuny door; topology line `Browser -> cloudflared -> portal:3000 -> sidecar:8001 -> (Znuny GI | gerti schema RLS)`.
 - [ ] **Step 2 — INTEGRATION.md.** In "Construído vs pendente", add rows: `tenant_branding` table+RLS (built); `/v1/branding`, `/v1/auth/login`, `/v1/auth/logout`, `/v1/me`, `/v1/contracts` (built); `znuny_gi.authenticate_customer` (built, mechanism per D14); portal SSR (built). Note OIDC/#1D still deferred (login-layer swap-only later).
 - [ ] **Step 3 — OPS.md.** Add "Deploy do portal (Spec #1F-a — profile `gerti`)": `git pull` + `$DC build portal && $DC up -d portal`, the Cloudflare read-modify-write ingress for `aurora.suporte.gerti.com.br`, DNS CNAME note, verification curls, rollback (`$DC stop portal`; Znuny untouched; NEVER `make reset`).
-- [ ] **Step 4 — DECISIONS.md.** Confirm **D14** present from Task 1. Append **D15 — Deploy do Portal: serviço aditivo profile-gated, sidecar como única porta**: `portal` (Nuxt 3 SSR) is a `profiles:["gerti"]` compose service; nets `app`+`edge`; talks only to `sidecar:8001`; multi-stage image with build-only deps (runtime `internal:true`); Cloudflare ingress by read-modify-write (same D3 pattern), never hand-written PUT; `SESSION_SECRET` via `${GERTI_SESSION_SECRET:-}` (never `:?` at compose level); rollback = `stop portal`, Znuny untouched.
+- [ ] **Step 4 — DECISIONS.md.** Confirm **D14** present from Task 1 and **D16** present from Task 3 (TenantMiddleware BYPASSRLS resolution path — already authored when the admin path was introduced; do NOT re-author, only verify it is the last-but-one ADR). Append **D15 — Deploy do Portal: serviço aditivo profile-gated, sidecar como única porta**: `portal` (Nuxt 3 SSR) is a `profiles:["gerti"]` compose service; nets `app`+`edge`; talks only to `sidecar:8001`; multi-stage image with build-only deps (runtime `internal:true`); Cloudflare ingress by read-modify-write (same D3 pattern), never hand-written PUT; `SESSION_SECRET` via `${GERTI_SESSION_SECRET:-}` and `DATABASE_ADMIN_URL` from `gerti_admin_user`+`${GERTI_ADMIN_DB_PASSWORD:-}` (never `:?` at compose level — D13 footgun); rollback = `stop portal`, Znuny untouched. Final ADR order: D14 (Task 1), D16 (Task 3), D15 (here).
 - [ ] **Step 5 — Commit.**
   ```
-  cd /home/will/projetos/ground-control && git add .ia/ARCHITECTURE.md .ia/INTEGRATION.md .ia/OPS.md .ia/DECISIONS.md && git -c commit.gpgsign=false commit -m "docs(#1F-a): ARCHITECTURE/INTEGRATION/OPS + ADR D15 (D14 do spike)"
+  cd /home/will/projetos/ground-control && git add .ia/ARCHITECTURE.md .ia/INTEGRATION.md .ia/OPS.md .ia/DECISIONS.md && git -c commit.gpgsign=false commit -m "docs(#1F-a): ARCHITECTURE/INTEGRATION/OPS + ADR D15 (D14 do spike, D16 do Task 3)"
   ```
 
 ---
@@ -1723,7 +1923,7 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
 | §2.3 Auth mínima = credencial Znuny via sidecar | Tasks 1, 4, 5, 6 |
 | §2.4 Uma visão: contratos+saldo (#1C) | Task 7 |
 | §2.5 Portal em apps/portal Nuxt 3 SSR | Tasks 9–12 |
-| §3 Arquitetura (reusa TenantMiddleware/GUC) | Tasks 3, 4, 7 (no new tenant-resolution code) |
+| §3 Arquitetura (reusa TenantMiddleware/GUC) | Tasks 3 (D16: narrow BYPASSRLS resolution path; data stays RLS-subject), 4, 7 |
 | §4.1 migration 0011_tenant_branding + RLS | Task 2 |
 | §4.2 GET /v1/branding | Task 3 |
 | §4.2 POST /v1/auth/login + logout | Task 6 |
@@ -1760,8 +1960,11 @@ Targets `TODO`, `FIXME`, `similar to Task`, `add error handling`, `<placeholder>
 - `encode_session(tenant_id: str, customer_login: str, settings) -> str` — Task 4; used by Task 6 + tests 4/7/13; `tenant_id` always `str(tenant.id)`.
 - Cookie name `gsid` = `settings.session_cookie_name` everywhere (Tasks 4, 6, 9–13).
 - `tenant_branding` table / `0011_tenant_branding` revision / `TenantBranding` model — Task 2; S1 set extended (H2); consumed Tasks 3, 4, 7, 8, 13.
+- `database_admin_url` (`Settings`, optional) / `admin_engine` / `AdminSessionLocal` (`db.py`) — introduced Task 3 (H15, ADR D16); `init_db`/`dispose_db` updated Task 3; `TenantMiddleware` uses `AdminSessionLocal or SessionLocal` for subdomain resolution ONLY; bound to the admin `engine` in the test wiring of Tasks 3, 4, 6, 7, 13 (mirrors `test_tenant_middleware.py`); compose `DATABASE_ADMIN_URL` Task 14; ADR is **D16** (D14/D15 unchanged). Spelled identically everywhere.
 - `Balance.kind`/`Balance.remaining` from #1C `ConsumptionService` — read-only in Task 7 (`Saldo` mirrors fields exactly), asserted Tasks 7 & 13.
 - `seed` importable from `seed_demo_branding` mirroring `seed_demo_contracts.seed` signature `(s) -> uuid.UUID` — Task 8; used Tasks 8 & 13.
-- Test counts monotonic & consistent: 34 -> 35 -> 36 -> 37 -> 38 -> 39 -> 40 -> 41 -> 42 (Task 1 = no test; Tasks 9–12 portal-only; Task 13 adds the sidecar e2e smoke to reach 42).
+- Test counts monotonic & consistent from the verified baseline 34: Task 2 +1 (35), Task 3 +2 (37 — the D16 admin-path test in 3A and the branding-router test in 3B), Task 4 +1 (38), Task 5 +1 (39), Task 6 +1 (40), Task 7 +1 (41), Task 8 +1 (42), Task 13 +1 sidecar e2e smoke (43). Sequence: 34 -> 35 -> 37 -> 38 -> 39 -> 40 -> 41 -> 42 -> 43 (Task 1 = no test, spike-only; Tasks 9–12 portal-only). Each step's stated count equals the previous task's count plus exactly the number of new test functions that task adds; the only +2 step (Task 3) adds exactly two test files with one test function each.
 
-All gaps found during self-review were fixed inline before saving: S1 set extension wired into Task 2 Step 1; `branding-context` server endpoint added in Task 12 so the layout's `useAsyncData` has a real source; `sidecar` joined to the `app` network in Task 14 so `portal` can reach it; Task 14 ingress guard widened to also assert the pre-existing `api-dev` hostname survives the splice (consistent with #1C D3).
+- ADR numbering: **D14** (Task 1, R1 auth spike) and **D16** (Task 3, TenantMiddleware BYPASSRLS resolution path) are authored where introduced; **D15** (Task 15, portal deploy) is unchanged in intent. D14/D15 content was NOT altered by this amendment; only D16 is new. Final order in `.ia/DECISIONS.md`: D14, D16, D15.
+
+All gaps found during self-review were fixed inline before saving: the gate critical defect (H15 — `TenantMiddleware` resolving the FORCE-RLS `gerti.tenant` lookup through an RLS-subject session, returning a false 404 for every valid subdomain in prod and silently inverting every router-test assertion) is fixed by introducing the narrow BYPASSRLS resolution path (ADR D16) folded into Task 3 and by rewiring Tasks 3/4/6/7/13 to bind `db.AdminSessionLocal` to the admin `engine` (mirroring `test_tenant_middleware.py`) while the tenant DATA path stays RLS-subject; `/v1/contracts` RLS is genuinely exercised because `get_tenant_session` uses module `db.SessionLocal`=`app_session_factory` (RLS-subject) under the GUC (explicit decision recorded in Task 7's preamble); S1 set extension wired into Task 2 Step 1; `branding-context` server endpoint added in Task 12 so the layout's `useAsyncData` has a real source; `sidecar` joined to the `app` network in Task 14 so `portal` can reach it; Task 14 ingress guard widened to also assert the pre-existing `api-dev` hostname survives the splice (consistent with #1C D3). Scope unchanged: nothing from Spec §9 YAGNI added; Task 1's R1 spike untouched; `0011`'s RLS template untouched.
