@@ -225,3 +225,40 @@ footgun D13). Dev/test sem DSN admin: `AdminSessionLocal=None` => cai no
 
 **Evidência.** `test_tenant_resolution_admin_path.py` (subdomínio válido
 resolve 200-class via path BYPASSRLS; RLS ainda fail-closed no dado).
+
+## D15 — Deploy do Portal: serviço aditivo profile-gated, sidecar como única porta
+
+**Contexto.** O portal Nuxt 3 SSR (`apps/portal/`) precisa ser exposto
+publicamente em dois subdomínios white-label (`aurora.suporte.gerti.com.br`,
+`technova.suporte.gerti.com.br`) sem tocar na stack Znuny em execução
+nem introduzir um Znuny separado por tenant.
+
+**Decisão.**
+
+- `portal` é um serviço `profiles:["gerti"]` no `docker-compose.yml`
+  raiz. Um `make up` da stack Znuny pura não o toca — aditivo,
+  zero-downtime para o Znuny (padrão D13).
+- Redes: `app` (para alcançar `sidecar:8001`) + `edge` (para ser
+  roteado pelo cloudflared). O portal fala **somente** com o
+  `sidecar:8001`; nunca com `znuny-web` diretamente.
+- Imagem multi-stage: dependências de build (Node.js, devDeps) ficam
+  apenas no estágio de build; o estágio de runtime é minimalista
+  (`internal: true` no sentido de superfície reduzida).
+- Ingresso Cloudflare por **read-modify-write** (mesmo padrão D3 do
+  sidecar): GET → splice idempotente de AMBAS as regras
+  `aurora.suporte`/`technova.suporte` antes do catch-all `http_status:404`
+  → guard afirma `znuny-dev`+`api-dev` intactos E ambos os novos
+  hostnames presentes → PUT do objeto completo. **Nunca** PUT
+  hand-written (sobrescreve o array inteiro e derruba `znuny-dev`).
+- Segredos no compose com default vazio, nunca `${VAR:?}` — footgun D13:
+  - `SESSION_SECRET`: `${GERTI_SESSION_SECRET:-}` (em `.env.prod`,
+    gitignored).
+  - `DATABASE_ADMIN_URL`: construída de `gerti_admin_user` +
+    `${GERTI_ADMIN_DB_PASSWORD:-}` (mesmo segredo já usado pelo
+    `sidecar-migrate` — nenhum segredo novo).
+- **Rollback:** `$DC stop portal`. Znuny e sidecar intocados.
+  **NUNCA** `make reset`.
+
+**Resultado.** Portal implementado e gateado; deploy per runbook
+`OPS.md` "Deploy do portal". ADR final em `.ia/DECISIONS.md` (ordem:
+D14 spike auth, D16 TenantMiddleware BYPASSRLS, D15 deploy portal).

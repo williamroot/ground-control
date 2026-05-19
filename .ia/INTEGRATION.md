@@ -13,7 +13,7 @@ ground-control/
 ├── apps/
 │   ├── sidecar/    serviço Python · FastAPI · SQLAlchemy 2 async · Alembic
 │   │               · pytest + testcontainers   (fundação + #1C T1)
-│   └── portal/     placeholder Vue 3/Nuxt 3 (Spec #1F — vazio)
+│   └── portal/     Nuxt 3 SSR · branding middleware · auth proxy (Spec #1F-a)
 ├── infra/
 │   └── compose/    infra DEV do sidecar (postgres/redis/minio) + init SQL
 │                   + smoke-test; SEPARADA da stack Znuny de produção
@@ -84,7 +84,17 @@ Estado atual (ponto de convergência — item aberto):
 | Artefatos de deploy (compose profile `gerti`, `postgres/gerti-init/`, runbook) | **Prontos, no `origin/main`** — execução na VPS pendente (SSH inacessível no momento; ver OPS "Deploy do sidecar") |
 | #1B GertiHooks.opm (webhooks/dynamic fields no Znuny) | Não iniciado |
 | Convergência prod p/ cluster Postgres único compartilhado | **Resolvida no design**: `gerti-db-init` (job idempotente, profile-gated) introduz schema `gerti`+roles+RLS no `postgres:18` vivo; ver (b) e D13 |
-| Portal (Spec #1F) | Placeholder vazio |
+| `tenant_branding` table + RLS (migration `0011_tenant_branding`) | **Pronto** |
+| `GET /v1/branding` | **Pronto** |
+| `POST /v1/auth/login`, `POST /v1/auth/logout` | **Pronto** |
+| `GET /v1/me` | **Pronto** |
+| `GET /v1/contracts` | **Pronto** |
+| `znuny_gi.authenticate_customer` (mecanismo per D14: GI `Session::SessionCreate`) | **Pronto** |
+| Portal SSR Nuxt 3 (`apps/portal/`) + branding middleware + tema CSS vars | **Pronto, gateado (profile `gerti`)** |
+| 2 tenants white-label de teste Aurora + TechNova (seeded idempotentemente: `seed_demo_branding.py` + `scripts/seed-technova.pl` via `scripts/seed-demo.sh`) | **Pronto** |
+| OIDC / #1D (troca de login-layer — swap-only, sem mudança de API pública) | Pendente (deferred) |
+| Branding admin UI / onboarding de tenants (#1G) — estes 2 tenants são fixtures de teste, NÃO onboarding | Pendente (#1G) |
+| Portal (Spec #1F) | **Pronto, gateado; deploy per runbook** |
 
 ## (f) Como rodar/testar o sidecar neste repo
 

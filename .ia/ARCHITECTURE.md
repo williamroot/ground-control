@@ -107,6 +107,78 @@ token-mode multi-host; ingress via read-modify-write). Runbook em
 
 Detalhe completo: [`INTEGRATION.md`](INTEGRATION.md).
 
+## Portal Cliente (`apps/portal/`) — Spec #1F-a
+
+Nuxt 3 SSR (`apps/portal/`) exposto na porta 3000, nas redes `app` e
+`edge`. Suporte a múltiplos tenants white-label sem Znuny separado por
+tenant.
+
+### Branding middleware (Nitro)
+
+Toda requisição SSR passa pelo `tenantBranding` server middleware antes
+de renderizar qualquer página:
+
+- Extrai o subdomínio da `Host` header e chama `GET /v1/branding` no
+  sidecar (60 s de cache no servidor; nunca expira na borda para
+  subdomínios desconhecidos).
+- Injeta as variáveis de tema (cores, nome do tenant, `logo_url`) no
+  contexto da requisição para uso no layout.
+- **Default neutro:** quando o subdomínio não casa com nenhum tenant, o
+  middleware retorna um tema neutro — nunca "Gerti" como marca exposta.
+
+### Autenticação server-proxied
+
+O portal **não** expõe o sidecar diretamente ao browser:
+
+- `POST /login` → proxy server-side → `POST /v1/auth/login` no sidecar
+  → sidecar valida credencial via `znuny_gi.authenticate_customer` →
+  minta JWT HS256 como cookie **`gsid`** (first-party, `SameSite=Lax`,
+  `HttpOnly`, `Secure`).
+- Logout: `/logout` → proxy → `POST /v1/auth/logout` → limpa o `gsid`.
+- O sidecar é a **ÚNICA porta para o Znuny**; o browser nunca fala
+  diretamente com `znuny-web` nem com a DB.
+
+### Dois tenants white-label de teste (§2.1)
+
+Implementado e gateado; deploy per runbook (`OPS.md`):
+
+| Tenant | Subdomínio | Palette |
+|---|---|---|
+| Aurora Móveis | `aurora.suporte.gerti.com.br` | laranja/âmbar |
+| TechNova | `technova.suporte.gerti.com.br` | violeta/escuro |
+
+Ambos apontam para o **mesmo Znuny único** (`gerti.znuny_instance`,
+id `b437f4d5-8266-4270-9253-ef536c8ff59c`). Nenhum Znuny separado por
+tenant — §2.1 preservado.
+
+**Prova de isolamento cross-tenant:** um cookie `gsid` mintado para o
+tenant Aurora é rejeitado com **403** ao bater em qualquer endpoint do
+tenant TechNova (e vice-versa). Verificado no e2e smoke (`test_portal_e2e_smoke.py`).
+
+Tenants seeded de forma idempotente por `scripts/seed_demo_branding.py`
+(branding + TechNova tenant) + `scripts/seed-technova.pl` via
+`scripts/seed-demo.sh` (customer Znuny de TechNova;
+`admin.tech@technova.example` / `TechNova@Demo2026`).
+
+### Topologia
+
+```
+Browser → cloudflared → portal:3000 → sidecar:8001 → (Znuny GI | gerti schema RLS)
+```
+
+O portal vive nas redes `app` (alcança `sidecar:8001`) e `edge`
+(cloudflared roteia os subdomínios `aurora.suporte.gerti.com.br` e
+`technova.suporte.gerti.com.br`). O sidecar **não** está na rede `edge`
+— o portal é o único ponto de entrada público para o domínio de
+contratos.
+
+### Deploy (profile `gerti`)
+
+Serviço `portal` gated por `profiles:["gerti"]` no `docker-compose.yml`
+raiz — idêntico ao padrão D13/D15. Um `make up` da stack Znuny pura não
+o toca. Runbook e ingress Cloudflare em [`OPS.md`](OPS.md);
+decisão em [`DECISIONS.md`](DECISIONS.md) D15.
+
 ## Landing (`landing/`)
 
 Estático (HTML/CSS/JS), estética mission-control. Deploy próprio independente: nginx + cloudflared → `groundcontrol.was.dev.br`. Não compartilha containers com a stack Znuny. Detalhes em `landing/README.md`.

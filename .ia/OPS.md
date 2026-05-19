@@ -137,6 +137,104 @@ Aurora). Verificar: `curl -fsS https://api-dev.was.dev.br/v1/health`.
 > um `git pull` + os passos 1–5 + D3 acima (nenhuma mudança de código
 > pendente).
 
+### Deploy do portal (Spec #1F-a — profile `gerti`)
+
+**Pré-requisito:** `GERTI_SESSION_SECRET` (forte, 32+ bytes hex) em
+`~/ground-control/.env.prod` na VPS (gitignored — NUNCA commitar).
+`GERTI_ADMIN_DB_PASSWORD` já deve estar presente (sidecar #1C).
+
+**Pré-requisito de deploy:** o webservice `Session::SessionCreate` deve
+estar criado no Znuny prod antes de o portal receber tráfego real de
+login. Detalhes em
+`docs/superpowers/spikes/2026-05-17-r1-znuny-customer-auth.md` (R1,
+ADR D14 — mecanismo `CustomerUserLogin`/`Password` → `SessionID`).
+
+```bash
+ssh gc 'cd ~/ground-control && git pull'
+ssh gc 'cd ~/ground-control && \
+  DC="docker compose --env-file .env --env-file .env.prod --profile gerti"; \
+  $DC build portal && $DC up -d portal && $DC ps'
+```
+
+**Seed dos tenants de teste (idempotente):**
+
+```bash
+# Branding dos 2 tenants (gerti_admin_user, BYPASSRLS):
+ssh gc 'cd ~/ground-control/apps/sidecar && \
+  DATABASE_URL="postgresql+asyncpg://gerti_admin_user:${GERTI_ADMIN_DB_PASSWORD}@postgres:5432/znuny" \
+  uv run python scripts/seed_demo_branding.py'
+
+# Fixture Znuny do TechNova (1 empresa + 1 usuário, idempotente):
+# login demo: admin.tech@technova.example / TechNova@Demo2026
+ssh gc 'cd ~/ground-control && ./scripts/seed-demo.sh'
+```
+
+`./scripts/seed-demo.sh` roda `scripts/seed-technova.pl` dentro de
+`znuny-web` como `otrs` (idempotente). Aurora já existe em prod desde #1C.
+
+**Ingresso Cloudflare — AMBOS os subdomínios (read-modify-write, padrão D3/D15):**
+
+Resolver account + tunnel id pelo conector: decodificar base64 do
+`CLOUDFLARE_TUNNEL_TOKEN` em `.env.prod`
+(`{"a":<account_id>,"t":<tunnel_id>,...}`) — OU via CF API
+(`GET /accounts` → `GET /accounts/{acct}/cfd_tunnel?is_deleted=false`)
+procurando o tunnel cujo ingress contém `znuny-dev.was.dev.br`.
+Esse tunnel chama-se **`ground-control`** (id
+`4f515441-d21e-4992-9389-f59b4c35e0d2`) — **NÃO confundir** com o
+`groundcontrol-landing` (serve `groundcontrol.was.dev.br`).
+
+Passos:
+1. GET configuração completa do tunnel.
+2. Com `jq`: remover regras pré-existentes de
+   `aurora.suporte.gerti.com.br` e `technova.suporte.gerti.com.br`
+   (idempotência), depois splicing AMBAS as regras
+   `aurora` e `technova` → `http://portal:3000` ANTES do catch-all
+   `http_status:404`.
+3. **Guard obrigatório:** abortar o PUT se qualquer um dos quatro
+   hostnames (`znuny-dev.was.dev.br`, `api-dev.was.dev.br`,
+   `aurora.suporte.gerti.com.br`, `technova.suporte.gerti.com.br`)
+   estiver ausente no objeto montado — e se o último elemento não for
+   `http_status:404`. **Nunca** fazer PUT de config hand-written
+   (sobrescreve o array inteiro e derruba `znuny-dev`+`api-dev`).
+4. PUT do objeto completo → re-GET e assertar os 4 hostnames presentes.
+
+**DNS — CNAME idempotente (ambos os subdomínios):**
+
+Para cada subdomínio (`aurora.suporte.gerti.com.br`,
+`technova.suporte.gerti.com.br`):
+`GET /zones/{zone}/dns_records?name=<sub>` → `POST` se ausente / `PUT`
+se presente → CNAME proxied para
+`<tunnel_id>.cfargotunnel.com`. Se o token CF não tiver
+`Zone:DNS:Edit`, criar os dois CNAMEs manualmente no dashboard (não
+bloqueia o código).
+
+**Verificação:**
+
+```bash
+# Branding diferente por subdomínio (prova white-label):
+curl -fsS https://aurora.suporte.gerti.com.br/ | grep -qi 'Aurora' && echo AURORA_OK
+curl -fsS https://technova.suporte.gerti.com.br/ | grep -qi 'TechNova' && echo TECHNOVA_OK
+
+# Serviços anteriores intactos:
+curl -fsS https://znuny-dev.was.dev.br/znuny/index.pl | grep -qi login && echo ZNUNY_OK
+curl -fsS https://api-dev.was.dev.br/v1/health && echo SIDECAR_OK
+curl -fsS https://groundcontrol.was.dev.br >/dev/null && echo LANDING_OK
+```
+
+**Rollback (portal somente; Znuny e sidecar intocados):**
+
+```bash
+$DC stop portal
+```
+
+Reverter compose se necessário: `git checkout <sha-anterior> -- apps/portal docker-compose.yml && $DC up -d portal`.
+Schema `gerti` e Znuny permanecem intactos. **NUNCA** `make reset`
+(destrói o DB compartilhado).
+
+> **Status (2026-05-17):** portal implementado e gateado; deploy per
+> runbook acima. A execução na VPS é etapa separada (deploy agent
+> concorrente); este runbook é o procedimento de referência.
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)
