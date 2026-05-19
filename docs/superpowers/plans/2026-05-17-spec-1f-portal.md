@@ -2189,6 +2189,8 @@ pnpm -C apps/portal install --frozen-lockfile && pnpm -C apps/portal lint && pnp
           xtenant2 = await c.get("/v1/contracts", headers=h_a)
           assert xtenant2.status_code == 403
   ```
+  > **Reconciliação (test-isolation):** binds de `db.*` via `monkeypatch.setattr` — convenção do Task 3.
+  > **Task-13 nota:** Steps 1-2 (portal vitest `auth-guard.test.ts`/`theme-render.test.ts`) já satisfeitos byte-idênticos por `e595e1b` (Task 12); este Task-13 entrega apenas o e2e cross-tenant sidecar (Step 3).
   > **Executing subagent — before relying on `len(ca.json()) == 6` / `len(ct.json()) == 2`:** confirm the #1C seed defines 6 Aurora contracts (`cd /home/will/projetos/ground-control/apps/sidecar && uv run python -c "import sys; sys.path.insert(0,'scripts'); import seed_demo_contracts as s; print(len(s._CONTRACTS))"` -> `6`) and that `seed_demo_branding._TN_CONTRACTS` has 2 entries. If a real count differs, set the assertion to that count (do NOT hand-wave).
 - [ ] **Step 4 — Run gates.** Run the **Sidecar gate** verbatim -> **43 passed**. Run the **Portal gate** verbatim -> all green.
 - [ ] **Step 5 — Commit.**
