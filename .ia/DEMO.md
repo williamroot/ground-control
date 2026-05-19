@@ -64,6 +64,23 @@ URLs da instância viva:
 Todos vinculados ao CustomerID `AURORA` — veem no portal apenas os chamados
 da própria empresa.
 
+### 2.3 2º tenant de teste — TechNova (#1F-a, white-label)
+
+Fixture **mínimo** de login do portal white-label para o 2º tenant — NÃO é
+um cliente real, apenas demonstra o isolamento cross-tenant do white-label.
+Semeado idempotentemente junto com o Aurora por `scripts/seed-demo.sh`
+(via `scripts/seed-technova.pl`, rodado **dentro do container `znuny-web`
+como `otrs`**).
+
+| CustomerID (Znuny) | Login | Senha demo | Propósito |
+|---|---|---|---|
+| `TECHNOVA` | `admin.tech@technova.example` | `TechNova@Demo2026` | fixture de login do portal white-label tenant 2 (não é cliente real) |
+
+```bash
+ssh gc 'cd ~/ground-control && ./scripts/seed-demo.sh'           # semeia/re-semeia Aurora + TechNova (idempotente)
+ssh gc 'cd ~/ground-control && ./scripts/seed-demo.sh --verify'  # valida login Aurora + TechNova
+```
+
 ---
 
 ## 3. Inventário semeado

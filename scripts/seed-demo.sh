@@ -21,6 +21,8 @@ PG="postgres"
 CONSOLE="/opt/otrs/bin/otrs.Console.pl"
 PERL_LOCAL="scripts/seed-demo.pl"
 PERL_IN_CT="/opt/otrs/var/seed-demo.pl"
+TNV_LOCAL="scripts/seed-technova.pl"
+TNV_IN_CT="/opt/otrs/var/seed-technova.pl"
 AUTH_LOCAL="scripts/seed-authcheck.pl"
 AUTH_IN_CT="/opt/otrs/var/seed-authcheck.pl"
 PGUSER="$(grep -E '^POSTGRES_USER=' .env 2>/dev/null | cut -d= -f2)"; PGUSER="${PGUSER:-znuny}"
@@ -42,6 +44,9 @@ if [[ "${1:-}" == "--reset" ]]; then
   fi
   psql_q "DELETE FROM customer_user WHERE customer_id='AURORA';" >/dev/null || true
   psql_q "DELETE FROM customer_company WHERE customer_id='AURORA';" >/dev/null || true
+  # 2º tenant de teste (#1F-a): simétrico ao Aurora.
+  psql_q "DELETE FROM customer_user WHERE customer_id='TECHNOVA';" >/dev/null || true
+  psql_q "DELETE FROM customer_company WHERE customer_id='TECHNOVA';" >/dev/null || true
   echo "Agentes/filas/SLAs/serviços são preservados (compartilhados). Reset de tickets+empresa OK."
   exit 0
 fi
@@ -56,6 +61,11 @@ if [[ "${1:-}" != "--verify" ]]; then
 
   hdr "Executando seed (idempotente) via API Znuny"
   c_otrs "perl $PERL_IN_CT"
+
+  hdr "Fixture TechNova (2º tenant de teste #1F-a, idempotente)"
+  $DC cp "$TNV_LOCAL" "$WEB:$TNV_IN_CT"
+  $DC exec -T "$WEB" chown otrs:otrs "$TNV_IN_CT"
+  c_otrs "perl $TNV_IN_CT"
 fi
 
 # garante helper de auth no container (também no modo --verify isolado)
@@ -81,6 +91,12 @@ CC="$(psql_q "SELECT name FROM customer_company WHERE customer_id='AURORA';")"
 # customer users
 CU="$(psql_q "SELECT count(*) FROM customer_user WHERE customer_id='AURORA';")"
 [[ "$CU" -ge 5 ]] && ok "customer users: $CU/5" || bad "customer users faltando ($CU/5)"
+
+# 2º tenant de teste (#1F-a): empresa + login TechNova
+CCT="$(psql_q "SELECT name FROM customer_company WHERE customer_id='TECHNOVA';")"
+[[ -n "$CCT" ]] && ok "empresa TechNova: $CCT" || bad "empresa TECHNOVA ausente"
+TNAUTH="$(c_otrs "perl $AUTH_IN_CT customer admin.tech@technova.example 'TechNova@Demo2026'" 2>/dev/null | tr -d '\r\n' || true)"
+[[ "$TNAUTH" == OK:* ]] && ok "login cliente admin.tech@technova.example AUTENTICA ($TNAUTH)" || bad "auth customer TechNova falhou ($TNAUTH)"
 
 # filas
 Qn="$(c_otrs "$CONSOLE Admin::Queue::List" 2>/dev/null | grep -cE 'Suporte::N1|Suporte::N2|Field Service|Financeiro' || true)"
