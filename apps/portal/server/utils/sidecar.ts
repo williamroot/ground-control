@@ -1,8 +1,11 @@
 import type { H3Event } from 'h3'
 
-// Server-side fetch to the sidecar. Forwards the resolved tenant Host and
-// the inbound Cookie so TenantMiddleware resolves the subdomain and the
-// gsid session round-trips (H8).
+// Server-side fetch to the sidecar. Forwards the resolved tenant host via
+// X-Forwarded-Host (undici/Node fetch FORBIDS overriding the Host header —
+// it silently rewrites it to the target authority `sidecar:8001`, so the
+// sidecar would never see the tenant subdomain) and the inbound Cookie so
+// TenantMiddleware resolves the subdomain (H9) and the gsid session
+// round-trips (H8).
 export async function sidecarFetch<T>(
   event: H3Event,
   path: string,
@@ -17,7 +20,7 @@ export async function sidecarFetch<T>(
   const res = await fetch(`${cfg.sidecarUrl}${path}`, {
     method: opts.method || 'GET',
     headers: {
-      'host': fwdHost,
+      'x-forwarded-host': fwdHost,
       'cookie': cookie,
       'content-type': 'application/json',
     },

@@ -247,6 +247,10 @@ services:
       # Caminho BYPASSRLS estreito SÓ p/ resolução subdomínio->tenant
       # (D16). Mesmo host/db do DATABASE_URL, role gerti_admin_user.
       DATABASE_ADMIN_URL: postgresql+asyncpg://gerti_admin_user:${GERTI_ADMIN_DB_PASSWORD:-}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-znuny}
+      # Webservice Znuny GertiCustomerAuth p/ znuny_gi (D14). Valores
+      # reais em .env.prod na VPS; default vazio (nunca :? — D13).
+      ZNUNY_WS_URL: ${ZNUNY_WS_URL:-}
+      ZNUNY_WS_TOKEN: ${ZNUNY_WS_TOKEN:-}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8001/v1/health || exit 1"]
       interval: 15s

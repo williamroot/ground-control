@@ -64,7 +64,11 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if request.url.path in META_PATHS:
             return await call_next(request)
 
-        host = request.headers.get("host", "")
+        # X-Forwarded-Host tem precedência sobre Host (H9): o portal Nuxt
+        # encaminha o host do tenant via XFH porque o undici/Node fetch
+        # PROÍBE override do Host (reescreve p/ a autoridade `sidecar:8001`).
+        # Fallback p/ Host quando não há XFH (ex.: chamadas diretas/testes).
+        host = request.headers.get("x-forwarded-host", "") or request.headers.get("host", "")
         subdomain = extract_subdomain(host)
         if subdomain is None:
             return await call_next(request)
