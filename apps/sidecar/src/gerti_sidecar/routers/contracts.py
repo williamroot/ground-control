@@ -5,9 +5,9 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerti_sidecar.auth.session import SessionPayload, get_current_session
@@ -15,12 +15,15 @@ from gerti_sidecar.db import get_tenant_session
 from gerti_sidecar.domain.consumption_service import ConsumptionService
 from gerti_sidecar.domain.contract_read_service import consumed_percent_from
 from gerti_sidecar.models import (
+    ConsumptionEvent,
     Contract,
     ContractAdjustmentRule,
     ContractBillingParty,
     ContractCycle,
     ContractRenewalPolicy,
+    Glosa,
 )
+from gerti_sidecar.models.enums import GlosaStatus
 
 router = APIRouter(prefix="/contracts", tags=["portal"])
 
@@ -223,3 +226,75 @@ async def get_contract(
             for p in parties
         ],
     )
+
+
+class GlosaOut(BaseModel):
+    status: str
+
+
+class ConsumptionItem(BaseModel):
+    id: int
+    occurred_at: dt.datetime
+    source_kind: str
+    source_ref: str
+    billable_minutes: float
+    billable_amount_brl: float
+    glosa: GlosaOut | None
+    counts_toward_balance: bool
+
+
+class ConsumptionPage(BaseModel):
+    page: int
+    page_size: int
+    total: int
+    items: list[ConsumptionItem]
+
+
+@router.get("/{contract_id}/consumption", response_model=ConsumptionPage)
+async def get_consumption(
+    contract_id: uuid.UUID = Path(...),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1),  # over-max clamped to 200 in-body (H4), not 422
+    _session_payload: SessionPayload = Depends(get_current_session),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ConsumptionPage:
+    c = await session.get(Contract, contract_id)
+    if c is None:  # RLS hid cross-tenant -> 404 (H2)
+        raise HTTPException(status_code=404, detail="contract_not_found")
+    page = max(1, page)
+    page_size = min(max(1, page_size), 200)  # clamp (H4)
+    total = (
+        await session.scalar(
+            select(func.count())
+            .select_from(ConsumptionEvent)
+            .where(ConsumptionEvent.contract_id == c.id)
+        )
+        or 0
+    )
+    # LEFT OUTER JOIN Glosa (glosa_id has no FK — H13); status read-only.
+    rows = (
+        await session.execute(
+            select(ConsumptionEvent, Glosa.status)
+            .outerjoin(Glosa, Glosa.id == ConsumptionEvent.glosa_id)
+            .where(ConsumptionEvent.contract_id == c.id)
+            .order_by(ConsumptionEvent.occurred_at.desc(), ConsumptionEvent.id.desc())
+            .limit(page_size)
+            .offset((page - 1) * page_size)
+        )
+    ).all()
+    items: list[ConsumptionItem] = []
+    for ev, glosa_status in rows:
+        counts = glosa_status is None or glosa_status != GlosaStatus.approved
+        items.append(
+            ConsumptionItem(
+                id=ev.id,
+                occurred_at=ev.occurred_at,
+                source_kind=ev.source_kind,
+                source_ref=ev.source_ref,
+                billable_minutes=float(ev.billable_minutes),
+                billable_amount_brl=float(ev.billable_amount_brl),
+                glosa=GlosaOut(status=glosa_status.value) if glosa_status is not None else None,
+                counts_toward_balance=counts,
+            )
+        )
+    return ConsumptionPage(page=page, page_size=page_size, total=int(total), items=items)
