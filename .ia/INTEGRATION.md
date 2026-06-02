@@ -95,6 +95,20 @@ Estado atual (ponto de convergência — item aberto):
 | OIDC / #1D (troca de login-layer — swap-only, sem mudança de API pública) | Pendente (deferred) |
 | Branding admin UI / onboarding de tenants (#1G) — estes 2 tenants são fixtures de teste, NÃO onboarding | Pendente (#1G) |
 | Portal (Spec #1F) | **Pronto, gateado; deploy per runbook** |
+| `GET /v1/contracts` estendido (+`id`, +`consumed_percent`) | **Pronto, gateado; deploy per runbook** — read-only sobre #1C |
+| `GET /v1/contracts/{id}` (detalhe: saldo, totais, ciclo ativo, reajuste/renovação) | **Pronto, gateado; deploy per runbook** — read-only sobre #1C |
+| `GET /v1/contracts/{id}/consumption` (eventos paginados + `counts_toward_balance`) | **Pronto, gateado; deploy per runbook** — read-only sobre #1C |
+| `GET /v1/contracts/{id}/series` (série densa, cap 400 buckets) | **Pronto, gateado; deploy per runbook** — read-only sobre #1C |
+| `GET /v1/dashboard` (cards saldo + alertas `warning`/`critical`) | **Pronto, gateado; deploy per runbook** — read-only sobre #1C |
+| `contract_read_service` (`domain/contract_read_service.py`, regra S3 centralizada — ADR D17) | **Pronto, gateado** |
+| Portal rich dashboard `/` (cards + sparklines + alertas) + detalhe `/contratos/[id]` (hero saldo + AreaChart + ciclos + ledger c/ glosa) | **Pronto, gateado; deploy per runbook** |
+| Componentes SVG puros: `ProgressBar.vue`, `AreaChart.vue`, `Sparkline.vue` (brand-var, sem lib, SSR-safe) | **Pronto, gateado** |
+| Assinatura WAS discreta (`WASSignature.vue`) nos dois tenants | **Pronto, gateado** |
+| 2 tenants white-label de teste `aurora.was.dev.br` + `technova.was.dev.br` | **Pronto, ativos** |
+| Tickets / catálogo / abrir-chamado (#1E) | Pendente (deferred §9) |
+| Admin / onboarding / branding UI (#1G) | Pendente (deferred §9) |
+| OIDC / PKCE (#1D) | Pendente (deferred §9) |
+| Export CSV/PDF, filtros avançados, i18n | Pendente (deferred §9) |
 
 ## (f) Como rodar/testar o sidecar neste repo
 

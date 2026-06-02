@@ -179,6 +179,64 @@ raiz — idêntico ao padrão D13/D15. Um `make up` da stack Znuny pura não
 o toca. Runbook e ingress Cloudflare em [`OPS.md`](OPS.md);
 decisão em [`DECISIONS.md`](DECISIONS.md) D15.
 
+### Portal #1F-b — visão de contratos rica (read-only)
+
+Implementado e gateado; deploy per runbook (`OPS.md`).
+
+#### Endpoints novos (read-only sobre #1C)
+
+| Endpoint | Descrição |
+|---|---|
+| `GET /v1/contracts` | Lista estendida: inclui `id` e `consumed_percent` por contrato |
+| `GET /v1/contracts/{id}` | Detalhe do contrato: saldo, totais, ciclo ativo, reajuste/renovação |
+| `GET /v1/contracts/{id}/consumption` | Eventos de consumo paginados com flag `counts_toward_balance` |
+| `GET /v1/contracts/{id}/series` | Série densa de consumo (cap 400 buckets diários→semanal, H5) |
+| `GET /v1/dashboard` | Cards de saldo + alertas de saldo baixo (`warning`/`critical`) |
+
+Todos os endpoints utilizam `get_current_session` + `get_tenant_session` (autenticação + RLS); nenhum endpoint de escrita foi adicionado. Grep-guard `test_portal_read_only_guard.py` garante ausência de `add`/`flush`/`commit`/`INSERT`/`UPDATE`/`DELETE` em qualquer router de contracts/dashboard (H3).
+
+#### `contract_read_service.py` — regra S3 centralizada (ADR D17)
+
+`domain/contract_read_service.py` é **read-only puro** (só `select`/`session.get`/`ConsumptionService.balance`). Centraliza:
+
+- `not_written_off_predicate()` — idêntico ao braço S3 do `balance()` (braço `glosa_id IS NULL` explícito evita o footgun `NULL NOT IN`);
+- `consumed_percent_from` / `consumed_percent` — `clamp01((initial − remaining)/initial)×100`, `None` para `kind=="n/a"` e base 0;
+- `series` — série densa zero-filled, cap 400 buckets;
+- `low_balance` — limiar 20% `warning` / ≤0 `critical`; `closed_value`/`saas_product` nunca alertam.
+
+Nenhum router redefine a regra S3 (D17).
+
+#### Componentes SVG puros (sem lib externa)
+
+Três componentes Vue SSR-safe, brand-var, zero dependência de lib:
+
+| Componente | Uso |
+|---|---|
+| `ProgressBar.vue` | Barra de consumo por contrato (usa `--brand-primary`) |
+| `AreaChart.vue` | Série temporal de consumo no detalhe do contrato |
+| `Sparkline.vue` | Mini-sparkline nos cards do dashboard |
+
+#### Páginas do portal
+
+| Rota | Página |
+|---|---|
+| `/` | Dashboard rico: cards de saldo + alertas + sparklines |
+| `/contratos/[id]` | Detalhe: hero saldo + AreaChart + ciclos + ledger c/ indicadores de glosa + reajuste/renovação/partes |
+
+#### Assinatura WAS discreta
+
+Footer com assinatura "Powered by WAS" presente em ambos os tenants (Aurora e TechNova). Implementado em `WASSignature.vue`; verificado nos testes de portal e no gate visual (Task 15 Step 5 — controller).
+
+#### Topologia (inalterada)
+
+```
+Browser → cloudflared → portal:3000 → sidecar:8001 → gerti schema RLS
+```
+
+O portal é read-only sobre o domínio #1C. Nenhuma rota de escrita foi exposta.
+
+---
+
 ## Landing (`landing/`)
 
 Estático (HTML/CSS/JS), estética mission-control. Deploy próprio independente: nginx + cloudflared → `groundcontrol.was.dev.br`. Não compartilha containers com a stack Znuny. Detalhes em `landing/README.md`.
