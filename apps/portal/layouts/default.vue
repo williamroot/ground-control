@@ -26,7 +26,7 @@ const route = useRoute()
 const isAuthedView = computed(() => route.path !== '/login')
 
 // Nav por papel (Spec #1H): admin vê Contratos; help-desk vê Tickets.
-// Sem await: a nav é progressiva e lê o `me` já resolvido pela guarda global
+// Sem await: a nav é progressiva e lê o `me` já resolvido pela middleware `auth`
 // (mesma key 'me' do useAsyncData) — não bloqueia o render do layout.
 const { data: me } = useMe()
 const role = computed(() => me.value?.role)

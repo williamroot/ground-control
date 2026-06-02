@@ -10,10 +10,12 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import PostgresDsn, field_validator
+from pydantic import PostgresDsn, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["development", "staging", "production", "test"]
+
+_DEFAULT_SESSION_SECRET = "dev-insecure-session-secret-change-me"
 
 
 class Settings(BaseSettings):
@@ -33,7 +35,7 @@ class Settings(BaseSettings):
     database_url: PostgresDsn
 
     # portal session (Spec #1F-a) ------------------------------------
-    session_secret: str = "dev-insecure-session-secret-change-me"
+    session_secret: str = _DEFAULT_SESSION_SECRET
     session_cookie_name: str = "gsid"
     session_ttl_seconds: int = 28800  # 8h
 
@@ -68,6 +70,19 @@ class Settings(BaseSettings):
                 "use 'postgresql+asyncpg://...'"
             )
         return v
+
+    @model_validator(mode="after")
+    def _session_secret_set_in_prod(self) -> Settings:
+        # Spec #1H: o papel (admin/helpdesk) viaja como claim assinado HS256 no
+        # JWT. Um secret default/conhecido em prod permitiria forjar role=admin
+        # → fail-closed: não sobe em production/staging sem um secret real.
+        if self.environment in ("production", "staging") and (
+            self.session_secret == _DEFAULT_SESSION_SECRET or not self.session_secret
+        ):
+            raise ValueError(
+                "SESSION_SECRET deve ser definido (não-default) em production/staging"
+            )
+        return self
 
     @property
     def is_dev(self) -> bool:

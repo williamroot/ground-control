@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-// Espelha a decisão da guarda global (middleware/auth.global.ts, #1H) e da nav
-// por papel do layout — mesmo padrão de teste de lógica do auth-guard.test.ts.
+// Espelha (intencionalmente) a decisão da middleware nomeada `auth` (#1H) e da
+// nav por papel do layout — mesmo padrão de teste de lógica do auth-guard.test.ts.
+// A lógica é trivial; a regra real é re-verificada no smoke pós-deploy.
 
 type Role = 'admin' | 'helpdesk'
 

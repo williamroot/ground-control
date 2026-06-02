@@ -20,7 +20,7 @@ interface Dashboard {
   low_balance_alerts: Alert[]
 }
 
-// Auth + papel admin garantidos pela guarda global (middleware/auth.global.ts, #1H).
+// Auth + papel admin garantidos pela middleware nomeada `auth` (definePageMeta, #1H).
 const headers = useRequestHeaders(['cookie'])
 const { data: dashboard } = await useAsyncData('dashboard', () =>
   $fetch<Dashboard>('/api/portal/dashboard', { headers }).catch(() => null))

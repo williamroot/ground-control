@@ -33,7 +33,7 @@ const route = useRoute()
 const id = computed(() => String(route.params.id))
 const headers = useRequestHeaders(['cookie'])
 
-// Auth + papel admin garantidos pela guarda global (middleware/auth.global.ts, #1H).
+// Auth + papel admin garantidos pela middleware nomeada `auth` (definePageMeta, #1H).
 const { data: detail, error } = await useAsyncData(`detail-${id.value}`, () =>
   $fetch<Detail>(`/api/portal/contracts/${id.value}`, { headers }).catch(() => null))
 const { data: series } = await useAsyncData(`series-${id.value}`, () =>
