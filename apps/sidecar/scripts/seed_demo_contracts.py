@@ -279,17 +279,21 @@ async def _seed_horas_cycle_and_consumption(s: AsyncSession, contract_id: uuid.U
         await s.execute(select(Glosa).where(Glosa.consumption_event_id == first_event.id))
     ).scalar_one_or_none()
     if g is None:
-        s.add(
-            Glosa(
-                consumption_event_id=first_event.id,
-                reason="Atendimento fora de escopo - em análise",
-                requested_by="seed-demo",
-            )
+        g = Glosa(
+            consumption_event_id=first_event.id,
+            reason="Atendimento fora de escopo - em análise",
+            requested_by="seed-demo",
         )
+        s.add(g)
         await s.flush()
         print("+ criado     Glosa pendente sobre ConsumptionEvent #0")
     else:
         print("= já existe  Glosa sobre ConsumptionEvent #0")
+    # H15 back-pointer: the consumption ledger LEFT-JOINs Glosa via
+    # ConsumptionEvent.glosa_id, so wire event -> glosa (pending → STILL counts).
+    if first_event.glosa_id != g.id:
+        first_event.glosa_id = g.id
+        await s.flush()
 
 
 async def seed(s: AsyncSession) -> uuid.UUID:
