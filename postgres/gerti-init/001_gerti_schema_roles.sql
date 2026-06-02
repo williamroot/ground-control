@@ -55,6 +55,25 @@ GRANT USAGE, CREATE ON SCHEMA znuny TO znuny_owner;
 ALTER DEFAULT PRIVILEGES FOR ROLE znuny_owner IN SCHEMA znuny
   GRANT SELECT ON TABLES TO gerti_app;
 
+-- Login SEMPRE por e-mail (requisito de produto): o sidecar resolve o
+-- e-mail informado → `login` real (CustomerUserLogin) lendo a tabela de
+-- customers do Znuny READ-ONLY. Em prod o Znuny carrega seu schema em
+-- `public` (confirmado: information_schema → public.customer_user), um
+-- detalhe de convergência aceito (Spec #0: "sidecar lê znuny read-only").
+-- SOMENTE SELECT, SOMENTE nesta tabela — nenhuma outra tabela do Znuny,
+-- nenhuma escrita. Idempotente; gated por existência da tabela (no-op se
+-- o Znuny ainda não populou o cluster).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'customer_user'
+  ) THEN
+    GRANT USAGE ON SCHEMA public TO gerti_app;
+    GRANT SELECT ON public.customer_user TO gerti_app;
+  END IF;
+END $$;
+
 -- Usuários aplicacionais LOGIN — senha parametrizada, idempotente.
 -- psql NÃO interpola :var dentro de bloco dollar-quoted, então o
 -- create/alter condicional é feito com \gset + \if (fora de DO $$).

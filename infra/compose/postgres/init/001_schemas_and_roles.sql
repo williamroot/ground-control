@@ -33,6 +33,23 @@ GRANT USAGE, CREATE ON SCHEMA znuny TO znuny_owner;
 ALTER DEFAULT PRIVILEGES FOR ROLE znuny_owner IN SCHEMA znuny
   GRANT SELECT ON TABLES TO gerti_app;
 
+-- Login SEMPRE por e-mail: o sidecar resolve o e-mail → `login` real
+-- (CustomerUserLogin) lendo a tabela de customers do Znuny READ-ONLY. O
+-- Znuny carrega seu schema em `public` (paridade com prod). SOMENTE SELECT,
+-- SOMENTE nesta tabela. Idempotente; gated por existência (no-op se o Znuny
+-- não populou public.customer_user neste cluster dev). Byte-equivalente ao
+-- prod (postgres/gerti-init/001) — zero drift.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'customer_user'
+  ) THEN
+    GRANT USAGE ON SCHEMA public TO gerti_app;
+    GRANT SELECT ON public.customer_user TO gerti_app;
+  END IF;
+END $$;
+
 -- Usuários aplicacionais --------------------------------------------
 -- senhas via variável passada no docker-compose; aqui só placeholders
 -- (re-executar via SQL em prod com senhas reais do Vault)
