@@ -359,3 +359,56 @@ e de **autorização** APROVADAS (sem blockers): privilege-escalation fechado,
 least-privilege em toda omissão, claim assinado validado por allowlist,
 `portal_user_role` FORCE-RLS resolvido após o 403 cross-tenant, query
 parametrizada, enforcement server-side.
+
+## D19 (RASCUNHO — spike R1G, #1G-a) — Console de Administração: auth de agente via GI + escrita de cliente via operação GI custom
+
+**Status:** RASCUNHO (congela contratos para a Fase 1; finalizado na Fase 2 com
+evidência de gate + e2e). **Spike:** `docs/superpowers/spikes/2026-06-02-r1g-znuny-admin-gi.md`
+(transcrições reais via `ssh gc` contra o Znuny 7.2.3 vivo).
+
+**Contexto.** O #1G-a adiciona um app admin separado (equipe Gerti) com login
+de **agente** Znuny, onboarding de cliente (tenant+branding+usuários+papéis) e
+criar contrato. Duas incógnitas de Znuny GI eram bloqueantes (como o R1/#1F foi
+para o portal): (1) auth de agente via GI; (2) escrita de `CustomerCompany`/
+`CustomerUser` via GI (Spec #0: escrita no Znuny SEMPRE via GI).
+
+**Decisão incógnita 1 — PRIMARY (live-proven).** A operação core
+`Session::SessionCreate` aceita `UserLogin`+`Password` e roteia para
+`Kernel::System::Auth->Auth` (auth de AGENTE) — fonte `Session/Common.pm:55-65`.
+Prova viva: `Auth(User=>"william", Pw=>"Gerti@Demo2026")` → `william`;
+senha errada → undef (`SessionCreate.AuthFail`). Mesmo webservice/contrato do
+D14, **trocando só o campo de login** (`UserLogin` em vez de
+`CustomerUserLogin`). SEM resolução e-mail→login (agentes logam pelo `login` da
+tabela `users`, não pelo e-mail). Contrato congelado:
+`authenticate_agent(login, password) -> bool` + `ZnunyUnavailable` (mesma
+semântica failure-safe do `authenticate_customer`).
+
+**Decisão incógnita 2 — operação GI CUSTOM.** O GI core **não** expõe escrita de
+cliente: `ls .../Operation/` = `Common.pm Session Test Ticket User`, e `User/`
+(que é agente) só tem `OutOfOffice.pm`. A API Perl, porém, expõe
+`CustomerCompanyAdd` (`Kernel/System/CustomerCompany.pm`), `CustomerUserAdd` e
+`SetPassword` (`Kernel/System/CustomerUser.pm`); e o overlay `Custom/Kernel/...`
+já é usado nesta imagem (`Cache/Redis.pm`). Mecanismo congelado: **operação GI
+custom** embrulhando a API Perl, exposta por um webservice `GertiAdmin`
+(`CustomerCompany::CustomerCompanyAdd`, `CustomerUser::CustomerUserAdd`,
+`CustomerUser::SetPassword`), shipada via `znuny/Custom/...` no build da imagem.
+Contrato congelado (`integrations/znuny_customer_admin.py`):
+`create_customer_company`, `create_customer_user`, `set_password` +
+`ZnunyUnavailable` (transporte/5xx → 503) e `ZnunyWriteError` (rejeição limpa,
+ex.: login duplicado → 4xx).
+
+**Impacto no desenho (a decidir no checkpoint do spike).** A incógnita 2 adiciona
+um artefato **Znuny-side** (Perl custom + import do webservice `GertiAdmin`) que
+não estava listado no plano — é pré-requisito do e2e (#1G-a só cria o login se a
+operação existir). Opção A: incluir no ciclo (deploy Fase 2). Opção B: entregar
+UI/API + tenant/branding/papéis no Postgres e deixar a criação do CustomerUser
+no Znuny para follow-up. (Ver spike, seção final.)
+
+**Sessão admin.** JWT HS256 `{agent_login, role:"gerti_staff", exp}`, cookie
+**próprio** `gsid_adm` (≠ `gsid` do cliente), **não tenant-scoped** (admin opera
+cross-tenant). Endpoints `/v1/admin/*` exigem `get_admin_session` (401 sem ela);
+os endpoints de cliente (`require_admin`, D18) NÃO aceitam a sessão admin
+(cookies/segredos de claim distintos). Escrita cross-tenant só pelo caminho
+admin BYPASSRLS (AdminSessionLocal, D16) e SÓ em `/v1/admin/*`; criar contrato
+para um tenant abre `tenant_session_scope(id)` e usa `ContractService` (preserva
+invariantes #1C). **Sem migration nova** no #1G-a.

@@ -1,0 +1,29 @@
+/* #1G-a — Nuxt UI v3 / Tailwind v4 entry (Console de Administração Gerti). */
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+@theme {
+  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Identidade FIXA Gerti/WAS (NÃO white-label por-tenant): cor da marca do
+   console de administração. Liga os tokens "primary" do Nuxt UI à marca Gerti. */
+:root {
+  --brand-primary: #4f46e5;
+  --brand-accent: #4338ca;
+  --ui-primary: var(--brand-primary);
+  --ui-color-primary-400: var(--brand-primary);
+  --ui-color-primary-500: var(--brand-primary);
+  --ui-color-primary-600: var(--brand-accent);
+  --ui-color-primary-700: var(--brand-accent);
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--ui-bg-muted);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}

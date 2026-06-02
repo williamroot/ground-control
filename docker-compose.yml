@@ -280,3 +280,29 @@ services:
       timeout: 5s
       retries: 10
       start_period: 25s
+
+  # ───────────────────────────────────────────────────────────────────
+  #  Gerti Console de Administração (Spec #1G-a) — profile `gerti`.
+  #  App SEPARADO (equipe Gerti), subdomínio próprio (gerti.was.dev.br em
+  #  teste; admin.suporte.gerti.com.br em prod). Identidade FIXA Gerti/WAS
+  #  (NÃO white-label). Fala só com `sidecar` (endpoints /v1/admin/*,
+  #  cross-tenant). Aditivo: nada sobe sem --profile gerti (padrão D13/D15).
+  #  Ingresso Cloudflare = read-modify-write (manual, D4/D15-style).
+  # ───────────────────────────────────────────────────────────────────
+  admin:
+    profiles: ["gerti"]
+    build: { context: ./apps/admin }
+    image: ground-control/admin:${GERTI_ADMIN_UI_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      sidecar: { condition: service_healthy }
+    networks: [app, edge]
+    environment:
+      SIDECAR_URL: http://sidecar:8001
+      ADMIN_BASE_DOMAIN: ${ADMIN_BASE_DOMAIN:-gerti.was.dev.br}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 25s

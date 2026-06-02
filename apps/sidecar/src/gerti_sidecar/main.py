@@ -14,7 +14,17 @@ from fastapi import FastAPI
 from gerti_sidecar import __version__
 from gerti_sidecar.config import get_settings
 from gerti_sidecar.db import dispose_db, init_db
-from gerti_sidecar.routers import auth, branding, contracts, dashboard, health, me
+from gerti_sidecar.routers import (
+    admin_auth,
+    admin_contracts,
+    admin_tenants,
+    auth,
+    branding,
+    contracts,
+    dashboard,
+    health,
+    me,
+)
 
 logger = logging.getLogger("gerti_sidecar")
 
@@ -51,6 +61,10 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix=settings.api_v1_prefix)
     app.include_router(contracts.router, prefix=settings.api_v1_prefix)
     app.include_router(dashboard.router, prefix=settings.api_v1_prefix)
+    # Console de Administração (Spec #1G-a) — cross-tenant, sessão gsid_adm.
+    app.include_router(admin_auth.router, prefix=settings.api_v1_prefix)
+    app.include_router(admin_tenants.router, prefix=settings.api_v1_prefix)
+    app.include_router(admin_contracts.router, prefix=settings.api_v1_prefix)
     app.add_middleware(TenantMiddleware)
 
     return app

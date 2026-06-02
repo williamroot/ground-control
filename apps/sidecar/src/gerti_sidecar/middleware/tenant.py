@@ -73,6 +73,14 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if request.url.path in META_PATHS:
             return await call_next(request)
 
+        # Console de administração (Spec #1G-a) é CROSS-TENANT: roda no
+        # subdomínio próprio `gerti.was.dev.br` (que casa o padrão <sub>.was.dev.br)
+        # e opera sobre tenants por id explícito, NÃO pelo host. Pular a
+        # resolução evita um 404 `tenant_not_found` (subdomínio "gerti") antes
+        # de chegar na rota. A autorização é a sessão admin (`gsid_adm`).
+        if request.url.path.startswith("/v1/admin"):
+            return await call_next(request)
+
         # X-Forwarded-Host tem precedência sobre Host (H9): o portal Nuxt
         # encaminha o host do tenant via XFH porque o undici/Node fetch
         # PROÍBE override do Host (reescreve p/ a autoridade `sidecar:8001`).
