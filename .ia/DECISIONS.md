@@ -262,3 +262,44 @@ nem introduzir um Znuny separado por tenant.
 **Resultado.** Portal implementado e gateado; deploy per runbook
 `OPS.md` "Deploy do portal". ADR final em `.ia/DECISIONS.md` (ordem:
 D14 spike auth, D16 TenantMiddleware BYPASSRLS, D15 deploy portal).
+
+## D17 — Read-service do portal (#1F-b): regra S3 da glosa centralizada, leitura pura
+
+**Contexto.** A fatia #1F-b (visão de contratos rica) precisa de
+`consumed_percent`, `counts_toward_balance` por evento, série densa de
+consumo e alertas de saldo baixo. A regra S3 — apenas glosa `approved`
+remove o evento do saldo, com o braço explícito `glosa_id IS NULL` que
+evita o footgun `NULL NOT IN (..)` = NULL — já vive em
+`ConsumptionService.balance` (`domain/consumption_service.py`).
+Reimplementá-la dentro dos routers `/v1/contracts/*` e `/v1/dashboard`
+duplicaria o footgun e arriscaria drift (ex.: dropar o braço `IS NULL`
+descartaria silenciosamente eventos sem glosa).
+
+**Decisão.** Introduzir `domain/contract_read_service.py`, **READ-ONLY**
+(somente `select(...)`/`session.get(...)`/`ConsumptionService.balance`;
+zero `add`/`flush`/`commit`/`INSERT`/`UPDATE`/`DELETE`), expondo:
+- `not_written_off_predicate()` — idêntico ao braço do `balance()`;
+- `consumed_percent_from` / `consumed_percent` — `clamp01((initial -
+  remaining)/initial)*100`, `None` para `kind=="n/a"` e base 0/ausente;
+- `series` — série densa zero-filled na janela do contrato, cap de 400
+  buckets diários → semanal (H5);
+- `low_balance` — limiar 20% `warning` / `≤0` `critical`, só tipos com
+  saldo (`hour_bank`/`credit_brl`/`credit_shared`/`service_count`);
+  `closed_value`/`saas_product` nunca alertam.
+Os routers consomem este service; NENHUM router redefine a regra S3.
+O portal é read-only sobre o domínio #1C.
+
+**Nota de modelagem (H8/#1C, reforçada em H15).** `balance()` exclui um
+evento da soma keando no **back-pointer** `consumption_event.glosa_id`
+(app-layer, SEM FK), não em `Glosa.consumption_event_id`. Testes/seeds
+que exercitam exclusão de glosa `approved` DEVEM setar
+`event.glosa_id = glosa.id` após criar a glosa (criar só
+`Glosa(consumption_event_id=...)` deixa `glosa_id` NULL → nada é
+excluído). Glosas `pending`/`rejected` continuam contando (sem
+back-pointer).
+
+**Evidência.** `tests/test_contract_read_service.py`: o predicate casa
+com `balance()` (glosa `approved` exclui via back-pointer → remaining
+8.0 / consumed 20%; `pending`/ausente contam); `consumed_percent` é
+`None` para `closed_value` e para base 0. Gate sidecar **48 passed**;
+S1 e `test_request_with_unknown_subdomain_returns_404` verdes.

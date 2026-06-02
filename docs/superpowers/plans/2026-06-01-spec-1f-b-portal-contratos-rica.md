@@ -47,6 +47,7 @@ Static-analysis traps found against the audited code + Postgres/Nuxt/SVG/SSR sem
 | H12 | `low_balance_alerts` must alert only saldo-bearing types; thresholds (warning `<20%`, critical `≤0%`) easy to invert; closed_value/saas_product must NEVER alert. | `contract_read_service.low_balance(...)`: skip `kind=="n/a"`; skip when initial 0/None; `remaining_pct = remaining/initial`; `critical` iff `remaining_pct <= 0`, `warning` iff `0 < remaining_pct < 0.20`, else no alert. Tested with the Aurora seed (hour_bank with pending glosa still counts → known remaining). (Task 7) |
 | H13 | `consumption_event.glosa_id` has NO FK (H8 of #1C); a JOIN that assumes referential integrity could drop rows, and only the LATEST/relevant glosa status matters per event. | The consumption endpoint LEFT-OUTER-JOINs `Glosa` on `Glosa.id == ConsumptionEvent.glosa_id` (read-only lookup; integrity is app-layer). `glosa` is `{status}` or `null`; `counts_toward_balance = glosa is None or glosa.status != "approved"` — same predicate as `not_written_off`, asserted equivalent in tests. (Task 5) |
 | H14 | `git add -A` / committing the whole tree would sweep `.playwright-mcp/` and unrelated files. | Every commit step lists EXACT paths; the plan-commit (final, separate) adds ONLY this one plan file. No `git add -A`. (all tasks) |
+| H15 | `balance()` exclui um evento da soma keando no back-pointer `consumption_event.glosa_id` (app-layer, SEM FK — H8 de #1C), NÃO em `Glosa.consumption_event_id`. Um teste/seed que só cria `Glosa(consumption_event_id=ev.id, status=approved)` (forward pointer) sem setar `ev.glosa_id = glosa.id` deixa `glosa_id` NULL → nada é excluído → asserts de "approved exclui" falham silenciosamente (saldo cheio demais). | **Setar o back-pointer ao excluir via glosa approved:** após criar a `Glosa` aprovada e `flush`, fazer `event.glosa_id = glosa.id` e `flush` de novo. Glosas `pending`/`rejected` NÃO levam back-pointer (devem continuar contando). (Tasks 1, 4, 5, 6, 7, 13 — qualquer teste/e2e que asserta exclusão de glosa `approved`) |
 
 ---
 
@@ -87,6 +88,8 @@ cd /home/will/projetos/ground-control/apps/portal && corepack pnpm install --fro
 **Goal:** Create ONE read-only home for the approved-glosa predicate and the derived read helpers (`consumed_percent`, per-event `counts_toward_balance`, dense time-series, low-balance) so NO router ever re-derives the footgun-aware rule (H1). Record the new read-service as ADR **D17**.
 
 **Files:** Create `apps/sidecar/src/gerti_sidecar/domain/contract_read_service.py` · Create `apps/sidecar/tests/test_contract_read_service.py` · Modify `.ia/DECISIONS.md` (append D17).
+
+> **Reconciliação (regra de negócio):** `balance()` exclui via o back-pointer `consumption_event.glosa_id` (H8, app-layer, sem FK) — testes/e2e que exercitam exclusão de glosa `approved` DEVEM setar `event.glosa_id = glosa.id` após criar a glosa; criar só `Glosa(consumption_event_id=...)` não exclui.
 
 - [ ] **Step 1 — Failing test.** Create `apps/sidecar/tests/test_contract_read_service.py`:
   ```python
@@ -140,9 +143,13 @@ cd /home/will/projetos/ground-control/apps/portal && corepack pnpm install --fro
           await session.flush()
           evs.append(ev)
       # APPROVED glosa on the 120-min event -> it must NOT count.
-      session.add(Glosa(consumption_event_id=evs[1].id, status=GlosaStatus.approved,
-                        reason="x", requested_by="seed"))
-      # PENDING glosa on the last 60-min event -> it STILL counts.
+      g_app = Glosa(consumption_event_id=evs[1].id, status=GlosaStatus.approved,
+                    reason="x", requested_by="seed")
+      session.add(g_app)
+      await session.flush()
+      evs[1].glosa_id = g_app.id  # back-pointer: balance() keys on consumption_event.glosa_id (H8, app-layer, no FK)
+      await session.flush()
+      # PENDING glosa on the last 60-min event -> it STILL counts (no back-pointer on purpose).
       session.add(Glosa(consumption_event_id=evs[2].id, status=GlosaStatus.pending,
                         reason="y", requested_by="seed"))
       await session.flush()
@@ -185,6 +192,7 @@ cd /home/will/projetos/ground-control/apps/portal && corepack pnpm install --fro
   import datetime as dt
   import uuid
   from dataclasses import dataclass
+  from typing import Any  # mypy strict: annotate value_expr/bucket_col (branches differ)
 
   import sqlalchemy as sa
   from sqlalchemy import func, select
@@ -291,6 +299,7 @@ cd /home/will/projetos/ground-control/apps/portal && corepack pnpm install --fro
 
           bal_kind = (await self._cons.balance(contract.id)).kind
 
+          value_expr: ColumnElement[Any]  # branches yield different SQL col types
           if bal_kind == "hours":
               value_expr = func.coalesce(func.sum(ConsumptionEvent.billable_minutes), 0) / 60.0
               extra: list[ColumnElement[bool]] = []
@@ -304,6 +313,7 @@ cd /home/will/projetos/ground-control/apps/portal && corepack pnpm install --fro
               return Series(granularity=granularity, kind=bal_kind, points=[])
 
           # bucket key: date(occurred_at) for day; ISO Monday (date_trunc week) for week.
+          bucket_col: ColumnElement[Any]  # branches yield different SQL col types
           if granularity == "week":
               bucket_col = func.date_trunc("week", ConsumptionEvent.occurred_at)
           else:
