@@ -12,7 +12,8 @@ Plataforma de Service Desk **own-source, white-label, MSP-first** — núcleo **
 - **Busca:** OpenSearch single-node healthy e alcançável pelo Znuny (indexação completa depende do add-on `Znuny-Elasticsearch` — gap documentado)
 - **Em prod:** VPS `100.99.49.110` via Cloudflare Tunnel → `znuny-dev.was.dev.br` (aguardando token do connector)
 - **Demo pronta para apresentação:** seed idempotente ([`scripts/seed-demo.sh`](scripts/seed-demo.sh)) cria a operação MSP fictícia "Aurora Móveis" — 5 agentes, 5 clientes, 5 filas, 11 serviços, 3 SLAs, 17 tickets. Credenciais e roteiro em [`.ia/DEMO.md`](.ia/DEMO.md)
-- **Sidecar Python:** em [`apps/sidecar/`](apps/sidecar/) — FastAPI + SQLAlchemy + Alembic; **fundação (Plano 1A) + #1C Task 1** prontos e verificados (gate `ruff + mypy + pytest` 16/16, RLS multi-tenant sob role sem privilégio). Integração com o Znuny em [`.ia/INTEGRATION.md`](.ia/INTEGRATION.md)
+- **Sidecar Python:** em [`apps/sidecar/`](apps/sidecar/) — FastAPI + SQLAlchemy + Alembic; **fundação (Plano 1A) + motor de contratos #1C** prontos e verificados (gate `ruff + mypy + pytest`, RLS multi-tenant sob role sem privilégio). Integração com o Znuny em [`.ia/INTEGRATION.md`](.ia/INTEGRATION.md)
+- **Portal do Cliente (Ground Desk):** em [`apps/portal/`](apps/portal/) — Nuxt 3 SSR white-label por tenant; login por e-mail (valida no Znuny), visão rica de contratos/saldos (#1F) e **papéis admin × help-desk** (#1H): admin vê contratos+valores, help-desk vê a operação/tickets. Gating server-side (RLS + `require_admin`), least-privilege. No ar em `aurora.was.dev.br` / `technova.was.dev.br`
 - **Landing comercial:** em [`landing/`](landing/) — deploy próprio para `groundcontrol.was.dev.br`
 
 ## Stack
