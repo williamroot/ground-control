@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel
@@ -13,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gerti_sidecar.auth.session import SessionPayload, get_current_session
 from gerti_sidecar.db import get_tenant_session
 from gerti_sidecar.domain.consumption_service import ConsumptionService
-from gerti_sidecar.domain.contract_read_service import consumed_percent_from
+from gerti_sidecar.domain.contract_read_service import ContractReadService, consumed_percent_from
 from gerti_sidecar.models import (
     ConsumptionEvent,
     Contract,
@@ -298,3 +299,33 @@ async def get_consumption(
             )
         )
     return ConsumptionPage(page=page, page_size=page_size, total=int(total), items=items)
+
+
+class SeriesPointOut(BaseModel):
+    bucket: dt.date
+    value: float
+
+
+class SeriesOut(BaseModel):
+    granularity: str
+    kind: str
+    points: list[SeriesPointOut]
+
+
+@router.get("/{contract_id}/series", response_model=SeriesOut)
+async def get_series(
+    contract_id: uuid.UUID = Path(...),
+    granularity: Literal["day", "week"] = "day",
+    today: dt.date | None = Query(None),
+    _session_payload: SessionPayload = Depends(get_current_session),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> SeriesOut:
+    c = await session.get(Contract, contract_id)
+    if c is None:  # RLS hid cross-tenant -> 404 (H2)
+        raise HTTPException(status_code=404, detail="contract_not_found")
+    s = await ContractReadService(session).series(c, granularity=granularity, today=today)
+    return SeriesOut(
+        granularity=s.granularity,
+        kind=s.kind,
+        points=[SeriesPointOut(bucket=p.bucket, value=p.value) for p in s.points],
+    )
