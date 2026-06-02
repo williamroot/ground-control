@@ -109,6 +109,9 @@ async function submit() {
             label="Entrar"
           />
         </UForm>
+        <div class="mt-10">
+          <WasSignature />
+        </div>
       </div>
     </section>
   </div>

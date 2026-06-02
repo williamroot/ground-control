@@ -70,10 +70,13 @@ async function logout() {
     </main>
 
     <footer
-      v-if="isAuthedView && b?.support_email"
-      class="border-t border-neutral-200/70 px-5 py-4 text-center text-xs text-neutral-400"
+      v-if="isAuthedView"
+      class="border-t border-neutral-200/70 px-5 py-4 text-center"
     >
-      {{ b.display_name }} · {{ b.support_email }}
+      <p v-if="b?.support_email" class="mb-1 text-xs text-neutral-400">
+        {{ b.display_name }} · {{ b.support_email }}
+      </p>
+      <WasSignature />
     </footer>
   </div>
 </template>
