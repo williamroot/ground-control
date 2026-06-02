@@ -20,18 +20,60 @@ useHead(() => ({
   }],
   title: b.value?.display_name ?? 'Portal',
 }))
+
+// A top bar/logout só aparece nas páginas autenticadas (não no /login).
+const route = useRoute()
+const isAuthedView = computed(() => route.path !== '/login')
+
+async function logout() {
+  await $fetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
+  await navigateTo('/login')
+}
 </script>
 
 <template>
-  <div class="min-h-screen" :style="{ background: 'var(--brand-primary)' }">
-    <header class="p-4 text-white font-semibold">
-      {{ b?.display_name ?? 'Portal' }}
+  <div class="min-h-screen flex flex-col bg-[#faf9f8] text-[#1f2733]">
+    <!-- faixa de acento da marca -->
+    <div class="h-[3px] w-full" :style="{ background: 'var(--brand-primary)' }" />
+
+    <header
+      v-if="isAuthedView"
+      class="sticky top-0 z-10 border-b border-neutral-200/70 bg-white/85 backdrop-blur"
+    >
+      <div class="mx-auto flex max-w-6xl items-center gap-3 px-5 py-3">
+        <span
+          class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold text-white shadow-sm font-display"
+          :style="{ background: 'linear-gradient(135deg, var(--brand-primary), var(--brand-accent))' }"
+        >{{ (b?.display_name ?? 'P').charAt(0) }}</span>
+        <span class="font-display text-lg font-bold tracking-tight">
+          {{ b?.display_name ?? 'Portal' }}
+        </span>
+        <div class="ml-auto flex items-center gap-3">
+          <a
+            v-if="b?.support_email"
+            :href="`mailto:${b.support_email}`"
+            class="hidden text-sm text-neutral-500 transition hover:text-neutral-800 sm:inline"
+          >{{ b.support_email }}</a>
+          <UButton
+            color="neutral"
+            variant="ghost"
+            size="sm"
+            icon="i-lucide-log-out"
+            @click="logout"
+          >Sair</UButton>
+        </div>
+      </div>
     </header>
-    <main class="bg-white min-h-[80vh] rounded-t-xl p-6">
+
+    <main class="flex-1">
       <slot />
     </main>
-    <footer v-if="b?.support_email" class="p-4 text-white text-sm">
-      {{ b.support_email }}
+
+    <footer
+      v-if="isAuthedView && b?.support_email"
+      class="border-t border-neutral-200/70 px-5 py-4 text-center text-xs text-neutral-400"
+    >
+      {{ b.display_name }} · {{ b.support_email }}
     </footer>
   </div>
 </template>

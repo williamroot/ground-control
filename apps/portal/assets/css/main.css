@@ -1,0 +1,38 @@
+/* #1F-a — Nuxt UI v3 / Tailwind v4 entry.
+   Convenção Nuxt UI v3: importar o Tailwind e o tema do Nuxt UI aqui; o
+   `css: ['~/assets/css/main.css']` no nuxt.config faz o build incluir as
+   utilities reais (não só as CSS vars inline de branding). */
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+/* Tipografia da marca (via @nuxt/fonts, que o @nuxt/ui já traz):
+   display = Bricolage Grotesque, body = Hanken Grotesk. */
+@theme {
+  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+}
+
+/* O branding por-tenant injeta --brand-primary/--brand-accent (SSR, sem flash,
+   feito pelo layouts/default.vue via useHead, com fallback neutro #475569).
+   NÃO redeclaramos --brand-* aqui (senão o cascade deste arquivo venceria a
+   tag <style> do useHead e toda marca cairia no default). Apenas ligamos os
+   tokens de cor "primary" do Nuxt UI às vars da marca, para que
+   UButton/UBadge/UInput etc. usem a cor do tenant como protagonista. */
+:root {
+  --ui-primary: var(--brand-primary, #475569);
+  --ui-color-primary-400: var(--brand-primary, #475569);
+  --ui-color-primary-500: var(--brand-primary, #475569);
+  --ui-color-primary-600: var(--brand-accent, #334155);
+  --ui-color-primary-700: var(--brand-accent, #334155);
+}
+
+/* Fundo de página: cinza-quente bem claro + leve gradiente da marca em alfa
+   baixo no topo (discreto, não gritante). */
+body {
+  font-family: var(--font-sans);
+  background-color: #faf9f8;
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
