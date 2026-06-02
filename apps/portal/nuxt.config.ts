@@ -1,6 +1,7 @@
 export default defineNuxtConfig({
   ssr: true,
   modules: ['@nuxt/ui', '@pinia/nuxt', '@nuxt/eslint'],
+  components: [{ path: '~/components', pathPrefix: false }],
   // #1F-a: entry CSS do Nuxt UI v3 / Tailwind v4 (Tailwind + tema Nuxt UI +
   // fontes da marca). Sem isto as utilities não entram no build.
   css: ['~/assets/css/main.css'],
