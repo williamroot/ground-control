@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gerti_sidecar.auth.session import SessionPayload, get_current_session
 from gerti_sidecar.db import get_tenant_session
 from gerti_sidecar.domain.consumption_service import ConsumptionService
+from gerti_sidecar.domain.contract_read_service import consumed_percent_from
 from gerti_sidecar.models import Contract
 
 router = APIRouter(prefix="/contracts", tags=["portal"])
@@ -29,6 +31,8 @@ class ContractItem(BaseModel):
     starts_on: dt.date
     ends_on: dt.date
     saldo: Saldo
+    id: uuid.UUID
+    consumed_percent: float | None
 
 
 @router.get("", response_model=list[ContractItem])
@@ -43,12 +47,14 @@ async def list_contracts(
         bal = await cons.balance(c.id)
         out.append(
             ContractItem(
+                id=c.id,
                 code=c.code,
                 type=c.type.value,
                 status=c.status.value,
                 starts_on=c.starts_on,
                 ends_on=c.ends_on,
                 saldo=Saldo(kind=bal.kind, remaining=bal.remaining),
+                consumed_percent=consumed_percent_from(c, bal),
             )
         )
     return out

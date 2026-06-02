@@ -42,17 +42,16 @@ async def test_contracts_scoped_and_authed(engine, app_session_factory, session,
     session.add(t)
     await session.flush()
     session.add(TenantBranding(tenant_id=t.id, display_name="Aurora Móveis"))
-    session.add(
-        Contract(
-            tenant_id=t.id,
-            code="AUR-1",
-            type=ContractType.credit_brl,
-            starts_on=dt.date(2026, 1, 1),
-            ends_on=dt.date(2026, 12, 31),
-            initial_amount_brl=10000,
-            created_by="seed",
-        )
+    contract = Contract(
+        tenant_id=t.id,
+        code="AUR-1",
+        type=ContractType.credit_brl,
+        starts_on=dt.date(2026, 1, 1),
+        ends_on=dt.date(2026, 12, 31),
+        initial_amount_brl=10000,
+        created_by="seed",
     )
+    session.add(contract)
     await session.commit()
     # Resolution path = admin engine (BYPASSRLS, mirrors
     # test_tenant_middleware.py). Data path: db.SessionLocal =
@@ -81,3 +80,6 @@ async def test_contracts_scoped_and_authed(engine, app_session_factory, session,
         assert rows[0]["code"] == "AUR-1"
         assert rows[0]["saldo"]["kind"] == "brl"
         assert rows[0]["saldo"]["remaining"] == 10000.0
+        assert rows[0]["id"] == str(contract.id)
+        # credit_brl with full balance (no consumption) -> 0% consumed
+        assert rows[0]["consumed_percent"] == 0.0
