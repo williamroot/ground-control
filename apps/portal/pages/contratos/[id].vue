@@ -4,6 +4,8 @@ import { DEFAULT_BRANDING } from '#shared/branding'
 import { glosaMeta } from '~/components/contract/glosa'
 import { statusColor, statusLabel, typeLabel } from '~/components/contract/labels'
 
+definePageMeta({ middleware: 'auth' }) // #1H: sessão + papel admin
+
 interface Saldo { kind: string, remaining: number | null }
 interface Cycle {
   id: string, kind: string, period_start: string, period_end: string
@@ -31,10 +33,7 @@ const route = useRoute()
 const id = computed(() => String(route.params.id))
 const headers = useRequestHeaders(['cookie'])
 
-const { data: me } = await useAsyncData('me-detail', () =>
-  $fetch('/api/portal/me', { headers }).catch(() => null))
-if (!me.value) await navigateTo('/login')
-
+// Auth + papel admin garantidos pela guarda global (middleware/auth.global.ts, #1H).
 const { data: detail, error } = await useAsyncData(`detail-${id.value}`, () =>
   $fetch<Detail>(`/api/portal/contracts/${id.value}`, { headers }).catch(() => null))
 const { data: series } = await useAsyncData(`series-${id.value}`, () =>

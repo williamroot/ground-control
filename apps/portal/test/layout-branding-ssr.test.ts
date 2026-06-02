@@ -23,9 +23,22 @@
 //   3. useRequestEvent é o canal de leitura — não há $fetch interno de branding.
 import { mountSuspended, mockNuxtImport } from '@nuxt/test-utils/runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ref } from 'vue'
 import { clearNuxtState } from '#imports'
 import DefaultLayout from '../layouts/default.vue'
 import { DEFAULT_BRANDING, type Branding } from '../server/middleware/branding'
+
+// #1H: o layout usa useMe() para a nav por papel. Aqui o foco é branding —
+// stub de sessão ADMIN isola o teste do #1H (a guarda de rota é middleware
+// NOMEADA por página, não roda neste mount isolado de layout).
+mockNuxtImport('useMe', () => () => ({
+  data: ref({
+    tenant_id: 't',
+    display_name: 'x',
+    customer_login: 'u',
+    role: 'admin' as const,
+  }),
+}))
 
 const AURORA: Branding = {
   display_name: 'Aurora Móveis',

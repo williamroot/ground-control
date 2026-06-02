@@ -70,14 +70,15 @@ async function submit() {
         <p class="mt-1 text-sm text-neutral-500">Use suas credenciais de acesso.</p>
 
         <UForm :state="state" class="mt-8 space-y-5" @submit="submit">
-          <UFormField label="Usuário" name="username">
+          <UFormField label="E-mail" name="username">
             <UInput
               v-model="state.username"
-              placeholder="seu.usuario"
-              autocomplete="username"
+              type="email"
+              placeholder="voce@empresa.com.br"
+              autocomplete="email"
               size="lg"
               class="w-full"
-              icon="i-lucide-user"
+              icon="i-lucide-mail"
             />
           </UFormField>
           <UFormField label="Senha" name="password">
