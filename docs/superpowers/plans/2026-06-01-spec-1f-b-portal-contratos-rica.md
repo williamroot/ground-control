@@ -833,7 +833,7 @@ cd /home/will/projetos/ground-control/apps/portal && corepack pnpm install --fro
   ```
 - [ ] **Step 2 — Run, expect fail.** `cd /home/will/projetos/ground-control/apps/sidecar && uv run pytest -q tests/test_contract_consumption_router.py` → route missing.
 - [ ] **Step 3 — Add the consumption endpoint.** In `apps/sidecar/src/gerti_sidecar/routers/contracts.py`:
-  - Extend imports: `from fastapi import APIRouter, Depends, HTTPException, Path, Query`; `from sqlalchemy import func, select`; add `from gerti_sidecar.models import ..., Glosa` (extend the models import list); add `from gerti_sidecar.domain.contract_read_service import consumed_percent_from, not_written_off_predicate`.
+  - Extend imports: `from fastapi import APIRouter, Depends, HTTPException, Path, Query`; `from sqlalchemy import func, select`; add `from gerti_sidecar.models import ..., Glosa` (extend the models import list). NOTE: do NOT import `not_written_off_predicate` into `contracts.py` — the consumption endpoint computes `counts_toward_balance` in Python on the joined `Glosa.status`; the predicate lives in and is used only inside `contract_read_service.py`. An unused import here fails `ruff F401`. `consumed_percent_from` was already imported in Tasks 2/4 — do not re-add.
   - Add response models:
     ```python
     class GlosaOut(BaseModel):
@@ -905,7 +905,7 @@ cd /home/will/projetos/ground-control/apps/portal && corepack pnpm install --fro
             )
         return ConsumptionPage(page=page, page_size=page_size, total=int(total), items=items)
     ```
-    > **Note:** `counts_toward_balance` here uses the SAME truth as `not_written_off_predicate()` (glosa null OR != approved). The predicate is imported for the SERIES endpoint (Task 6) which aggregates in SQL; the per-row flag mirrors it in Python on the joined status. Tests assert they agree. Do NOT re-derive a different rule.
+    > **Note:** `counts_toward_balance` here uses the SAME truth as `not_written_off_predicate()` (glosa null OR != approved), but computed in Python on the joined `Glosa.status` (no import of the predicate into `contracts.py` — it would be an unused import → `ruff F401`). The SQL predicate lives in `contract_read_service.py` and is used by the SERIES endpoint via `ContractReadService.series`. Tests (Tasks 5 & 13) assert the Python flag and the SQL aggregation agree. Do NOT re-derive a different rule.
 - [ ] **Step 4 — Run the full Sidecar gate.** Expected: **51 passed** (+2 test functions). S1 + unknown-subdomain PASS.
 - [ ] **Step 5 — Commit.**
   ```
@@ -996,7 +996,7 @@ cd /home/will/projetos/ground-control/apps/portal && corepack pnpm install --fro
   > The endpoint accepts an OPTIONAL `?today=YYYY-MM-DD` query (test seam, defaults to UTC today) so the dense window is deterministic in tests. Document it as an internal/testing aid; the portal never sends it.
 - [ ] **Step 2 — Run, expect fail.** `cd /home/will/projetos/ground-control/apps/sidecar && uv run pytest -q tests/test_contract_series_router.py` → route missing.
 - [ ] **Step 3 — Add the series endpoint.** In `apps/sidecar/src/gerti_sidecar/routers/contracts.py`:
-  - Extend imports: `from typing import Literal`; `from gerti_sidecar.domain.contract_read_service import ContractReadService, consumed_percent_from, not_written_off_predicate` (merge with existing).
+  - Extend imports: `from typing import Literal`; `from gerti_sidecar.domain.contract_read_service import ContractReadService` (merge with the existing `consumed_percent_from` import from Tasks 2/4). Do NOT import `not_written_off_predicate` into `contracts.py` — the series endpoint delegates to `ContractReadService.series(...)`, which applies the predicate internally; importing it here would be unused → `ruff F401`.
   - Add response models:
     ```python
     class SeriesPointOut(BaseModel):
