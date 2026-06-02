@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Branding } from '#shared/branding'
 import { DEFAULT_BRANDING } from '#shared/branding'
+import { statusColor, statusLabel, typeLabel } from '~/components/contract/labels'
 
 interface Saldo { kind: string, remaining: number | null }
 interface ContractItem {
@@ -31,19 +32,8 @@ const { data: contracts } = await useAsyncData('contracts', () =>
 const branding = useState<Branding>('branding', () => DEFAULT_BRANDING)
 const tenantName = computed(() => branding.value?.display_name ?? 'Portal')
 
-const TYPE_LABEL: Record<string, string> = {
-  hour_bank: 'Banco de horas', credit_brl: 'Crédito (R$)', credit_shared: 'Crédito compartilhado',
-  service_count: 'Pacote de serviços', closed_value: 'Valor fechado', saas_product: 'Assinatura',
-}
-const STATUS_META: Record<string, { label: string, color: 'success' | 'warning' | 'neutral' | 'error' }> = {
-  active: { label: 'Ativo', color: 'success' }, suspended: { label: 'Suspenso', color: 'warning' },
-  expired: { label: 'Expirado', color: 'error' }, terminated: { label: 'Encerrado', color: 'neutral' },
-  draft: { label: 'Rascunho', color: 'neutral' },
-}
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 const num = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 })
-function typeLabel(t: string) { return TYPE_LABEL[t] ?? t }
-function statusMeta(s: string) { return STATUS_META[s] ?? { label: s, color: 'neutral' as const } }
 function saldoBig(c: ContractItem): string {
   const r = c.saldo?.remaining; const kind = c.saldo?.kind
   if (r == null) return '—'
@@ -96,7 +86,7 @@ function fmtDate(iso: string): string {
               <p class="font-display text-base font-bold tracking-tight text-neutral-900">{{ c.code }}</p>
               <UBadge color="primary" variant="subtle" size="sm" class="mt-1.5">{{ typeLabel(c.type) }}</UBadge>
             </div>
-            <UBadge :color="statusMeta(c.status).color" variant="soft" size="sm">{{ statusMeta(c.status).label }}</UBadge>
+            <UBadge :color="statusColor(c.status)" variant="soft" size="sm">{{ statusLabel(c.status) }}</UBadge>
           </div>
           <div>
             <p class="text-xs uppercase tracking-wide text-neutral-400">{{ saldoLabel(c) }}</p>

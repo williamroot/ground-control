@@ -2,6 +2,7 @@
 import type { Branding } from '#shared/branding'
 import { DEFAULT_BRANDING } from '#shared/branding'
 import { glosaMeta } from '~/components/contract/glosa'
+import { statusColor, statusLabel, typeLabel } from '~/components/contract/labels'
 
 interface Saldo { kind: string, remaining: number | null }
 interface Cycle {
@@ -89,8 +90,8 @@ function totalPages(p: CPage | null): number {
     <template v-else>
       <header class="mb-6 flex flex-wrap items-center gap-3">
         <h1 class="font-display text-2xl font-extrabold tracking-tight text-neutral-900">{{ detail.code }}</h1>
-        <UBadge color="primary" variant="subtle">{{ detail.type }}</UBadge>
-        <UBadge color="neutral" variant="soft">{{ detail.status }}</UBadge>
+        <UBadge color="primary" variant="subtle">{{ typeLabel(detail.type) }}</UBadge>
+        <UBadge :color="statusColor(detail.status)" variant="soft">{{ statusLabel(detail.status) }}</UBadge>
         <span class="ml-auto text-sm text-neutral-500">{{ fmtDate(detail.starts_on) }} — {{ fmtDate(detail.ends_on) }}</span>
       </header>
 
@@ -135,7 +136,7 @@ function totalPages(p: CPage | null): number {
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead class="text-left text-xs uppercase tracking-wide text-neutral-400">
-              <tr><th class="py-2">Data</th><th>Origem</th><th class="text-right">Min</th><th class="text-right">R$</th><th>Glosa</th></tr>
+              <tr><th class="py-2">Data</th><th>Origem</th><th class="text-right">Min</th><th class="text-right pr-4">R$</th><th class="pl-4">Glosa</th></tr>
             </thead>
             <tbody>
               <tr v-for="it in ledger.items" :key="it.id" class="border-t border-neutral-100"
@@ -143,8 +144,8 @@ function totalPages(p: CPage | null): number {
                 <td class="py-2 text-neutral-600">{{ fmtDate(it.occurred_at) }}</td>
                 <td class="text-neutral-600">{{ it.source_kind }} · {{ it.source_ref }}</td>
                 <td class="text-right text-neutral-600" :class="it.glosa?.status === 'approved' ? 'line-through' : ''">{{ num.format(it.billable_minutes) }}</td>
-                <td class="text-right text-neutral-600" :class="it.glosa?.status === 'approved' ? 'line-through' : ''">{{ brl.format(it.billable_amount_brl) }}</td>
-                <td>
+                <td class="text-right text-neutral-600 pr-4" :class="it.glosa?.status === 'approved' ? 'line-through' : ''">{{ brl.format(it.billable_amount_brl) }}</td>
+                <td class="pl-4">
                   <span v-if="glosaMeta(it.glosa?.status ?? null)" class="text-xs font-medium" :class="glosaMeta(it.glosa?.status ?? null)!.classes">
                     {{ glosaMeta(it.glosa?.status ?? null)!.label }}
                   </span>
