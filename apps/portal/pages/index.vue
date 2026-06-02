@@ -59,21 +59,22 @@ function fmtDate(iso: string): string {
 <template>
   <div class="mx-auto max-w-6xl px-5 py-8">
     <header class="mb-8">
-      <p class="text-sm text-neutral-500">{{ tenantName }}</p>
-      <h1 class="font-display text-3xl font-extrabold tracking-tight text-neutral-900">Seus contratos</h1>
-      <p class="mt-1 text-sm text-neutral-500">Acompanhe saldos, tipos e vigências dos seus contratos.</p>
+      <p class="text-sm text-muted">{{ tenantName }}</p>
+      <h1 class="font-display text-3xl font-extrabold tracking-tight text-highlighted">Seus contratos</h1>
+      <p class="mt-1 text-sm text-muted">Acompanhe saldos, tipos e vigências dos seus contratos.</p>
     </header>
 
     <LowBalanceAlerts :alerts="dashboard?.low_balance_alerts ?? []" />
 
     <UCard v-if="!contracts || contracts.length === 0" class="text-center">
       <div class="flex flex-col items-center gap-3 py-10">
-        <span class="inline-flex h-12 w-12 items-center justify-center rounded-full text-white"
+        <span
+class="inline-flex h-12 w-12 items-center justify-center rounded-full text-white"
           :style="{ background: 'var(--brand-primary)' }">
           <UIcon name="i-lucide-file-text" class="h-6 w-6" />
         </span>
-        <p class="font-display text-lg font-semibold text-neutral-800">Nenhum contrato ainda</p>
-        <p class="max-w-sm text-sm text-neutral-500">Quando um contrato for ativado para você, ele aparecerá aqui.</p>
+        <p class="font-display text-lg font-semibold text-highlighted">Nenhum contrato ainda</p>
+        <p class="max-w-sm text-sm text-muted">Quando um contrato for ativado para você, ele aparecerá aqui.</p>
       </div>
     </UCard>
 
@@ -82,17 +83,17 @@ function fmtDate(iso: string): string {
         <UCard class="h-full transition hover:shadow-md" :ui="{ body: 'space-y-4' }">
           <div class="flex items-start justify-between gap-2">
             <div>
-              <p class="font-display text-base font-bold tracking-tight text-neutral-900">{{ c.code }}</p>
+              <p class="font-display text-base font-bold tracking-tight text-highlighted">{{ c.code }}</p>
               <UBadge color="primary" variant="subtle" size="sm" class="mt-1.5">{{ typeLabel(c.type) }}</UBadge>
             </div>
             <UBadge :color="statusColor(c.status)" variant="soft" size="sm">{{ statusLabel(c.status) }}</UBadge>
           </div>
           <div>
-            <p class="text-xs uppercase tracking-wide text-neutral-400">{{ saldoLabel(c) }}</p>
-            <p class="font-display text-3xl font-extrabold tracking-tight text-neutral-900">{{ saldoBig(c) }}</p>
+            <p class="text-xs uppercase tracking-wide text-dimmed">{{ saldoLabel(c) }}</p>
+            <p class="font-display text-3xl font-extrabold tracking-tight text-highlighted">{{ saldoBig(c) }}</p>
             <ProgressBar v-if="c.consumed_percent != null" class="mt-3" :percent="c.consumed_percent" />
           </div>
-          <div class="flex items-center gap-1.5 text-xs text-neutral-500">
+          <div class="flex items-center gap-1.5 text-xs text-muted">
             <UIcon name="i-lucide-calendar" class="h-3.5 w-3.5" />
             <span>{{ fmtDate(c.starts_on) }} — {{ fmtDate(c.ends_on) }}</span>
           </div>

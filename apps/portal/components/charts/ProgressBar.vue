@@ -12,7 +12,7 @@ const clamped = computed(() => {
 </script>
 
 <template>
-  <div class="h-2 w-full overflow-hidden rounded-full bg-neutral-100">
+  <div class="h-2 w-full overflow-hidden rounded-full bg-elevated">
     <div
       class="h-full rounded-full transition-all"
       :class="overage ? 'opacity-90' : ''"

@@ -78,47 +78,47 @@ function totalPages(p: CPage | null): number {
 
 <template>
   <div class="mx-auto max-w-5xl px-5 py-8">
-    <NuxtLink to="/" class="mb-6 inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-800">
+    <NuxtLink to="/" class="mb-6 inline-flex items-center gap-1.5 text-sm text-muted hover:text-highlighted">
       <UIcon name="i-lucide-arrow-left" class="h-4 w-4" /> Voltar
     </NuxtLink>
 
-    <div v-if="error || !detail" class="rounded-xl border border-neutral-200 p-8 text-center text-neutral-500">
+    <div v-if="error || !detail" class="rounded-xl border border-default p-8 text-center text-muted">
       Não foi possível carregar este contrato.
     </div>
 
     <template v-else>
       <header class="mb-6 flex flex-wrap items-center gap-3">
-        <h1 class="font-display text-2xl font-extrabold tracking-tight text-neutral-900">{{ detail.code }}</h1>
+        <h1 class="font-display text-2xl font-extrabold tracking-tight text-highlighted">{{ detail.code }}</h1>
         <UBadge color="primary" variant="subtle">{{ typeLabel(detail.type) }}</UBadge>
         <UBadge :color="statusColor(detail.status)" variant="soft">{{ statusLabel(detail.status) }}</UBadge>
-        <span class="ml-auto text-sm text-neutral-500">{{ fmtDate(detail.starts_on) }} — {{ fmtDate(detail.ends_on) }}</span>
+        <span class="ml-auto text-sm text-muted">{{ fmtDate(detail.starts_on) }} — {{ fmtDate(detail.ends_on) }}</span>
       </header>
 
       <!-- Hero saldo -->
       <UCard class="mb-6">
-        <p class="text-xs uppercase tracking-wide text-neutral-400">Saldo atual</p>
-        <p class="font-display text-4xl font-extrabold tracking-tight text-neutral-900">{{ saldoBig(detail) }}</p>
+        <p class="text-xs uppercase tracking-wide text-dimmed">Saldo atual</p>
+        <p class="font-display text-4xl font-extrabold tracking-tight text-highlighted">{{ saldoBig(detail) }}</p>
         <ProgressBar v-if="detail.consumed_percent != null" class="mt-4" :percent="detail.consumed_percent" :overage="overage" />
-        <p v-if="overage" class="mt-2 text-sm font-semibold text-red-700">Franquia excedida (overage)</p>
+        <p v-if="overage" class="mt-2 text-sm font-semibold text-error">Franquia excedida (overage)</p>
       </UCard>
 
       <!-- Série de consumo -->
       <UCard v-if="series && series.kind !== 'n/a'" class="mb-6">
-        <p class="mb-3 font-display text-sm font-semibold text-neutral-700">Consumo ao longo do tempo</p>
+        <p class="mb-3 font-display text-sm font-semibold text-toned">Consumo ao longo do tempo</p>
         <AreaChart :points="series.points" />
       </UCard>
 
       <!-- Timeline de ciclos -->
       <UCard v-if="detail.cycles.length" class="mb-6">
-        <p class="mb-3 font-display text-sm font-semibold text-neutral-700">Ciclos</p>
+        <p class="mb-3 font-display text-sm font-semibold text-toned">Ciclos</p>
         <div class="space-y-2">
-          <div v-for="cy in detail.cycles" :key="cy.id" class="flex flex-wrap items-center gap-3 rounded-lg border border-neutral-100 px-3 py-2">
+          <div v-for="cy in detail.cycles" :key="cy.id" class="flex flex-wrap items-center gap-3 rounded-lg border border-default px-3 py-2">
             <UBadge :color="(CYCLE_STATUS[cy.status] ?? { color: 'neutral' }).color" variant="soft" size="sm">
               {{ (CYCLE_STATUS[cy.status] ?? { label: cy.status }).label }}
             </UBadge>
-            <span class="text-sm text-neutral-600">{{ cy.kind }}</span>
-            <span class="text-sm text-neutral-500">{{ fmtDate(cy.period_start) }} — {{ fmtDate(cy.period_end) }}</span>
-            <span v-if="cy.totals" class="ml-auto text-xs text-neutral-500">
+            <span class="text-sm text-toned">{{ cy.kind }}</span>
+            <span class="text-sm text-muted">{{ fmtDate(cy.period_start) }} — {{ fmtDate(cy.period_end) }}</span>
+            <span v-if="cy.totals" class="ml-auto text-xs text-muted">
               Consumido {{ num.format((cy.totals.consumed_minutes ?? 0) / 60) }} h ·
               Overage {{ brl.format(cy.totals.overage_amount_brl ?? 0) }}
             </span>
@@ -129,21 +129,22 @@ function totalPages(p: CPage | null): number {
       <!-- Extrato paginado -->
       <UCard v-if="ledger" class="mb-6">
         <div class="mb-3 flex items-center justify-between">
-          <p class="font-display text-sm font-semibold text-neutral-700">Extrato de consumo</p>
-          <span class="text-xs text-neutral-400">{{ ledger.total }} lançamentos</span>
+          <p class="font-display text-sm font-semibold text-toned">Extrato de consumo</p>
+          <span class="text-xs text-dimmed">{{ ledger.total }} lançamentos</span>
         </div>
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
-            <thead class="text-left text-xs uppercase tracking-wide text-neutral-400">
+            <thead class="text-left text-xs uppercase tracking-wide text-dimmed">
               <tr><th class="py-2">Data</th><th>Origem</th><th class="text-right">Min</th><th class="text-right pr-4">R$</th><th class="pl-4">Glosa</th></tr>
             </thead>
             <tbody>
-              <tr v-for="it in ledger.items" :key="it.id" class="border-t border-neutral-100"
+              <tr
+v-for="it in ledger.items" :key="it.id" class="border-t border-default"
                 :class="!it.counts_toward_balance ? 'opacity-60' : ''">
-                <td class="py-2 text-neutral-600">{{ fmtDate(it.occurred_at) }}</td>
-                <td class="text-neutral-600">{{ it.source_kind }} · {{ it.source_ref }}</td>
-                <td class="text-right text-neutral-600" :class="it.glosa?.status === 'approved' ? 'line-through' : ''">{{ num.format(it.billable_minutes) }}</td>
-                <td class="text-right text-neutral-600 pr-4" :class="it.glosa?.status === 'approved' ? 'line-through' : ''">{{ brl.format(it.billable_amount_brl) }}</td>
+                <td class="py-2 text-toned">{{ fmtDate(it.occurred_at) }}</td>
+                <td class="text-toned">{{ it.source_kind }} · {{ it.source_ref }}</td>
+                <td class="text-right text-toned" :class="it.glosa?.status === 'approved' ? 'line-through' : ''">{{ num.format(it.billable_minutes) }}</td>
+                <td class="text-right text-toned pr-4" :class="it.glosa?.status === 'approved' ? 'line-through' : ''">{{ brl.format(it.billable_amount_brl) }}</td>
                 <td class="pl-4">
                   <span v-if="glosaMeta(it.glosa?.status ?? null)" class="text-xs font-medium" :class="glosaMeta(it.glosa?.status ?? null)!.classes">
                     {{ glosaMeta(it.glosa?.status ?? null)!.label }}
@@ -155,7 +156,7 @@ function totalPages(p: CPage | null): number {
         </div>
         <div v-if="totalPages(ledger) > 1" class="mt-4 flex items-center justify-center gap-3">
           <UButton size="sm" variant="ghost" color="neutral" :disabled="page <= 1" icon="i-lucide-chevron-left" @click="page = Math.max(1, page - 1)" />
-          <span class="text-sm text-neutral-500">{{ page }} / {{ totalPages(ledger) }}</span>
+          <span class="text-sm text-muted">{{ page }} / {{ totalPages(ledger) }}</span>
           <UButton size="sm" variant="ghost" color="neutral" :disabled="page >= totalPages(ledger)" icon="i-lucide-chevron-right" @click="page = page + 1" />
         </div>
       </UCard>
@@ -163,29 +164,29 @@ function totalPages(p: CPage | null): number {
       <div class="grid gap-6 md:grid-cols-2">
         <!-- Reajuste & renovação -->
         <UCard v-if="detail.adjustment_rule || detail.renewal_policy">
-          <p class="mb-3 font-display text-sm font-semibold text-neutral-700">Reajuste & renovação</p>
+          <p class="mb-3 font-display text-sm font-semibold text-toned">Reajuste & renovação</p>
           <dl class="space-y-1.5 text-sm">
             <template v-if="detail.adjustment_rule">
-              <div class="flex justify-between"><dt class="text-neutral-500">Índice</dt><dd>{{ detail.adjustment_rule.index_code }}</dd></div>
-              <div class="flex justify-between"><dt class="text-neutral-500">Cadência</dt><dd>{{ detail.adjustment_rule.cadence_months }} meses</dd></div>
-              <div class="flex justify-between"><dt class="text-neutral-500">Teto</dt><dd>{{ detail.adjustment_rule.cap_percent != null ? `${detail.adjustment_rule.cap_percent}%` : '—' }}</dd></div>
-              <div class="flex justify-between"><dt class="text-neutral-500">Próximo reajuste</dt><dd>{{ fmtDate(detail.adjustment_rule.next_run_on) }}</dd></div>
+              <div class="flex justify-between"><dt class="text-muted">Índice</dt><dd>{{ detail.adjustment_rule.index_code }}</dd></div>
+              <div class="flex justify-between"><dt class="text-muted">Cadência</dt><dd>{{ detail.adjustment_rule.cadence_months }} meses</dd></div>
+              <div class="flex justify-between"><dt class="text-muted">Teto</dt><dd>{{ detail.adjustment_rule.cap_percent != null ? `${detail.adjustment_rule.cap_percent}%` : '—' }}</dd></div>
+              <div class="flex justify-between"><dt class="text-muted">Próximo reajuste</dt><dd>{{ fmtDate(detail.adjustment_rule.next_run_on) }}</dd></div>
             </template>
             <template v-if="detail.renewal_policy">
-              <div class="flex justify-between"><dt class="text-neutral-500">Auto-renovação</dt><dd>{{ detail.renewal_policy.auto_renew ? 'Sim' : 'Não' }}</dd></div>
-              <div class="flex justify-between"><dt class="text-neutral-500">Aviso prévio</dt><dd>{{ detail.renewal_policy.notice_days }} dias</dd></div>
-              <div class="flex justify-between"><dt class="text-neutral-500">Próxima revisão</dt><dd>{{ fmtDate(detail.renewal_policy.next_review_on) }}</dd></div>
+              <div class="flex justify-between"><dt class="text-muted">Auto-renovação</dt><dd>{{ detail.renewal_policy.auto_renew ? 'Sim' : 'Não' }}</dd></div>
+              <div class="flex justify-between"><dt class="text-muted">Aviso prévio</dt><dd>{{ detail.renewal_policy.notice_days }} dias</dd></div>
+              <div class="flex justify-between"><dt class="text-muted">Próxima revisão</dt><dd>{{ fmtDate(detail.renewal_policy.next_review_on) }}</dd></div>
             </template>
           </dl>
         </UCard>
 
         <!-- Partes de faturamento -->
         <UCard v-if="detail.billing_parties.length">
-          <p class="mb-3 font-display text-sm font-semibold text-neutral-700">Partes de faturamento</p>
+          <p class="mb-3 font-display text-sm font-semibold text-toned">Partes de faturamento</p>
           <div v-for="p in detail.billing_parties" :key="p.document" class="space-y-0.5 text-sm">
-            <p class="font-medium text-neutral-800">{{ p.legal_name }}</p>
-            <p class="text-neutral-500">{{ p.document }}</p>
-            <p v-if="p.payment_method" class="text-neutral-500">Pagamento: {{ p.payment_method }}</p>
+            <p class="font-medium text-highlighted">{{ p.legal_name }}</p>
+            <p class="text-muted">{{ p.document }}</p>
+            <p v-if="p.payment_method" class="text-muted">Pagamento: {{ p.payment_method }}</p>
           </div>
         </UCard>
       </div>

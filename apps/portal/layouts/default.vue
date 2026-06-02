@@ -40,13 +40,13 @@ async function logout() {
 </script>
 
 <template>
-  <div class="min-h-screen flex flex-col bg-[#faf9f8] text-[#1f2733]">
+  <div class="min-h-screen flex flex-col bg-muted text-default">
     <!-- faixa de acento da marca -->
     <div class="h-[3px] w-full" :style="{ background: 'var(--brand-primary)' }" />
 
     <header
       v-if="isAuthedView"
-      class="sticky top-0 z-10 border-b border-neutral-200/70 bg-white/85 backdrop-blur"
+      class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur"
     >
       <div class="mx-auto flex max-w-6xl items-center gap-3 px-5 py-3">
         <span
@@ -63,17 +63,17 @@ async function logout() {
             v-if="role === 'admin'"
             to="/"
             class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
-            :class="isActive('/') ? 'text-neutral-900' : 'text-neutral-500 hover:text-neutral-800'"
+            :class="isActive('/') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
             :style="isActive('/') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
           >Contratos</NuxtLink>
           <NuxtLink
             to="/tickets"
             class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition"
-            :class="isActive('/tickets') ? 'text-neutral-900' : 'text-neutral-500 hover:text-neutral-800'"
+            :class="isActive('/tickets') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
             :style="isActive('/tickets') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
           >
             Tickets
-            <span class="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">em breve</span>
+            <span class="rounded-full bg-elevated px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-dimmed">em breve</span>
           </NuxtLink>
         </nav>
 
@@ -81,8 +81,9 @@ async function logout() {
           <a
             v-if="b?.support_email"
             :href="`mailto:${b.support_email}`"
-            class="hidden text-sm text-neutral-500 transition hover:text-neutral-800 sm:inline"
+            class="hidden text-sm text-muted transition hover:text-highlighted sm:inline"
           >{{ b.support_email }}</a>
+          <ThemeToggle />
           <UButton
             color="neutral"
             variant="ghost"
@@ -100,9 +101,9 @@ async function logout() {
 
     <footer
       v-if="isAuthedView"
-      class="border-t border-neutral-200/70 px-5 py-4 text-center"
+      class="border-t border-default px-5 py-4 text-center"
     >
-      <p v-if="b?.support_email" class="mb-1 text-xs text-neutral-400">
+      <p v-if="b?.support_email" class="mb-1 text-xs text-dimmed">
         {{ b.display_name }} · {{ b.support_email }}
       </p>
       <WasSignature />

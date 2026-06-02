@@ -7,9 +7,12 @@ defineProps<{ alerts: Alert[] }>()
 
 // Semantic colors — FIXED, never --brand-primary (an alert must read as an
 // alert in ANY tenant brand — Spec §4.3.2 / H8).
+// Tokens semânticos do Nuxt UI (warning/error) — adaptam light/dark sozinhos e
+// continuam FIXOS, nunca --brand-primary (um alerta deve ler como alerta em
+// qualquer marca — Spec §4.3.2 / H8).
 const META: Record<string, { ring: string, text: string, icon: string, label: string }> = {
-  warning: { ring: 'border-amber-300 bg-amber-50', text: 'text-amber-800', icon: 'i-lucide-alert-triangle', label: 'Saldo baixo' },
-  critical: { ring: 'border-red-300 bg-red-50', text: 'text-red-800', icon: 'i-lucide-alert-octagon', label: 'Saldo esgotado' },
+  warning: { ring: 'border-warning/40 bg-warning/10', text: 'text-warning', icon: 'i-lucide-alert-triangle', label: 'Saldo baixo' },
+  critical: { ring: 'border-error/40 bg-error/10', text: 'text-error', icon: 'i-lucide-alert-octagon', label: 'Saldo esgotado' },
 }
 </script>
 
@@ -27,12 +30,12 @@ const META: Record<string, { ring: string, text: string, icon: string, label: st
         <p class="text-sm font-semibold" :class="META[a.severity].text">
           {{ META[a.severity].label }} — {{ a.code }}
         </p>
-        <p class="text-xs text-neutral-500">
+        <p class="text-xs text-muted">
           Restam {{ a.remaining.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) }}
           {{ a.kind === 'hours' ? 'h' : a.kind === 'brl' ? 'em crédito' : 'serviços' }}
         </p>
       </div>
-      <UIcon name="i-lucide-chevron-right" class="ml-auto h-4 w-4 text-neutral-400" />
+      <UIcon name="i-lucide-chevron-right" class="ml-auto h-4 w-4 text-dimmed" />
     </NuxtLink>
   </div>
 </template>

@@ -3,7 +3,7 @@
 </script>
 
 <template>
-  <p class="text-center text-xs text-neutral-400">
+  <p class="text-center text-xs text-dimmed">
     Desenvolvido por
     <a
       href="https://was.dev.br"

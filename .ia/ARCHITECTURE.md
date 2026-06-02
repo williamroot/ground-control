@@ -113,6 +113,20 @@ Nuxt 3 SSR (`apps/portal/`) exposto na porta 3000, nas redes `app` e
 `edge`. Suporte a múltiplos tenants white-label sem Znuny separado por
 tenant.
 
+### Tema claro/escuro/sistema
+
+O portal suporta os 3 modos via `@nuxtjs/color-mode` (trazido pelo `@nuxt/ui`).
+Default `system` (segue o SO), `fallback: light` para SSR/sem-JS; a escolha do
+usuário persiste (cookie/localStorage). O seletor é `components/ThemeToggle.vue`
+(segmentado sol/monitor/lua), presente no header das views autenticadas e no
+canto superior do `/login`. As cores das páginas usam **tokens semânticos do
+Nuxt UI** (`bg-default`/`bg-muted`/`bg-elevated`, `text-default`/`text-muted`/
+`text-dimmed`/`text-highlighted`, `border-default`) que viram no `.dark` — não
+há mais cores cruas (`bg-white`, `text-neutral-*`). Alertas de saldo e glosa
+usam tokens semânticos fixos `warning`/`error` (nunca a cor de marca — H8),
+que também adaptam ao tema. A cor de marca (`--brand-primary/-accent`) é
+protagonista nos dois modos.
+
 ### Branding middleware (Nitro)
 
 Toda requisição SSR passa pelo `tenantBranding` server middleware antes

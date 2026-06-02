@@ -13,11 +13,11 @@ const { data: me } = await useMe()
 <template>
   <div class="mx-auto max-w-3xl px-5 py-10">
     <header class="mb-8">
-      <p class="text-sm text-neutral-500">{{ tenantName }}</p>
-      <h1 class="font-display text-3xl font-extrabold tracking-tight text-neutral-900">
+      <p class="text-sm text-muted">{{ tenantName }}</p>
+      <h1 class="font-display text-3xl font-extrabold tracking-tight text-highlighted">
         Tickets
       </h1>
-      <p class="mt-1 text-sm text-neutral-500">
+      <p class="mt-1 text-sm text-muted">
         Acompanhamento e abertura de chamados de suporte.
       </p>
     </header>
@@ -32,12 +32,12 @@ const { data: me } = await useMe()
         </span>
         <div>
           <div class="mb-2 flex items-center justify-center gap-2">
-            <h2 class="font-display text-xl font-bold tracking-tight text-neutral-900">
+            <h2 class="font-display text-xl font-bold tracking-tight text-highlighted">
               Em breve
             </h2>
             <UBadge color="primary" variant="subtle" size="sm">próxima entrega</UBadge>
           </div>
-          <p class="mx-auto max-w-md text-sm leading-relaxed text-neutral-500">
+          <p class="mx-auto max-w-md text-sm leading-relaxed text-muted">
             Esta é a área da <strong>operação</strong>: aqui o time de help-desk vai
             acompanhar os chamados, abrir novos tickets e ver o andamento dos
             atendimentos — tudo com a marca da {{ tenantName }}.
@@ -45,7 +45,7 @@ const { data: me } = await useMe()
         </div>
         <div
           v-if="me?.role === 'helpdesk'"
-          class="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-xs text-neutral-500"
+          class="rounded-lg border border-default bg-elevated px-4 py-3 text-xs text-muted"
         >
           Você está conectado como <strong>Help Desk</strong>. O acesso a contratos e
           valores é restrito ao perfil <strong>Administrador</strong> do cliente.

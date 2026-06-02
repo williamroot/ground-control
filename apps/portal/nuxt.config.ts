@@ -1,6 +1,15 @@
 export default defineNuxtConfig({
   ssr: true,
   modules: ['@nuxt/ui', '@pinia/nuxt', '@nuxt/eslint'],
+  // Tema claro/escuro/sistema com toggle na UI (ThemeToggle.vue). `system` é o
+  // default (segue o SO); a escolha do usuário persiste via @nuxtjs/color-mode.
+  // O fallback é light para SSR/sem-JS. As cores das páginas usam tokens
+  // semânticos do Nuxt UI (bg-default/text-muted/border-default…) que viram no
+  // `.dark`, então o design white-label fica coerente nos dois modos.
+  colorMode: {
+    preference: 'system',
+    fallback: 'light',
+  },
   components: [{ path: '~/components', pathPrefix: false }],
   // #1F-a: entry CSS do Nuxt UI v3 / Tailwind v4 (Tailwind + tema Nuxt UI +
   // fontes da marca). Sem isto as utilities não entram no build.

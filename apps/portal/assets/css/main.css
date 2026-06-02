@@ -26,11 +26,12 @@
   --ui-color-primary-700: var(--brand-accent, #334155);
 }
 
-/* Fundo de página: cinza-quente bem claro + leve gradiente da marca em alfa
-   baixo no topo (discreto, não gritante). */
+/* Fundo de página via token semântico do Nuxt UI (--ui-bg-muted) para virar no
+   `.dark` sem flash branco. O layout cobre o viewport com `bg-muted`; isto só
+   garante o fundo correto antes do mount. */
 body {
   font-family: var(--font-sans);
-  background-color: #faf9f8;
+  background-color: var(--ui-bg-muted);
 }
 
 .font-display {

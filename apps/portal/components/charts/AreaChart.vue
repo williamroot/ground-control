@@ -28,7 +28,7 @@ const path = computed(() => {
 </script>
 
 <template>
-  <div v-if="!points.length" class="flex h-[120px] items-center justify-center text-sm text-neutral-400">
+  <div v-if="!points.length" class="flex h-[120px] items-center justify-center text-sm text-dimmed">
     Sem dados de consumo no período
   </div>
   <svg
