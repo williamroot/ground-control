@@ -1,8 +1,16 @@
 <script setup lang="ts">
-import type { Branding } from '~/server/middleware/branding'
+import type { Branding } from '#shared/branding'
+import { DEFAULT_BRANDING } from '#shared/branding'
 
-const { data: branding } = await useAsyncData('branding', () =>
-  $fetch<Branding>('/api/branding-context'))
+// #1F-a: ler o branding do event.context que o server/middleware/branding.ts
+// JÁ populou na requisição ORIGINAL (com o Host/x-forwarded-host do tenant).
+// NÃO usar $fetch('/api/branding-context'): em SSR aquilo é uma sub-request
+// interna que NÃO carrega o Host do tenant → o middleware reexecuta sem host
+// → resolveSubdomain null → DEFAULT_BRANDING para todo tenant.
+// useState serializa o valor do SSR para o cliente (sem flash/mismatch).
+const event = useRequestEvent()
+const branding = useState<Branding>('branding', () =>
+  (event?.context?.branding as Branding | undefined) ?? DEFAULT_BRANDING)
 
 const b = computed(() => branding.value)
 useHead(() => ({

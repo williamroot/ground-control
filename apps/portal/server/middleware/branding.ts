@@ -1,23 +1,11 @@
 import type { H3Event } from 'h3'
+import type { Branding } from '#shared/branding'
+import { DEFAULT_BRANDING } from '#shared/branding'
 
-export interface Branding {
-  display_name: string
-  logo_url: string | null
-  primary_color: string
-  accent_color: string
-  default_theme: string
-  support_email: string | null
-}
-
-// Neutral safe default — NEVER the Gerti brand (Spec §2.2 / §6).
-export const DEFAULT_BRANDING: Branding = {
-  display_name: 'Portal',
-  logo_url: null,
-  primary_color: '#475569',
-  accent_color: '#334155',
-  default_theme: 'light',
-  support_email: null,
-}
+// Re-export para compatibilidade: testes e callers importavam estes símbolos
+// daqui. A fonte canônica agora é shared/branding.ts (compartilhada com o app).
+export type { Branding }
+export { DEFAULT_BRANDING }
 
 // Padrões aceitos (anchored):
 //   1. <sub>.suporte.gerti.com.br  — produção
