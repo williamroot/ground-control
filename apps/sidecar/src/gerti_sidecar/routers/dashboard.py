@@ -9,13 +9,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gerti_sidecar.auth.session import SessionPayload, get_current_session
+from gerti_sidecar.auth.session import SessionPayload, get_current_session, require_admin
 from gerti_sidecar.db import get_tenant_session
 from gerti_sidecar.domain.consumption_service import ConsumptionService
 from gerti_sidecar.domain.contract_read_service import ContractReadService
 from gerti_sidecar.models import Contract
 
-router = APIRouter(prefix="/dashboard", tags=["portal"])
+# Spec #1H: dashboard expõe saldos/valores — admin-only (igual /contracts).
+router = APIRouter(prefix="/dashboard", tags=["portal"], dependencies=[Depends(require_admin)])
 
 
 class BalanceByType(BaseModel):

@@ -25,6 +25,14 @@ useHead(() => ({
 const route = useRoute()
 const isAuthedView = computed(() => route.path !== '/login')
 
+// Nav por papel (Spec #1H): admin vê Contratos; help-desk vê Tickets.
+// Sem await: a nav é progressiva e lê o `me` já resolvido pela middleware `auth`
+// (mesma key 'me' do useAsyncData) — não bloqueia o render do layout.
+const { data: me } = useMe()
+const role = computed(() => me.value?.role)
+const isActive = (path: string) =>
+  path === '/' ? route.path === '/' : route.path.startsWith(path)
+
 async function logout() {
   await $fetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
   await navigateTo('/login')
@@ -48,6 +56,27 @@ async function logout() {
         <span class="font-display text-lg font-bold tracking-tight">
           {{ b?.display_name ?? 'Portal' }}
         </span>
+
+        <!-- Nav por papel (#1H): admin -> Contratos; help-desk -> Tickets -->
+        <nav v-if="role" class="ml-5 hidden items-center gap-1 sm:flex">
+          <NuxtLink
+            v-if="role === 'admin'"
+            to="/"
+            class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
+            :class="isActive('/') ? 'text-neutral-900' : 'text-neutral-500 hover:text-neutral-800'"
+            :style="isActive('/') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
+          >Contratos</NuxtLink>
+          <NuxtLink
+            to="/tickets"
+            class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition"
+            :class="isActive('/tickets') ? 'text-neutral-900' : 'text-neutral-500 hover:text-neutral-800'"
+            :style="isActive('/tickets') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
+          >
+            Tickets
+            <span class="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">em breve</span>
+          </NuxtLink>
+        </nav>
+
         <div class="ml-auto flex items-center gap-3">
           <a
             v-if="b?.support_email"

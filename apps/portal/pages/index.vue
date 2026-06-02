@@ -3,6 +3,8 @@ import type { Branding } from '#shared/branding'
 import { DEFAULT_BRANDING } from '#shared/branding'
 import { statusColor, statusLabel, typeLabel } from '~/components/contract/labels'
 
+definePageMeta({ middleware: 'auth' }) // #1H: sessão + papel admin
+
 interface Saldo { kind: string, remaining: number | null }
 interface ContractItem {
   id: string, code: string, type: string, status: string
@@ -18,11 +20,8 @@ interface Dashboard {
   low_balance_alerts: Alert[]
 }
 
+// Auth + papel admin garantidos pela middleware nomeada `auth` (definePageMeta, #1H).
 const headers = useRequestHeaders(['cookie'])
-const { data: me } = await useAsyncData('me', () =>
-  $fetch('/api/portal/me', { headers }).catch(() => null))
-if (!me.value) await navigateTo('/login')
-
 const { data: dashboard } = await useAsyncData('dashboard', () =>
   $fetch<Dashboard>('/api/portal/dashboard', { headers }).catch(() => null))
 const { data: contracts } = await useAsyncData('contracts', () =>

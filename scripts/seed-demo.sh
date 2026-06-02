@@ -25,6 +25,8 @@ TNV_LOCAL="scripts/seed-technova.pl"
 TNV_IN_CT="/opt/otrs/var/seed-technova.pl"
 AUTH_LOCAL="scripts/seed-authcheck.pl"
 AUTH_IN_CT="/opt/otrs/var/seed-authcheck.pl"
+HD_LOCAL="scripts/seed-helpdesk.pl"
+HD_IN_CT="/opt/otrs/var/seed-helpdesk.pl"
 PGUSER="$(grep -E '^POSTGRES_USER=' .env 2>/dev/null | cut -d= -f2)"; PGUSER="${PGUSER:-znuny}"
 PGDB="$(grep -E '^POSTGRES_DB=' .env 2>/dev/null | cut -d= -f2)";   PGDB="${PGDB:-znuny}"
 
@@ -66,6 +68,11 @@ if [[ "${1:-}" != "--verify" ]]; then
   $DC cp "$TNV_LOCAL" "$WEB:$TNV_IN_CT"
   $DC exec -T "$WEB" chown otrs:otrs "$TNV_IN_CT"
   c_otrs "perl $TNV_IN_CT"
+
+  hdr "Help-desk dos 2 tenants (Spec #1H — papéis, idempotente)"
+  $DC cp "$HD_LOCAL" "$WEB:$HD_IN_CT"
+  $DC exec -T "$WEB" chown otrs:otrs "$HD_IN_CT"
+  c_otrs "perl $HD_IN_CT"
 fi
 
 # garante helper de auth no container (também no modo --verify isolado)
@@ -97,6 +104,12 @@ CCT="$(psql_q "SELECT name FROM customer_company WHERE customer_id='TECHNOVA';")
 [[ -n "$CCT" ]] && ok "empresa TechNova: $CCT" || bad "empresa TECHNOVA ausente"
 TNAUTH="$(c_otrs "perl $AUTH_IN_CT customer admin.tech@technova.example 'TechNova@Demo2026'" 2>/dev/null | tr -d '\r\n' || true)"
 [[ "$TNAUTH" == OK:* ]] && ok "login cliente admin.tech@technova.example AUTENTICA ($TNAUTH)" || bad "auth customer TechNova falhou ($TNAUTH)"
+
+# Help-desk (#1H): os dois logins help-desk autenticam no Znuny
+HDA="$(c_otrs "perl $AUTH_IN_CT customer helpdesk@auroramoveis.com.br 'Aurora@Help2026'" 2>/dev/null | tr -d '\r\n' || true)"
+[[ "$HDA" == OK:* ]] && ok "login help-desk Aurora AUTENTICA ($HDA)" || bad "auth help-desk Aurora falhou ($HDA)"
+HDT="$(c_otrs "perl $AUTH_IN_CT customer suporte.ops@technova.example 'TechNova@Help2026'" 2>/dev/null | tr -d '\r\n' || true)"
+[[ "$HDT" == OK:* ]] && ok "login help-desk TechNova AUTENTICA ($HDT)" || bad "auth help-desk TechNova falhou ($HDT)"
 
 # filas
 Qn="$(c_otrs "$CONSOLE Admin::Queue::List" 2>/dev/null | grep -cE 'Suporte::N1|Suporte::N2|Field Service|Financeiro' || true)"

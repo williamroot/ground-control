@@ -117,7 +117,7 @@ async def test_dashboard_balances_and_low_alerts(engine, app_session_factory, se
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://t") as cl:
         assert (await cl.get("/v1/dashboard", headers=ha)).status_code == 401
-        cl.cookies.set("gsid", encode_session(str(a.id), "joe", st))
+        cl.cookies.set("gsid", encode_session(str(a.id), "joe", "admin", st))
         r = await cl.get("/v1/dashboard", headers=ha)
         assert r.status_code == 200
         body = r.json()

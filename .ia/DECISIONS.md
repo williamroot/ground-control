@@ -303,3 +303,59 @@ com `balance()` (glosa `approved` exclui via back-pointer → remaining
 8.0 / consumed 20%; `pending`/ausente contam); `consumed_percent` é
 `None` para `closed_value` e para base 0. Gate sidecar **48 passed**;
 S1 e `test_request_with_unknown_subdomain_returns_404` verdes.
+
+## D18 — Papéis no Portal (#1H): admin × help-desk, verdade no schema `gerti`, gating server-side
+
+**Contexto.** Os clientes (ex.: Aurora) têm dois tipos de usuário no Portal
+do Cliente: **admin** (acompanha contratos e valores financeiros) e
+**help-desk / operação** (acompanha tickets — feature #1E, ainda deferida).
+Até #1F-b todo usuário autenticado via tudo do seu tenant. O JWT de sessão
+(`gsid`) só carregava `tenant_id` + `customer_login` — sem papel.
+
+**Decisão.** A verdade do papel mora no **schema `gerti`** (não nos grupos
+do Znuny — Abordagem A do brainstorming): tabela `gerti.portal_user_role`
+(`tenant_id`, `customer_login` normalizado lower, `role ∈ {admin,helpdesk}`),
+**FORCE RLS por tenant** (template canônico, igual `tenant_branding`), única
+por `(tenant_id, lower(customer_login))`. O papel é resolvido no login
+(`domain/portal_role_service.resolve_role`, sob sessão tenant-scoped → RLS) e
+**embutido como claim assinado HS256 no JWT** (`SessionPayload.role`). O
+enforcement é **server-side**: a dependency `require_admin` (compõe sobre
+`get_current_session`) protege a nível de router `/v1/contracts*` e
+`/v1/dashboard` (403 `forbidden_role` para help-desk). `/v1/me` devolve
+`role` e fica aberto (sem dados financeiros) para o portal decidir a navegação.
+
+**Least-privilege em toda omissão.** Token sem claim `role` (emitido antes do
+#1H, TTL em trânsito), usuário não-mapeado, e erro de DB na resolução **todos
+caem em `helpdesk`**. `decode_session` valida o `role` contra um allowlist
+(`admin`/`helpdesk`); valor desconhecido → `helpdesk`. Nenhum caminho concede
+admin por omissão.
+
+**Identidade.** O papel é keado pelo `customer_login` do JWT, que é o
+**e-mail** digitado no login (login é sempre por e-mail, ver
+[decision-login-by-email] / D14). Match case-insensitive; o seed grava
+lowercased. Sem dependência do `login` interno do Znuny resolvido em
+`znuny_gi`.
+
+**Hardening.** Como o papel agora viaja como claim assinado, um
+`SESSION_SECRET` default/conhecido permitiria forjar `role=admin`. O `Settings`
+passou a **falhar o boot em production/staging** se o secret for o default.
+
+**Portal.** Middleware **nomeada** `auth` (aplicada via `definePageMeta` em
+`/`, `/contratos/[id]`, `/tickets`) — não global, para não rodar no `/login`
+nem em mounts isolados de layout. Help-desk em rota admin-only → `/tickets`
+(placeholder branded "em breve", home do help-desk). A middleware é
+conveniência de UX; **o gate real é o 403 do sidecar** — um cliente que pule a
+SPA e chame `/v1/contracts` direto ainda toma 403.
+
+**Demo.** `seed_demo_branding.py` semeia `portal_user_role` (admin + help-desk
+por tenant); `scripts/seed-helpdesk.pl` cria os `customer_user` help-desk no
+Znuny (`helpdesk@auroramoveis.com.br` / `suporte.ops@technova.example`, senhas
+`Aurora@Help2026` / `TechNova@Help2026`).
+
+**Evidência.** Gate sidecar **69 passed** (`resolve_role` default/RLS,
+`require_admin` 200/403/401, `/me` com role, login→role, secret-em-prod);
+portal **34 vitest** (guarda + nav por papel). Reviews independentes de código
+e de **autorização** APROVADAS (sem blockers): privilege-escalation fechado,
+least-privilege em toda omissão, claim assinado validado por allowlist,
+`portal_user_role` FORCE-RLS resolvido após o 403 cross-tenant, query
+parametrizada, enforcement server-side.

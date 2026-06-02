@@ -104,7 +104,7 @@ async def test_series_dense_daily_excludes_approved(
     ha = {"host": "aurora.suporte.gerti.com.br"}
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://t") as cl:
-        cl.cookies.set("gsid", encode_session(str(a.id), "joe", st))
+        cl.cookies.set("gsid", encode_session(str(a.id), "joe", "admin", st))
         # today after window so end == ends_on -> 5 dense daily buckets Jan 1..5
         r = await cl.get(f"/v1/contracts/{c.id}/series?today=2026-06-01", headers=ha)
         assert r.status_code == 200

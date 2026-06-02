@@ -72,7 +72,7 @@ async def test_contracts_scoped_and_authed(engine, app_session_factory, session,
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://t") as c:
         assert (await c.get("/v1/contracts", headers=h)).status_code == 401
-        c.cookies.set("gsid", encode_session(str(t.id), "joe", st))
+        c.cookies.set("gsid", encode_session(str(t.id), "joe", "admin", st))
         r = await c.get("/v1/contracts", headers=h)
         assert r.status_code == 200
         rows = r.json()

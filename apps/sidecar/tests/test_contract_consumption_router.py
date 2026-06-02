@@ -110,7 +110,7 @@ async def test_consumption_paginated_and_glosa(engine, app_session_factory, sess
     ha = {"host": "aurora.suporte.gerti.com.br"}
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://t") as cl:
-        cl.cookies.set("gsid", encode_session(str(a.id), "joe", st))
+        cl.cookies.set("gsid", encode_session(str(a.id), "joe", "admin", st))
         # page_size clamp to 200 even if asked higher; total = 3
         r = await cl.get(f"/v1/contracts/{c.id}/consumption?page=1&page_size=500", headers=ha)
         assert r.status_code == 200
@@ -198,7 +198,7 @@ async def test_consumption_404_cross_tenant(engine, app_session_factory, session
     st = get_settings()
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://t") as cl:
-        cl.cookies.set("gsid", encode_session(str(b.id), "x", st))
+        cl.cookies.set("gsid", encode_session(str(b.id), "x", "admin", st))
         xr = await cl.get(
             f"/v1/contracts/{c.id}/consumption",
             headers={"host": "technova.suporte.gerti.com.br"},

@@ -105,6 +105,10 @@ Estado atual (ponto de convergência — item aberto):
 | Componentes SVG puros: `ProgressBar.vue`, `AreaChart.vue`, `Sparkline.vue` (brand-var, sem lib, SSR-safe) | **Pronto, gateado** |
 | Assinatura WAS discreta (`WASSignature.vue`) nos dois tenants | **Pronto, gateado** |
 | 2 tenants white-label de teste `aurora.was.dev.br` + `technova.was.dev.br` | **Pronto, ativos** |
+| Papéis no portal (#1H): `gerti.portal_user_role` (migration 0012, FORCE RLS) + enum `gerti.portal_role` | **Pronto** (ADR D18) |
+| Login resolve papel + claim `role` no JWT + `require_admin` (admin-only em `/v1/contracts*` e `/v1/dashboard`); `/v1/me` devolve `role` | **Pronto** — least-privilege em toda omissão |
+| Portal #1H: middleware nomeada `auth`, nav por papel, página `/tickets` (placeholder #1E), login por e-mail | **Pronto** |
+| Seed papéis: `portal_user_role` (admin+helpdesk/tenant) + `scripts/seed-helpdesk.pl` (customer_user help-desk no Znuny) | **Pronto** |
 | Tickets / catálogo / abrir-chamado (#1E) | Pendente (deferred §9) |
 | Admin / onboarding / branding UI (#1G) | Pendente (deferred §9) |
 | OIDC / PKCE (#1D) | Pendente (deferred §9) |

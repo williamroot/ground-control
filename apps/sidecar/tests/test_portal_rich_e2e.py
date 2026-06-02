@@ -48,7 +48,7 @@ async def test_rich_endpoints_two_tenants(engine, app_session_factory, session, 
     ht = {"host": "technova.suporte.gerti.com.br"}
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://t") as cl:
-        cl.cookies.set("gsid", encode_session(str(aurora_id), "eduardo.salvi", st))
+        cl.cookies.set("gsid", encode_session(str(aurora_id), "eduardo.salvi", "admin", st))
         lst = (await cl.get("/v1/contracts", headers=ha)).json()
         assert len(lst) == 6
         assert all("id" in c and "consumed_percent" in c for c in lst)
@@ -84,5 +84,7 @@ async def test_rich_endpoints_two_tenants(engine, app_session_factory, session, 
 
         # cross-tenant: TechNova session asking Aurora's contract -> 404
         cl.cookies.clear()
-        cl.cookies.set("gsid", encode_session(str(technova_id), "admin.tech@technova.example", st))
+        cl.cookies.set(
+            "gsid", encode_session(str(technova_id), "admin.tech@technova.example", "admin", st)
+        )
         assert (await cl.get(f"/v1/contracts/{cid}", headers=ht)).status_code == 404
