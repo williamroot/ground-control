@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Path
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +14,13 @@ from gerti_sidecar.auth.session import SessionPayload, get_current_session
 from gerti_sidecar.db import get_tenant_session
 from gerti_sidecar.domain.consumption_service import ConsumptionService
 from gerti_sidecar.domain.contract_read_service import consumed_percent_from
-from gerti_sidecar.models import Contract
+from gerti_sidecar.models import (
+    Contract,
+    ContractAdjustmentRule,
+    ContractBillingParty,
+    ContractCycle,
+    ContractRenewalPolicy,
+)
 
 router = APIRouter(prefix="/contracts", tags=["portal"])
 
@@ -33,6 +39,63 @@ class ContractItem(BaseModel):
     saldo: Saldo
     id: uuid.UUID
     consumed_percent: float | None
+
+
+class CycleItem(BaseModel):
+    id: uuid.UUID
+    kind: str
+    period_start: dt.date
+    period_end: dt.date
+    status: str
+    closed_at: dt.datetime | None
+    totals: dict[str, object] | None
+
+
+class AdjustmentRuleOut(BaseModel):
+    index_code: str
+    cadence_months: int
+    next_run_on: dt.date
+    cap_percent: float | None
+    last_applied_on: dt.date | None
+    last_applied_percent: float | None
+
+
+class RenewalPolicyOut(BaseModel):
+    auto_renew: bool
+    notice_days: int
+    next_review_on: dt.date
+    renewal_term_months: int | None
+
+
+class BillingPartyOut(BaseModel):
+    legal_name: str
+    document: str
+    fiscal_address: dict[str, object]
+    payment_method: str | None
+
+
+class ContractDetail(BaseModel):
+    id: uuid.UUID
+    code: str
+    type: str
+    status: str
+    starts_on: dt.date
+    ends_on: dt.date
+    initial_amount_brl: float | None
+    initial_hours: float | None
+    initial_service_count: int | None
+    unit_price_brl: float | None
+    travel_franchise_count: int
+    billing_period_months: int
+    closing_period_months: int
+    billing_in_advance: bool
+    accumulate_balance_between_cycles: bool
+    saldo: Saldo
+    consumed_percent: float | None
+    cycles: list[CycleItem]
+    adjustment_rule: AdjustmentRuleOut | None
+    renewal_policy: RenewalPolicyOut | None
+    billing_parties: list[BillingPartyOut]
 
 
 @router.get("", response_model=list[ContractItem])
@@ -58,3 +121,105 @@ async def list_contracts(
             )
         )
     return out
+
+
+@router.get("/{contract_id}", response_model=ContractDetail)
+async def get_contract(
+    contract_id: uuid.UUID = Path(...),
+    _session_payload: SessionPayload = Depends(get_current_session),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ContractDetail:
+    c = await session.get(Contract, contract_id)
+    if c is None:  # RLS hid a cross-tenant row -> 404, never 403/500 (H2)
+        raise HTTPException(status_code=404, detail="contract_not_found")
+    bal = await ConsumptionService(session).balance(c.id)
+    cycles = (
+        (
+            await session.execute(
+                select(ContractCycle)
+                .where(ContractCycle.contract_id == c.id)
+                .order_by(ContractCycle.period_start.asc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    rule = await session.get(ContractAdjustmentRule, c.id)
+    policy = await session.get(ContractRenewalPolicy, c.id)
+    parties = (
+        (
+            await session.execute(
+                select(ContractBillingParty).where(ContractBillingParty.contract_id == c.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return ContractDetail(
+        id=c.id,
+        code=c.code,
+        type=c.type.value,
+        status=c.status.value,
+        starts_on=c.starts_on,
+        ends_on=c.ends_on,
+        initial_amount_brl=(
+            float(c.initial_amount_brl) if c.initial_amount_brl is not None else None
+        ),
+        initial_hours=float(c.initial_hours) if c.initial_hours is not None else None,
+        initial_service_count=c.initial_service_count,
+        unit_price_brl=float(c.unit_price_brl) if c.unit_price_brl is not None else None,
+        travel_franchise_count=c.travel_franchise_count,
+        billing_period_months=c.billing_period_months,
+        closing_period_months=c.closing_period_months,
+        billing_in_advance=c.billing_in_advance,
+        accumulate_balance_between_cycles=c.accumulate_balance_between_cycles,
+        saldo=Saldo(kind=bal.kind, remaining=bal.remaining),
+        consumed_percent=consumed_percent_from(c, bal),
+        cycles=[
+            CycleItem(
+                id=cy.id,
+                kind=cy.kind.value,
+                period_start=cy.period_start,
+                period_end=cy.period_end,
+                status=cy.status.value,
+                closed_at=cy.closed_at,
+                totals=cy.totals,
+            )
+            for cy in cycles
+        ],
+        adjustment_rule=(
+            AdjustmentRuleOut(
+                index_code=rule.index_code,
+                cadence_months=rule.cadence_months,
+                next_run_on=rule.next_run_on,
+                cap_percent=float(rule.cap_percent) if rule.cap_percent is not None else None,
+                last_applied_on=rule.last_applied_on,
+                last_applied_percent=(
+                    float(rule.last_applied_percent)
+                    if rule.last_applied_percent is not None
+                    else None
+                ),
+            )
+            if rule is not None
+            else None
+        ),
+        renewal_policy=(
+            RenewalPolicyOut(
+                auto_renew=policy.auto_renew,
+                notice_days=policy.notice_days,
+                next_review_on=policy.next_review_on,
+                renewal_term_months=policy.renewal_term_months,
+            )
+            if policy is not None
+            else None
+        ),
+        billing_parties=[
+            BillingPartyOut(
+                legal_name=p.legal_name,
+                document=p.document,
+                fiscal_address=p.fiscal_address,
+                payment_method=p.payment_method,
+            )
+            for p in parties
+        ],
+    )
