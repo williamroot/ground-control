@@ -44,3 +44,10 @@ class BillingStatus(StrEnum):
     approved = "approved"
     billed = "billed"
     disputed = "disputed"
+
+
+class PortalRole(StrEnum):
+    """Papel do usuário no Portal do Cliente (Spec #1H)."""
+
+    admin = "admin"  # vê contratos + valores financeiros
+    helpdesk = "helpdesk"  # vê tickets/operação (placeholder #1E)

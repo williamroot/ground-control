@@ -10,6 +10,7 @@ from gerti_sidecar.models.contract_policy import (
 )
 from gerti_sidecar.models.contract_scope import ContractScopeCi, ContractScopeService
 from gerti_sidecar.models.cycle import ContractCycle
+from gerti_sidecar.models.portal_user_role import PortalUserRole
 from gerti_sidecar.models.tenant import Tenant
 from gerti_sidecar.models.tenant_branding import TenantBranding
 from gerti_sidecar.models.ticket_link import TicketContractLink
@@ -26,6 +27,7 @@ __all__ = [
     "ContractScopeCi",
     "ContractScopeService",
     "Glosa",
+    "PortalUserRole",
     "ServiceCatalogItem",
     "SharedCreditPool",
     "Tenant",

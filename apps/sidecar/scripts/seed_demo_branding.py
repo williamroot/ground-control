@@ -30,7 +30,7 @@ import os
 import uuid
 
 import seed_demo_contracts  # mesmo diretório scripts/; reuso de padrão
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -40,15 +40,25 @@ from sqlalchemy.ext.asyncio import (
 from gerti_sidecar.models import (
     ConsumptionEvent,
     Contract,
+    PortalUserRole,
     Tenant,
     TenantBranding,
     ZnunyInstance,
 )
-from gerti_sidecar.models.enums import ContractType
+from gerti_sidecar.models.enums import ContractType, PortalRole
 
 AURORA_CUSTOMER_ID = "AURORA"
 TECHNOVA_CUSTOMER_ID = "TECHNOVA"
 TECHNOVA_SUBDOMAIN = "technova"
+
+# Spec #1H — papéis de demo por tenant (login sempre por e-mail). O admin vê
+# contratos+valores; o help-desk cai no placeholder de tickets. Estes e-mails
+# vão para o PDF de acessos; os customer_user help-desk correspondentes são
+# criados no Znuny pelo seed Perl/GI (senhas de demo Aurora@Help2026 / TechNova@Help2026).
+AURORA_ADMIN_LOGIN = "eduardo.salvi@auroramoveis.com.br"
+AURORA_HELPDESK_LOGIN = "helpdesk@auroramoveis.com.br"
+TECHNOVA_ADMIN_LOGIN = "admin.tech@technova.example"
+TECHNOVA_HELPDESK_LOGIN = "suporte.ops@technova.example"
 
 # Namespace uuid5 PRÓPRIO da TechNova (distinto do _NS do seed #1C) p/
 # webhook ids determinísticos — reexecução não dobra consumo (append-only).
@@ -104,6 +114,30 @@ async def _seed_aurora_branding(s: AsyncSession) -> uuid.UUID:
     await s.flush()
     print(f"+ criado     TenantBranding {AURORA_CUSTOMER_ID} (Aurora Móveis)")
     return tenant.id
+
+
+async def _seed_portal_roles(
+    s: AsyncSession, tenant_id: uuid.UUID, entries: list[tuple[str, PortalRole]]
+) -> None:
+    """Semeia papéis (idempotente por tenant + lower(customer_login)).
+
+    Roda como gerti_admin_user (BYPASSRLS): insere com tenant_id explícito.
+    """
+    for login, role in entries:
+        existing = (
+            await s.execute(
+                select(PortalUserRole).where(
+                    PortalUserRole.tenant_id == tenant_id,
+                    func.lower(PortalUserRole.customer_login) == login.lower(),
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            print(f"= já existe  PortalUserRole {login} ({existing.role.value})")
+            continue
+        s.add(PortalUserRole(tenant_id=tenant_id, customer_login=login.lower(), role=role))
+        await s.flush()
+        print(f"+ criado     PortalUserRole {login} -> {role.value}")
 
 
 async def _get_or_create_technova_tenant(s: AsyncSession) -> Tenant:
@@ -227,8 +261,18 @@ async def seed(s: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
     Returns (aurora_tenant_id, technova_tenant_id).
     """
     aurora_id = await _seed_aurora_branding(s)
+    await _seed_portal_roles(
+        s,
+        aurora_id,
+        [(AURORA_ADMIN_LOGIN, PortalRole.admin), (AURORA_HELPDESK_LOGIN, PortalRole.helpdesk)],
+    )
     tn = await _get_or_create_technova_tenant(s)
     await _seed_technova_branding(s, tn.id)
+    await _seed_portal_roles(
+        s,
+        tn.id,
+        [(TECHNOVA_ADMIN_LOGIN, PortalRole.admin), (TECHNOVA_HELPDESK_LOGIN, PortalRole.helpdesk)],
+    )
     for spec in _TN_CONTRACTS:
         c = await _get_or_create_technova_contract(s, tn.id, spec)
         await _seed_technova_consumption(s, c.id, str(spec["code"]))

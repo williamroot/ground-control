@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gerti_sidecar.auth.session import SessionPayload, get_current_session
+from gerti_sidecar.auth.session import SessionPayload, get_current_session, require_admin
 from gerti_sidecar.db import get_tenant_session
 from gerti_sidecar.domain.consumption_service import ConsumptionService
 from gerti_sidecar.domain.contract_read_service import ContractReadService, consumed_percent_from
@@ -26,7 +26,10 @@ from gerti_sidecar.models import (
 )
 from gerti_sidecar.models.enums import GlosaStatus
 
-router = APIRouter(prefix="/contracts", tags=["portal"])
+# Spec #1H: contratos + valores financeiros são admin-only. require_admin a
+# nível de router cobre todos os endpoints abaixo (get_current_session é
+# cacheado por request, sem dupla execução).
+router = APIRouter(prefix="/contracts", tags=["portal"], dependencies=[Depends(require_admin)])
 
 
 class Saldo(BaseModel):

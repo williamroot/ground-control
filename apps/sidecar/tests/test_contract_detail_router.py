@@ -138,7 +138,7 @@ async def test_detail_full_and_404_cross_tenant(engine, app_session_factory, ses
     ht = {"host": "technova.suporte.gerti.com.br"}
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://t") as cl:
-        cl.cookies.set("gsid", encode_session(str(a.id), "joe", st))
+        cl.cookies.set("gsid", encode_session(str(a.id), "joe", "admin", st))
         r = await cl.get(f"/v1/contracts/{c.id}", headers=ha)
         assert r.status_code == 200
         body = r.json()
@@ -156,6 +156,6 @@ async def test_detail_full_and_404_cross_tenant(engine, app_session_factory, ses
         assert body["billing_parties"][0]["payment_method"] == "boleto"
         # cross-tenant: TechNova session asking Aurora's contract id -> 404 (RLS hid it)
         cl.cookies.clear()
-        cl.cookies.set("gsid", encode_session(str(b.id), "x", st))
+        cl.cookies.set("gsid", encode_session(str(b.id), "x", "admin", st))
         xr = await cl.get(f"/v1/contracts/{c.id}", headers=ht)
         assert xr.status_code == 404

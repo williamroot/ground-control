@@ -66,8 +66,12 @@ async def test_portal_vertical_slice_two_tenants(engine, app_session_factory, se
         monkeypatch.setattr(auth_router, "authenticate_customer", good)
 
         # (2a) Aurora session sees ONLY Aurora's 6 contracts.
+        # Login sempre por e-mail; o e-mail admin resolve role=admin (Spec #1H)
+        # via o portal_user_role semeado por seed_demo_branding.
         la = await c.post(
-            "/v1/auth/login", headers=h_a, json={"username": "eduardo.salvi", "password": "pw"}
+            "/v1/auth/login",
+            headers=h_a,
+            json={"username": "eduardo.salvi@auroramoveis.com.br", "password": "pw"},
         )
         assert la.status_code == 200
         cookie_a = c.cookies.get("gsid")

@@ -51,8 +51,8 @@ async def test_me_requires_matching_tenant(engine, app_session_factory, session,
     monkeypatch.setattr(db, "SessionLocal", app_session_factory)
     app = create_app()
     st = get_settings()
-    good = encode_session(str(t.id), "joe", st)
-    bad = encode_session("00000000-0000-0000-0000-000000000000", "x", st)
+    good = encode_session(str(t.id), "joe", "admin", st)
+    bad = encode_session("00000000-0000-0000-0000-000000000000", "x", "admin", st)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://t") as c:
         h = {"host": "aurora.suporte.gerti.com.br"}

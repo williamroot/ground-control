@@ -18,6 +18,7 @@ class MeResponse(BaseModel):
     tenant_id: str
     display_name: str
     customer_login: str
+    role: str
 
 
 @router.get("", response_model=MeResponse)
@@ -32,4 +33,5 @@ async def get_me(
         tenant_id=session_payload["tenant_id"],
         display_name=row.display_name,
         customer_login=session_payload["customer_login"],
+        role=session_payload["role"],
     )
