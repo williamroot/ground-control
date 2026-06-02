@@ -236,11 +236,20 @@ Schema `gerti` e Znuny permanecem intactos. **NUNCA** `make reset`
 > concorrente); este runbook é o procedimento de referência.
 
 > **Domínios dos tenants de teste (Spec #1F-a):** Os 2 white-labels de
-> teste (Aurora / TechNova) são expostos sob `*.suporte.was.dev.br` (zona
-> controlada pelo token CF disponível), além de `*.suporte.gerti.com.br`.
-> O resolver (sidecar `SUBDOMAIN_RE` e portal `SUB_RE`) aceita **ambas**
-> as bases via alternação ancorada — domínio de produção
-> `*.suporte.gerti.com.br` permanece inalterado (Spec §1F-a).
+> teste (Aurora / TechNova) são expostos sob **`aurora.was.dev.br` /
+> `technova.was.dev.br`** (1-nível, cobertos pelo Cloudflare Universal SSL
+> `*.was.dev.br`) — este é o caminho ativo para testes agora (SSL válido
+> out-of-the-box). Os padrões 2-nível `*.suporte.was.dev.br` (Cloudflare
+> Tunnel) e `*.suporte.gerti.com.br` (produção) continuam aceitos; o
+> resolver (sidecar `SUBDOMAIN_RE` e portal `SUB_RE`) aceita as **3
+> alternativas** via regex ancorado. Hosts de infra `znuny-dev.was.dev.br`,
+> `api-dev.was.dev.br`, `groundcontrol.was.dev.br` estão em `ROOT_HOSTS`
+> (sidecar) / `INFRA_HOSTS` (portal) e curto-circuitam para no-tenant /
+> branding default antes de qualquer lookup. Domínio de produção
+> `<tenant>.suporte.gerti.com.br` permanece inalterado (Spec §1F-a) —
+> **item TLS pendente em prod:** o cert de 2-nível exige ACM SAN ou
+> Cloudflare for SaaS; Universal SSL `*.suporte.gerti.com.br` não é emitido
+> automaticamente pelo CF free tier.
 
 ## Backup (a definir em prod)
 

@@ -146,3 +146,63 @@ async def test_was_dev_br_subdomain_resolves_aurora_branding(
             },
         )
         assert resp_unknown.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_one_level_was_dev_br_resolves_aurora_branding(
+    engine, app_session_factory, session, monkeypatch
+):
+    """#1F-a: 1-nível <sub>.was.dev.br (coberto por Universal SSL *.was.dev.br)
+    deve resolver o mesmo tenant que *.suporte.*.  Garante que aurora.was.dev.br
+    → Aurora, znuny-dev.was.dev.br → no-tenant (ROOT_HOSTS), e que
+    aurora.was.dev.br.evil.com não injeta sufixo."""
+    monkeypatch.setenv("SESSION_SECRET", "test-secret-32-chars-minimum-xxxx")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    get_settings.cache_clear()
+    await seed_demo_contracts.seed(session)
+    await session.commit()
+    await seed_demo_branding.seed(session)
+    await session.commit()
+
+    monkeypatch.setattr(
+        db,
+        "AdminSessionLocal",
+        async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession),
+    )
+    monkeypatch.setattr(db, "SessionLocal", app_session_factory)
+    app = create_app()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        # 1-nível aurora.was.dev.br → tenant Aurora → branding branded.
+        resp_1l = await c.get(
+            "/v1/branding",
+            headers={
+                "host": "sidecar:8001",
+                "x-forwarded-host": "aurora.was.dev.br",
+            },
+        )
+        assert resp_1l.status_code == 200
+        assert resp_1l.json()["display_name"] == "Aurora Móveis"
+
+        # Infra host znuny-dev.was.dev.br → ROOT_HOSTS → no-tenant →
+        # middleware passa direto (sem tenant); branding endpoint retorna
+        # 404 porque não há tenant resolvido (path /v1/branding requer tenant).
+        # O importante é: NÃO retorna branding de Aurora (não confunde tenants).
+        resp_infra = await c.get(
+            "/v1/branding",
+            headers={
+                "host": "sidecar:8001",
+                "x-forwarded-host": "znuny-dev.was.dev.br",
+            },
+        )
+        assert resp_infra.status_code == 404
+
+        # Injeção de sufixo: aurora.was.dev.br.evil.com não deve casar → 404.
+        resp_inject = await c.get(
+            "/v1/branding",
+            headers={
+                "host": "sidecar:8001",
+                "x-forwarded-host": "aurora.was.dev.br.evil.com",
+            },
+        )
+        assert resp_inject.status_code == 404

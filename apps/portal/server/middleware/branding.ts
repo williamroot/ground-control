@@ -19,10 +19,22 @@ export const DEFAULT_BRANDING: Branding = {
   support_email: null,
 }
 
-const SUB_RE = /^([a-z0-9][a-z0-9-]{0,62})\.suporte\.(?:gerti\.com\.br|was\.dev\.br)$/
+// Padrões aceitos (anchored):
+//   1. <sub>.suporte.gerti.com.br  — produção
+//   2. <sub>.suporte.was.dev.br    — testes 2-nível (Cloudflare Tunnel)
+//   3. <sub>.was.dev.br            — testes 1-nível (Universal SSL *.was.dev.br)
+const SUB_RE = /^([a-z0-9][a-z0-9-]{0,62})\.(?:suporte\.(?:gerti\.com\.br|was\.dev\.br)|was\.dev\.br)$/
+
+// Infra was.dev.br 1-nível — não são tenants; resolvem para default.
+const INFRA_HOSTS = new Set([
+  'znuny-dev.was.dev.br',
+  'api-dev.was.dev.br',
+  'groundcontrol.was.dev.br',
+])
 
 export function resolveSubdomain(host: string, forwarded: string): string | null {
   const h = (forwarded || host || '').split(':')[0].toLowerCase()
+  if (INFRA_HOSTS.has(h)) return null
   const m = SUB_RE.exec(h)
   return m ? m[1] : null
 }

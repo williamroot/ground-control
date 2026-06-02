@@ -22,4 +22,21 @@ describe('branding middleware helpers', () => {
     expect(resolveSubdomain('aurora.suporte.evil.example.com', '')).toBeNull()
     expect(resolveSubdomain('aurora.suporte.other.io', '')).toBeNull()
   })
+  // #1F-a: 1-nível <sub>.was.dev.br (Universal SSL *.was.dev.br)
+  it('resolves subdomain from 1-level <sub>.was.dev.br', () => {
+    expect(resolveSubdomain('aurora.was.dev.br', '')).toBe('aurora')
+    expect(resolveSubdomain('technova.was.dev.br', '')).toBe('technova')
+    expect(resolveSubdomain('', 'aurora.was.dev.br')).toBe('aurora')
+  })
+  it('infra was.dev.br hosts resolve to null → default branding', () => {
+    expect(resolveSubdomain('znuny-dev.was.dev.br', '')).toBeNull()
+    expect(resolveSubdomain('api-dev.was.dev.br', '')).toBeNull()
+    expect(resolveSubdomain('groundcontrol.was.dev.br', '')).toBeNull()
+  })
+  it('suffix-injection aurora.was.dev.br.evil.com resolves to null', () => {
+    expect(resolveSubdomain('aurora.was.dev.br.evil.com', '')).toBeNull()
+  })
+  it('bare was.dev.br (no sub) resolves to null', () => {
+    expect(resolveSubdomain('was.dev.br', '')).toBeNull()
+  })
 })

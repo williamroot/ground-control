@@ -38,10 +38,19 @@ ROOT_HOSTS: Final[set[str]] = {
     "localhost",
     "127.0.0.1",
     "testserver",  # padrão do httpx
+    # Infra was.dev.br (1-nível) — não são tenants; curto-circuito evita
+    # lookup desnecessário (resultaria em 404, mas melhor ser explícito).
+    "znuny-dev.was.dev.br",
+    "api-dev.was.dev.br",
+    "groundcontrol.was.dev.br",
 }
 
+# Padrões aceitos (anchored, sem injeção de sufixo):
+#   1. <sub>.suporte.gerti.com.br   — produção
+#   2. <sub>.suporte.was.dev.br     — testes (2-nível; Cloudflare Tunnel)
+#   3. <sub>.was.dev.br             — testes 1-nível (Universal SSL *.was.dev.br)
 SUBDOMAIN_RE: Final[re.Pattern[str]] = re.compile(
-    r"^(?P<sub>[a-z0-9][a-z0-9-]{0,62})\.suporte\.(?:gerti\.com\.br|was\.dev\.br)$"
+    r"^(?P<sub>[a-z0-9][a-z0-9-]{0,62})\.(?:suporte\.(?:gerti\.com\.br|was\.dev\.br)|was\.dev\.br)$"
 )
 
 
