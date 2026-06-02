@@ -397,12 +397,16 @@ Contrato congelado (`integrations/znuny_customer_admin.py`):
 `ZnunyUnavailable` (transporte/5xx → 503) e `ZnunyWriteError` (rejeição limpa,
 ex.: login duplicado → 4xx).
 
-**Impacto no desenho (a decidir no checkpoint do spike).** A incógnita 2 adiciona
-um artefato **Znuny-side** (Perl custom + import do webservice `GertiAdmin`) que
-não estava listado no plano — é pré-requisito do e2e (#1G-a só cria o login se a
-operação existir). Opção A: incluir no ciclo (deploy Fase 2). Opção B: entregar
-UI/API + tenant/branding/papéis no Postgres e deixar a criação do CustomerUser
-no Znuny para follow-up. (Ver spike, seção final.)
+**Impacto no desenho — DECIDIDO no checkpoint do spike: Opção A.** A incógnita 2
+adiciona um artefato **Znuny-side** (Perl custom + import do webservice
+`GertiAdmin`) que não estava listado no plano — é pré-requisito do e2e (#1G-a só
+cria o login se a operação existir). O usuário escolheu **incluir no ciclo**
+(e2e completo): os módulos GI custom entram em `znuny/Custom/Kernel/...` (build
+da imagem) + YAML do webservice importado no deploy da Fase 2; T1.B implementa o
+write-client de verdade. Isso vira a tarefa paralela **T1.G** (OWNS
+`znuny/Custom/...` + `znuny/webservices/GertiAdmin.yml` — arquivos novos,
+disjuntos → zero colisão). (Opção B descartada: deixaria o novo admin sem login
+no portal.)
 
 **Sessão admin.** JWT HS256 `{agent_login, role:"gerti_staff", exp}`, cookie
 **próprio** `gsid_adm` (≠ `gsid` do cliente), **não tenant-scoped** (admin opera
