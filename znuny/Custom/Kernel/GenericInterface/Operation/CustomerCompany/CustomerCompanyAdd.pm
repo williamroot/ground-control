@@ -97,7 +97,22 @@ sub Run {
     my $ValidID = $Param{Data}->{ValidID};
     $ValidID = 1 if !defined $ValidID || $ValidID eq '';
 
-    my $CustomerID = $Kernel::OM->Get('Kernel::System::CustomerCompany')->CustomerCompanyAdd(
+    my $CustomerCompanyObject = $Kernel::OM->Get('Kernel::System::CustomerCompany');
+
+    # Idempotent (ADR D19): if the CustomerID already exists, confirm it instead
+    # of letting the native Add reject a duplicate. This lets the Gerti onboarding
+    # re-run (including recovery after a partial failure) reconcile without a 409.
+    my %Existing = $CustomerCompanyObject->CustomerCompanyGet(
+        CustomerID => $Param{Data}->{CustomerID},
+    );
+    if ( IsHashRefWithData( \%Existing ) ) {
+        return {
+            Success => 1,
+            Data    => { CustomerID => $Existing{CustomerID} },
+        };
+    }
+
+    my $CustomerID = $CustomerCompanyObject->CustomerCompanyAdd(
         CustomerID          => $Param{Data}->{CustomerID},
         CustomerCompanyName => $Param{Data}->{CustomerCompanyName},
         ValidID             => $ValidID,

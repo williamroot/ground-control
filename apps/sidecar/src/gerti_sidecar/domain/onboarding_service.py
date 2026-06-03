@@ -1,11 +1,14 @@
 """Onboarding de cliente (Spec #1G-a, ADR D19) — orquestra Znuny + Postgres.
 
-Fluxo de `onboard()` (implementado em T1.C):
-  1. GI (via interface de T1.B): CustomerCompany + 1..N CustomerUser + senha.
-  2. Postgres CROSS-TENANT via AdminSessionLocal (BYPASSRLS, D16) com tenant_id
-     EXPLÍCITO: gerti.tenant + gerti.tenant_branding + gerti.portal_user_role
-     (1 por usuário).
-Idempotente por `znuny_customer_id` / `subdomain` (reexecução não duplica).
+Fluxo de `onboard()` (numa única transação BYPASSRLS, D16):
+  1. Resolve conflitos no Postgres (znuny_customer_id / subdomínio) ANTES de
+     qualquer escrita no Znuny — conflito limpo ⇒ ZERO efeito colateral no GI.
+  2. GI (via interface de T1.B): CustomerCompany + 1..N CustomerUser + senha,
+     idempotente (a operação GertiAdmin faz check-before-add — D19).
+  3. Postgres CROSS-TENANT com tenant_id EXPLÍCITO: gerti.tenant +
+     gerti.tenant_branding + gerti.portal_user_role (1 por usuário).
+Idempotente por `znuny_customer_id` / `subdomain` (reexecução não duplica;
+re-onboarding após falha parcial reconcilia sem 409).
 
 Tipos de domínio CONGELADOS na Fase 0 (T0.2). O router (T1.C) converte o corpo
 Pydantic nestes dataclasses; T1.C preenche o corpo de `onboard`.
@@ -70,21 +73,12 @@ class OnboardingService:
         self.admin_factory = admin_factory
 
     async def onboard(self, data: NewOnboarding) -> OnboardingResult:
-        # 1. GI (Znuny): empresa + 1..N usuários + senhas. Idempotência do GI é
-        #    responsabilidade do GertiAdmin (T1.B); aqui apenas orquestramos.
-        await gi.create_customer_company(data.znuny_customer_id, data.trade_name)
-        for user in data.users:
-            login = user.email
-            await gi.create_customer_user(
-                login=login,
-                email=user.email,
-                first_name=user.first_name,
-                last_name=user.last_name,
-                customer_id=data.znuny_customer_id,
-            )
-            await gi.set_password(login, user.password)
-
-        # 2/3. Postgres CROSS-TENANT (BYPASSRLS, D16), check-before-insert.
+        # Cross-tenant (BYPASSRLS, D16). A ORDEM importa: resolvemos TODOS os
+        # conflitos no Postgres ANTES de qualquer escrita no Znuny, para que uma
+        # rejeição limpa (OnboardingConflict) NÃO deixe CustomerCompany/User
+        # órfãos no Znuny. As escritas GI são idempotentes (a operação GertiAdmin
+        # faz check-before-add — ADR D19/T1.G), então um re-onboarding do mesmo
+        # cliente reconcilia sem 409 mesmo após uma falha parcial anterior.
         async with self.admin_factory() as s:
             async with s.begin():
                 tenant = (
@@ -103,6 +97,30 @@ class OnboardingService:
                         raise OnboardingConflict(
                             f"subdomain {data.subdomain!r} já em uso por outro cliente"
                         )
+                elif tenant.subdomain != data.subdomain:
+                    # Re-onboarding do MESMO cliente, porém apontando para um
+                    # subdomínio diferente do já registrado → conflito limpo.
+                    raise OnboardingConflict(
+                        f"znuny_customer_id {data.znuny_customer_id!r} já registrado "
+                        f"com subdomínio {tenant.subdomain!r}"
+                    )
+
+                # Conflitos resolvidos (ZERO escrita no Znuny até aqui). Agora a
+                # escrita GI idempotente: empresa + 1..N usuários + senhas. Uma
+                # falha aqui (ZnunyUnavailable/ZnunyWriteError) faz rollback do
+                # `s.begin()` → nenhum tenant parcial no Postgres.
+                await gi.create_customer_company(data.znuny_customer_id, data.trade_name)
+                for user in data.users:
+                    await gi.create_customer_user(
+                        login=user.email,
+                        email=user.email,
+                        first_name=user.first_name,
+                        last_name=user.last_name,
+                        customer_id=data.znuny_customer_id,
+                    )
+                    await gi.set_password(user.email, user.password)
+
+                if tenant is None:
                     tenant = Tenant(
                         legal_name=data.legal_name,
                         trade_name=data.trade_name,
@@ -113,13 +131,6 @@ class OnboardingService:
                     )
                     s.add(tenant)
                     await s.flush()
-                elif tenant.subdomain != data.subdomain:
-                    # Re-onboarding do MESMO cliente, porém apontando para um
-                    # subdomínio diferente do já registrado → conflito limpo.
-                    raise OnboardingConflict(
-                        f"znuny_customer_id {data.znuny_customer_id!r} já registrado "
-                        f"com subdomínio {tenant.subdomain!r}"
-                    )
 
                 # Branding 1:1 — cria só se ainda não existir.
                 branding = await s.get(TenantBranding, tenant.id)

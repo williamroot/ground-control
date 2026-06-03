@@ -217,7 +217,8 @@ async def test_onboarding_dup_subdomain_other_customer_conflicts(engine, session
     settings = _settings(monkeypatch)
     await _seed_instance(session)
     _wire_admin_db(monkeypatch, engine)
-    _GISpy().install(monkeypatch)
+    spy = _GISpy()
+    spy.install(monkeypatch)
 
     app = create_app()
     async with _client(app) as c:
@@ -228,6 +229,7 @@ async def test_onboarding_dup_subdomain_other_customer_conflicts(engine, session
             json=_onboard_body(customer="ACME", subdomain="acme"),
         )
         assert r1.status_code == 201
+        gi_after_first = (len(spy.companies), len(spy.users), len(spy.passwords))
         # MESMO subdomínio, cliente DIFERENTE → conflito limpo (4xx, não 500).
         r2 = await c.post(
             "/v1/admin/tenants",
@@ -236,6 +238,10 @@ async def test_onboarding_dup_subdomain_other_customer_conflicts(engine, session
         )
     assert r2.status_code == 409, r2.text
     assert "acme" in r2.json()["detail"]
+    # Conflito resolvido no Postgres ANTES de qualquer escrita no Znuny: o
+    # cliente OTHER rejeitado NÃO criou CustomerCompany/User/senha (zero órfãos).
+    assert (len(spy.companies), len(spy.users), len(spy.passwords)) == gi_after_first
+    assert all(co != "OTHER" for co, _ in spy.companies)
 
 
 @pytest.mark.asyncio

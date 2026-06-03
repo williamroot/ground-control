@@ -103,7 +103,22 @@ sub Run {
     my $ValidID = $Param{Data}->{ValidID};
     $ValidID = 1 if !defined $ValidID || $ValidID eq '';
 
-    my $UserLogin = $Kernel::OM->Get('Kernel::System::CustomerUser')->CustomerUserAdd(
+    my $CustomerUserObject = $Kernel::OM->Get('Kernel::System::CustomerUser');
+
+    # Idempotent (ADR D19): if the UserLogin already exists, confirm it instead
+    # of letting the native Add reject the duplicate. Lets onboarding re-run
+    # (and recover from a partial failure) reconcile without a 409.
+    my %Existing = $CustomerUserObject->CustomerUserDataGet(
+        User => $Param{Data}->{UserLogin},
+    );
+    if ( IsHashRefWithData( \%Existing ) ) {
+        return {
+            Success => 1,
+            Data    => { UserLogin => $Existing{UserLogin} },
+        };
+    }
+
+    my $UserLogin = $CustomerUserObject->CustomerUserAdd(
         Source         => 'CustomerUser',
         UserLogin      => $Param{Data}->{UserLogin},
         UserEmail      => $Param{Data}->{UserEmail},
