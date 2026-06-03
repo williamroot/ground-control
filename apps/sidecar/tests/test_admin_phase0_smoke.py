@@ -57,10 +57,13 @@ async def test_admin_endpoints_require_admin_session(monkeypatch: pytest.MonkeyP
         )
         assert cross.status_code == 401
 
-        # sessão admin VÁLIDA → chega no stub (501), provando router + dependency
+        # sessão admin VÁLIDA → passa pela dependency e chega no handler. Em T1.C
+        # GET /admin/tenants foi implementado; sem AdminSessionLocal wired (este
+        # smoke não toca DB) o handler responde 503 (admin_db_unavailable). O que
+        # importa aqui é provar router + dependency: NÃO é 401/404.
         token = encode_admin_session("william", settings)
         ok = await c.get("/v1/admin/tenants", headers={**_HOST, "cookie": f"gsid_adm={token}"})
-        assert ok.status_code == 501
+        assert ok.status_code == 503
 
 
 @pytest.mark.asyncio
