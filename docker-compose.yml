@@ -103,6 +103,9 @@ services:
       ZNUNY_SYSTEM_ID: ${ZNUNY_SYSTEM_ID:-10}
       ZNUNY_ADMIN_USER: ${ZNUNY_ADMIN_USER:-root@localhost}
       ZNUNY_ADMIN_PASSWORD: ${ZNUNY_ADMIN_PASSWORD:-changeme}
+      # GertiAdmin webservice AccessToken (#1G-a, D19): reusa ZNUNY_WS_TOKEN
+      # (mesmo segredo do sidecar). Vazio → fail-closed. Nunca :? (D13).
+      GERTI_ADMIN_WS_TOKEN: ${ZNUNY_WS_TOKEN:-}
     volumes:
       - znuny-var:/opt/otrs/var
     ports:
@@ -139,6 +142,8 @@ services:
       ZNUNY_SYSTEM_ID: ${ZNUNY_SYSTEM_ID:-10}
       ZNUNY_ADMIN_USER: ${ZNUNY_ADMIN_USER:-root@localhost}
       ZNUNY_ADMIN_PASSWORD: ${ZNUNY_ADMIN_PASSWORD:-changeme}
+      # GertiAdmin webservice AccessToken (#1G-a, D19): reusa ZNUNY_WS_TOKEN.
+      GERTI_ADMIN_WS_TOKEN: ${ZNUNY_WS_TOKEN:-}
     volumes:
       - znuny-var:/opt/otrs/var
     networks: [app, data]
