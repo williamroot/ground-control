@@ -359,3 +359,106 @@ e de **autorização** APROVADAS (sem blockers): privilege-escalation fechado,
 least-privilege em toda omissão, claim assinado validado por allowlist,
 `portal_user_role` FORCE-RLS resolvido após o 403 cross-tenant, query
 parametrizada, enforcement server-side.
+
+## D19 — Console de Administração: auth de agente via GI + escrita de cliente via operação GI custom
+
+**Status:** FINAL (Fase 1 + Fase 2 implementadas, gates verdes, e2e provado;
+deploy: artefatos prontos + runbook, exposição pública pendente de 1 credencial
+CF — ver "Evidência/Status" no fim). **Spike:**
+`docs/superpowers/spikes/2026-06-02-r1g-znuny-admin-gi.md` (transcrições reais via
+`ssh gc` contra o Znuny 7.2.3 vivo).
+
+**Contexto.** O #1G-a adiciona um app admin separado (equipe Gerti) com login
+de **agente** Znuny, onboarding de cliente (tenant+branding+usuários+papéis) e
+criar contrato. Duas incógnitas de Znuny GI eram bloqueantes (como o R1/#1F foi
+para o portal): (1) auth de agente via GI; (2) escrita de `CustomerCompany`/
+`CustomerUser` via GI (Spec #0: escrita no Znuny SEMPRE via GI).
+
+**Decisão incógnita 1 — PRIMARY (live-proven).** A operação core
+`Session::SessionCreate` aceita `UserLogin`+`Password` e roteia para
+`Kernel::System::Auth->Auth` (auth de AGENTE) — fonte `Session/Common.pm:55-65`.
+Prova viva: `Auth(User=>"william", Pw=>"Gerti@Demo2026")` → `william`;
+senha errada → undef (`SessionCreate.AuthFail`). Mesmo webservice/contrato do
+D14, **trocando só o campo de login** (`UserLogin` em vez de
+`CustomerUserLogin`). SEM resolução e-mail→login (agentes logam pelo `login` da
+tabela `users`, não pelo e-mail). Contrato congelado:
+`authenticate_agent(login, password) -> bool` + `ZnunyUnavailable` (mesma
+semântica failure-safe do `authenticate_customer`).
+
+**Decisão incógnita 2 — operação GI CUSTOM.** O GI core **não** expõe escrita de
+cliente: `ls .../Operation/` = `Common.pm Session Test Ticket User`, e `User/`
+(que é agente) só tem `OutOfOffice.pm`. A API Perl, porém, expõe
+`CustomerCompanyAdd` (`Kernel/System/CustomerCompany.pm`), `CustomerUserAdd` e
+`SetPassword` (`Kernel/System/CustomerUser.pm`); e o overlay `Custom/Kernel/...`
+já é usado nesta imagem (`Cache/Redis.pm`). Mecanismo congelado: **operação GI
+custom** embrulhando a API Perl, exposta por um webservice `GertiAdmin`
+(`CustomerCompany::CustomerCompanyAdd`, `CustomerUser::CustomerUserAdd`,
+`CustomerUser::SetPassword`), shipada via `znuny/Custom/...` no build da imagem.
+Contrato congelado (`integrations/znuny_customer_admin.py`):
+`create_customer_company`, `create_customer_user`, `set_password` +
+`ZnunyUnavailable` (transporte/5xx → 503) e `ZnunyWriteError` (rejeição limpa,
+ex.: login duplicado → 4xx).
+
+**Impacto no desenho — DECIDIDO no checkpoint do spike: Opção A.** A incógnita 2
+adiciona um artefato **Znuny-side** (Perl custom + import do webservice
+`GertiAdmin`) que não estava listado no plano — é pré-requisito do e2e (#1G-a só
+cria o login se a operação existir). O usuário escolheu **incluir no ciclo**
+(e2e completo): os módulos GI custom entram em `znuny/Custom/Kernel/...` (build
+da imagem) + YAML do webservice importado no deploy da Fase 2; T1.B implementa o
+write-client de verdade. Isso vira a tarefa paralela **T1.G** (OWNS
+`znuny/Custom/...` + `znuny/webservices/GertiAdmin.yml` — arquivos novos,
+disjuntos → zero colisão). (Opção B descartada: deixaria o novo admin sem login
+no portal.)
+
+**Sessão admin.** JWT HS256 `{agent_login, role:"gerti_staff", exp}`, cookie
+**próprio** `gsid_adm` (≠ `gsid` do cliente), **não tenant-scoped** (admin opera
+cross-tenant). Endpoints `/v1/admin/*` exigem `get_admin_session` (401 sem ela);
+os endpoints de cliente (`require_admin`, D18) NÃO aceitam a sessão admin
+(cookies/segredos de claim distintos). Escrita cross-tenant só pelo caminho
+admin BYPASSRLS (AdminSessionLocal, D16) e SÓ em `/v1/admin/*`; criar contrato
+para um tenant abre `tenant_session_scope(id)` e usa `ContractService` (preserva
+invariantes #1C). **Sem migration nova** no #1G-a.
+
+**Idempotência do onboarding (fix de code-review, Fase 2).** O `onboard()`
+resolve TODOS os conflitos no Postgres (znuny_customer_id/subdomínio) **antes**
+de qualquer escrita no Znuny — um `OnboardingConflict` limpo (4xx) deixa zero
+CustomerCompany/User órfãos. As operações GI custom `CustomerCompanyAdd`/
+`CustomerUserAdd` são **idempotentes** (check-before-add via `CustomerCompanyGet`/
+`CustomerUserDataGet`: se o registro existe, confirmam com `Success` em vez de
+deixar o Add nativo rejeitar o duplicado), então re-onboarding (e recuperação de
+falha parcial) reconcilia sem 409. Re-provado ao vivo: a 2ª chamada de cada Add
+retornou o mesmo id com `Success`.
+
+**Wiring do token (Fase 2).** `GertiAdmin::AccessToken` é renderizado no
+`Kernel/Config.pm` a partir de `GERTI_ADMIN_WS_TOKEN` (compose reusa
+`ZNUNY_WS_TOKEN` — mesmo segredo do sidecar) pelo `entrypoint.sh` (sed
+idempotente, D6). Vazio → fail-closed (toda chamada GertiAdmin rejeitada com
+`GertiAdmin.AuthFail`). O sidecar lê a URL do write-client de `ZNUNY_ADMIN_WS_URL`
+(base até `.../Webservice/GertiAdmin`; default vazio, nunca `:?` — D13).
+
+**Evidência/Status (2026-06-02).**
+- Fase 1: 7 tarefas T1.A–T1.G em paralelo (worktrees, OWNS disjuntos), cada uma
+  com gate verde, mergeadas em `feature/spec-1g-admin`.
+- Gate sidecar **116 passed** (ruff + ruff format + mypy + pytest, testcontainers),
+  admin UI **24 vitest** + eslint limpo.
+- **e2e** (`tests/test_admin_e2e.py`, Znuny mockado): agente loga no console →
+  onboarding de "Acme" (GI + tenant/branding/portal_user_role) → cria contrato →
+  o novo admin loga no **portal** e enxerga o contrato; isolamento admin×cliente
+  bidirecional (`gsid_adm`⊥`/v1/contracts`, `gsid`⊥`/v1/admin/*`).
+- **Prova viva** (via `ssh gc`, Znuny 7.2.3 real): `perl -c` dos 3 módulos GI
+  custom OK; webservice `GertiAdmin` importado (id 2, aditivo — `GertiCustomerAuth`
+  intacto); CustomerCompanyAdd/CustomerUserAdd/SetPassword exercitados com JSON
+  real de sucesso; token ausente → `AuthFail` (fail-closed); idempotência (2ª
+  chamada = mesmo id) confirmada; dados throwaway invalidados.
+- Reviews: **security/authz APPROVE** (BYPASSRLS confinado a `/v1/admin/*`,
+  `typ:admin` fail-closed, sem segredo logado, `UNIQUE(subdomain)` no DB);
+  **code-review** pegou a ordem GI-antes-de-conflito → corrigida (acima).
+- **Deploy:** serviço `admin` (profile `gerti`, aditivo) + token wiring +
+  módulos/webservice GertiAdmin prontos e commitados; runbook em `OPS.md`
+  "Deploy do Console de Administração". **Exposição pública pendente:** o
+  subdomínio Cloudflare `gerti.was.dev.br` exige edição de ingress do tunnel
+  (read-modify-write, D3/D15) que precisa de um **CF API token** com
+  `Account:Cloudflare Tunnel:Edit` — hoje `.env.prod` só tem o
+  `CLOUDFLARE_TUNNEL_TOKEN` (connector, não edita config). Mesma classe de
+  bloqueio externo já documentada (D13 DNS). Tudo o mais do deploy é
+  `git`-checkout-da-branch + build/up per runbook.

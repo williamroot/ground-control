@@ -13,7 +13,9 @@ ground-control/
 ├── apps/
 │   ├── sidecar/    serviço Python · FastAPI · SQLAlchemy 2 async · Alembic
 │   │               · pytest + testcontainers   (fundação + #1C T1)
-│   └── portal/     Nuxt 3 SSR · branding middleware · auth proxy (Spec #1F-a)
+│   ├── portal/     Nuxt 3 SSR · branding middleware · auth proxy (Spec #1F-a)
+│   └── admin/      Nuxt 3 SSR · Console de Administração Gerti (Spec #1G-a)
+│                   · identidade FIXA (não white-label) · proxy /v1/admin/*
 ├── infra/
 │   └── compose/    infra DEV do sidecar (postgres/redis/minio) + init SQL
 │                   + smoke-test; SEPARADA da stack Znuny de produção
@@ -93,7 +95,7 @@ Estado atual (ponto de convergência — item aberto):
 | Portal SSR Nuxt 3 (`apps/portal/`) + branding middleware + tema CSS vars | **Pronto, gateado (profile `gerti`)** |
 | 2 tenants white-label de teste Aurora + TechNova (seeded idempotentemente: `seed_demo_branding.py` + `scripts/seed-technova.pl` via `scripts/seed-demo.sh`) | **Pronto** |
 | OIDC / #1D (troca de login-layer — swap-only, sem mudança de API pública) | Pendente (deferred) |
-| Branding admin UI / onboarding de tenants (#1G) — estes 2 tenants são fixtures de teste, NÃO onboarding | Pendente (#1G) |
+| Branding admin UI / onboarding de tenants (#1G) — estes 2 tenants são fixtures de teste, NÃO onboarding | **Pronto** (#1G-a, ADR D19) |
 | Portal (Spec #1F) | **Pronto, gateado; deploy per runbook** |
 | `GET /v1/contracts` estendido (+`id`, +`consumed_percent`) | **Pronto, gateado; deploy per runbook** — read-only sobre #1C |
 | `GET /v1/contracts/{id}` (detalhe: saldo, totais, ciclo ativo, reajuste/renovação) | **Pronto, gateado; deploy per runbook** — read-only sobre #1C |
@@ -110,7 +112,9 @@ Estado atual (ponto de convergência — item aberto):
 | Portal #1H: middleware nomeada `auth`, nav por papel, página `/tickets` (placeholder #1E), login por e-mail | **Pronto** |
 | Seed papéis: `portal_user_role` (admin+helpdesk/tenant) + `scripts/seed-helpdesk.pl` (customer_user help-desk no Znuny) | **Pronto** |
 | Tickets / catálogo / abrir-chamado (#1E) | Pendente (deferred §9) |
-| Admin / onboarding / branding UI (#1G) | Pendente (deferred §9) |
+| Console de Administração #1G-a: auth de agente (`/v1/admin/auth/*`, cookie `gsid_adm`), onboarding (`POST /v1/admin/tenants` → GI + tenant/branding/papéis), criar contrato (`POST /v1/admin/tenants/{id}/contracts`), app `apps/admin/` | **Pronto, gateado; deploy per runbook** (ADR D19) |
+| Znuny GI custom (#1G-a, Opção A): webservice `GertiAdmin` + ops `CustomerCompanyAdd`/`CustomerUserAdd`/`SetPassword` (idempotentes, `AccessToken` fail-closed) em `znuny/Custom/...` | **Pronto, provado ao vivo** |
+| Gestão avançada pela UI (editar contrato/fechar ciclo/glosa/reajuste) #1G-b | Pendente (deferred §9) |
 | OIDC / PKCE (#1D) | Pendente (deferred §9) |
 | Export CSV/PDF, filtros avançados, i18n | Pendente (deferred §9) |
 

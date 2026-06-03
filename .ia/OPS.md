@@ -251,6 +251,83 @@ Schema `gerti` e Znuny permanecem intactos. **NUNCA** `make reset`
 > Cloudflare for SaaS; Universal SSL `*.suporte.gerti.com.br` não é emitido
 > automaticamente pelo CF free tier.
 
+### Deploy do Console de Administração (Spec #1G-a — profile `gerti`)
+
+App **separado** da equipe Gerti (NÃO white-label), subdomínio próprio
+(`gerti.was.dev.br` em teste; `admin.suporte.gerti.com.br` em prod). Aditivo
+e profile-gated (padrão D13/D15): um `make up` da stack Znuny não o toca.
+Fala só com o `sidecar` (endpoints `/v1/admin/*`, cross-tenant). ADR D19.
+
+**Pré-requisitos (humano, one-time, em `~/ground-control/.env.prod` na VPS —
+gitignored):**
+- `ZNUNY_ADMIN_WS_URL` = base do webservice GertiAdmin, p.ex.
+  `https://znuny-dev.was.dev.br/znuny/nph-genericinterface.pl/Webservice/GertiAdmin`.
+- `ZNUNY_WS_TOKEN` (já presente p/ o auth #1F) — o **mesmo** valor é reusado
+  como `GERTI_ADMIN_WS_TOKEN` (token do webservice GertiAdmin) e renderizado no
+  `Config.pm` do Znuny pelo entrypoint. O sidecar o envia como `AccessToken`.
+- `GERTI_SESSION_SECRET` (já presente p/ o portal #1H) — assina o `gsid_adm`.
+
+```bash
+# 0) levar o código #1G-a para a VPS (NÃO mergeia na main; deploy da branch):
+ssh gc 'cd ~/ground-control && git fetch origin && git checkout feature/spec-1g-admin && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 1) Znuny: rebuild da imagem (bakeia os módulos GI custom de T1.G via COPY no
+#    Dockerfile + renderiza GertiAdmin::AccessToken do env) e recria web+daemon.
+#    NOTA: recria o core Znuny (downtime curto). Provisionamento é idempotente (D6).
+ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-daemon"
+
+# 2) importar/atualizar o webservice GertiAdmin no Znuny (idempotente):
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List | grep -qi GertiAdmin || \
+   bin/otrs.Console.pl Admin::WebService::Add --source-path /opt/otrs/webservices/GertiAdmin.yml"'
+#   (o YAML é COPY'd p/ a imagem no build; confirmar Admin::WebService::List lista
+#    GertiCustomerAuth E GertiAdmin — nunca remover/substituir o de auth.)
+
+# 3) sidecar: rebuild (traz os /v1/admin/*) + up (aditivo, sem migration nova):
+ssh gc "cd ~/ground-control && $DC build sidecar && $DC up -d sidecar && $DC ps"
+
+# 4) admin UI: build + up (profile gerti):
+ssh gc "cd ~/ground-control && $DC build admin && $DC up -d admin && $DC ps"
+
+# 5) prova interna (sem depender do subdomínio público):
+ssh gc 'docker compose exec -T sidecar curl -fsS http://127.0.0.1:8001/v1/health && echo SIDECAR_OK'
+ssh gc 'cd ~/ground-control && docker compose exec -T admin node -e \
+  "fetch(\"http://127.0.0.1:3000/login\").then(r=>console.log(\"ADMIN_UI\",r.status))"'
+# login de agente real (william/Gerti@Demo2026, .ia/DEMO.md) deve emitir gsid_adm:
+ssh gc 'docker compose exec -T sidecar curl -fsS -i -X POST \
+  -H "content-type: application/json" -H "host: gerti.was.dev.br" \
+  -d "{\"login\":\"william\",\"password\":\"Gerti@Demo2026\"}" \
+  http://127.0.0.1:8001/v1/admin/auth/login | grep -i "set-cookie: gsid_adm" && echo ADMIN_LOGIN_OK'
+```
+
+**Ingresso Cloudflare — `gerti.was.dev.br` (read-modify-write, padrão D3/D15):**
+GET config do tunnel `ground-control` (id `4f515441-d21e-4992-9389-f59b4c35e0d2`)
+→ com `jq`, remover regra pré-existente de `gerti.was.dev.br` (idempotência) e
+fazer splice de `gerti.was.dev.br → http://admin:3000` **ANTES** do catch-all
+`http_status:404` → **guard obrigatório**: abortar o PUT se qualquer um de
+`znuny-dev.was.dev.br`, `api-dev.was.dev.br`, `aurora.was.dev.br`,
+`technova.was.dev.br` sumir, ou se o último elemento não for `http_status:404`
+→ PUT do objeto inteiro → re-GET assertando os 5 hostnames. **Nunca** PUT
+hand-written (substitui o array e derruba os outros). DNS: CNAME proxied
+`gerti → <tunnel_id>.cfargotunnel.com`.
+
+> **Status (2026-06-02):** artefatos de deploy prontos e commitados
+> (serviço `admin`, token wiring `GertiAdmin::AccessToken`, módulos GI custom +
+> `GertiAdmin.yml`, runbook). Os módulos GI + webservice já foram **provados ao
+> vivo** no Znuny prod via `ssh gc` (perl -c OK; operações exercitadas com JSON
+> de sucesso; idempotência confirmada). **Exposição pública do console pendente
+> de 1 credencial:** a edição de ingress do tunnel exige um **CF API token** com
+> `Account:Cloudflare Tunnel:Edit` que **não está** no `.env.prod` da VPS (só o
+> `CLOUDFLARE_TUNNEL_TOKEN` connector, que não edita config) — mesma classe de
+> bloqueio externo do D13 (DNS). Os passos 0–5 acima rodam quando houver janela;
+> o passo de ingress + DNS roda assim que o token CF estiver disponível.
+
+**Rollback (admin somente; Znuny/sidecar/portal intocados):** `$DC stop admin`.
+Reverter compose: `git checkout <sha> -- apps/admin docker-compose.yml && $DC up -d admin`.
+Para o token Znuny: o rebuild da imagem é idempotente; reverter o sha do
+`znuny/` e rebuild. **NUNCA** `make reset` (destrói o DB compartilhado).
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)

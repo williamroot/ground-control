@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     session_cookie_name: str = "gsid"
     session_ttl_seconds: int = 28800  # 8h
 
+    # admin console session (Spec #1G-a) — cookie PRÓPRIO, nunca colide com o
+    # `gsid` do cliente. Sessão de agente Znuny (role gerti_staff), cross-tenant.
+    admin_session_cookie_name: str = "gsid_adm"
+
     # admin DSN usado SÓ pela resolução subdomínio->tenant (BYPASSRLS,
     # somente identidade — ver D16). Opcional: ausente => cai no
     # SessionLocal normal (dev/test ligam SessionLocal ao admin engine).
@@ -79,9 +83,7 @@ class Settings(BaseSettings):
         if self.environment in ("production", "staging") and (
             self.session_secret == _DEFAULT_SESSION_SECRET or not self.session_secret
         ):
-            raise ValueError(
-                "SESSION_SECRET deve ser definido (não-default) em production/staging"
-            )
+            raise ValueError("SESSION_SECRET deve ser definido (não-default) em production/staging")
         return self
 
     @property

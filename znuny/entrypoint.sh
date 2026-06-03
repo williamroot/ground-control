@@ -53,6 +53,7 @@ render_config() {
         -e "s|__FQDN__|${ZNUNY_FQDN}|g" \
         -e "s|__OS_HOST__|${OPENSEARCH_HOST}|g" \
         -e "s|__OS_PORT__|${OPENSEARCH_PORT}|g" \
+        -e "s|__GERTI_ADMIN_WS_TOKEN__|${GERTI_ADMIN_WS_TOKEN:-}|g" \
         "${tmpl}" > "${out}"
     chown otrs:www-data "${out}"
     chmod 660 "${out}"

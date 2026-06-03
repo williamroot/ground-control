@@ -56,6 +56,13 @@ sub Load {
     $Self->{'GertiOpenSearchEndpoint'} =
         'http://__OS_HOST__:__OS_PORT__';
 
+    # ── GertiAdmin webservice shared AccessToken (#1G-a, ADR D19) ────
+    #   Lido pelas operações GI custom CustomerCompanyAdd/CustomerUserAdd/
+    #   SetPassword (Custom/Kernel/GenericInterface/Operation/...). DEVE
+    #   bater com o token que o sidecar envia (ZNUNY_WS_TOKEN). Vazio →
+    #   fail-closed (toda chamada GertiAdmin é rejeitada com AuthFail).
+    $Self->{'GertiAdmin::AccessToken'} = '__GERTI_ADMIN_WS_TOKEN__';
+
     # ── data inserted by installer ──────────────────────────────────
     # $DIBI$
 

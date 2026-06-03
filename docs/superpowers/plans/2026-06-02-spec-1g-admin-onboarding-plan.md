@@ -88,6 +88,18 @@ Branch sugerida: `feature/spec-1g-admin`. Gate por tarefa: `ruff + ruff format +
 *(T1.E e T1.F compartilham só o scaffold criado na Fase 0; cada um tem páginas/arquivos
 próprios — sem colisão.)*
 
+### T1.G — Znuny: operação GI custom + webservice GertiAdmin (escopo decidido no spike R1G → Opção A, ADR D19)
+- **OWNS**: `znuny/Custom/Kernel/GenericInterface/Operation/CustomerCompany/CustomerCompanyAdd.pm`,
+  `znuny/Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserAdd.pm`,
+  `znuny/Custom/Kernel/GenericInterface/Operation/CustomerUser/SetPassword.pm`,
+  `znuny/webservices/GertiAdmin.yml`, `znuny/Dockerfile` (só COPY do overlay, se preciso).
+- Operações GI custom embrulhando a API Perl nativa (`CustomerCompanyAdd`/
+  `CustomerUserAdd`/`SetPassword`), expostas pelo webservice `GertiAdmin`
+  (rota REST). Espelha o contrato congelado de `znuny_customer_admin.py` (T1.B).
+  Prova: importar o YAML + chamar a operação numa instância Znuny (como o R1G).
+- **Disjunto de tudo** (arquivos `znuny/...` novos) → paraleliza sem colisão.
+  T1.B (write-client Python) e T1.G coordenam só pelo contrato congelado no spike.
+
 ---
 
 ## FASE 2 — Integração + deploy + docs (SEQUENCIAL) — 1 agente
