@@ -158,6 +158,11 @@ RUN set -eux; \
              -c ${OTRS_HOME}/$m ; \
     done
 
+# ── GertiAdmin webservice definition (#1G-a, D19). Baked into the image so the
+#    deploy imports it idempotently (Admin::WebService::Add --source-path).
+COPY webservices/GertiAdmin.yml ${OTRS_HOME}/webservices/GertiAdmin.yml
+RUN chown -R otrs:www-data ${OTRS_HOME}/webservices
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY Config.pm.tmpl ${OTRS_HOME}/Kernel/Config.pm.tmpl
 RUN chmod +x /usr/local/bin/entrypoint.sh
