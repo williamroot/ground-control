@@ -112,7 +112,7 @@ Estado atual (ponto de convergência — item aberto):
 | Portal #1H: middleware nomeada `auth`, nav por papel, página `/tickets` (placeholder #1E), login por e-mail | **Pronto** |
 | Seed papéis: `portal_user_role` (admin+helpdesk/tenant) + `scripts/seed-helpdesk.pl` (customer_user help-desk no Znuny) | **Pronto** |
 | Tickets / catálogo / abrir-chamado (#1E) | Pendente (deferred §9) |
-| Console de Administração #1G-a: auth de agente (`/v1/admin/auth/*`, cookie `gsid_adm`), onboarding (`POST /v1/admin/tenants` → GI + tenant/branding/papéis), criar contrato (`POST /v1/admin/tenants/{id}/contracts`), app `apps/admin/` | **Pronto, gateado; deploy per runbook** (ADR D19) |
+| Console de Administração #1G-a: auth de agente (`/v1/admin/auth/*`, cookie `gsid_adm`), onboarding (`POST /v1/admin/tenants` → GI + tenant/branding/papéis), criar contrato (`POST /v1/admin/tenants/{id}/contracts`), app `apps/admin/` | **Pronto + DEPLOYADO em prod** (verificado ao vivo; ingress público `gerti.was.dev.br` pendente de CF API token — ADR D19) |
 | Znuny GI custom (#1G-a, Opção A): webservice `GertiAdmin` + ops `CustomerCompanyAdd`/`CustomerUserAdd`/`SetPassword` (idempotentes, `AccessToken` fail-closed) em `znuny/Custom/...` | **Pronto, provado ao vivo** |
 | Gestão avançada pela UI (editar contrato/fechar ciclo/glosa/reajuste) #1G-b | Pendente (deferred §9) |
 | OIDC / PKCE (#1D) | Pendente (deferred §9) |

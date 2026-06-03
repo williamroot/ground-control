@@ -312,16 +312,20 @@ fazer splice de `gerti.was.dev.br → http://admin:3000` **ANTES** do catch-all
 hand-written (substitui o array e derruba os outros). DNS: CNAME proxied
 `gerti → <tunnel_id>.cfargotunnel.com`.
 
-> **Status (2026-06-02):** artefatos de deploy prontos e commitados
-> (serviço `admin`, token wiring `GertiAdmin::AccessToken`, módulos GI custom +
-> `GertiAdmin.yml`, runbook). Os módulos GI + webservice já foram **provados ao
-> vivo** no Znuny prod via `ssh gc` (perl -c OK; operações exercitadas com JSON
-> de sucesso; idempotência confirmada). **Exposição pública do console pendente
-> de 1 credencial:** a edição de ingress do tunnel exige um **CF API token** com
-> `Account:Cloudflare Tunnel:Edit` que **não está** no `.env.prod` da VPS (só o
+> **Status (2026-06-02): DEPLOYADO em prod e verificado ao vivo.** `main`
+> (`24da5c7`) na VPS; imagem Znuny rebuildada (módulos GI bakeados +
+> `GertiAdmin::AccessToken` renderizado), `znuny-web`/`znuny-daemon` recriados
+> (Healthy, login público 200), webservice `GertiAdmin` presente (id 2),
+> `sidecar` rebuildado (Healthy, sem migration), serviço `admin` up (Healthy).
+> `.env.prod` recebeu `ZNUNY_ADMIN_WS_URL` (interno) + `ZNUNY_WS_TOKEN` (gerado).
+> **Prova e2e em prod:** agent login `william` → 200 + `gsid_adm`; onboarding
+> real → 201 criando CustomerCompany+CustomerUser reais no Znuny via GertiAdmin;
+> throwaway limpo. **Único pendente — exposição pública:** o ingress de
+> `gerti.was.dev.br` (passos abaixo) exige um **CF API token** com
+> `Account:Cloudflare Tunnel:Edit` que **não está** no `.env.prod` (só o
 > `CLOUDFLARE_TUNNEL_TOKEN` connector, que não edita config) — mesma classe de
-> bloqueio externo do D13 (DNS). Os passos 0–5 acima rodam quando houver janela;
-> o passo de ingress + DNS roda assim que o token CF estiver disponível.
+> bloqueio do D13 (DNS). Rodar o passo de ingress + CNAME assim que o token CF
+> estiver disponível; o console já está rodando e verificado internamente.
 
 **Rollback (admin somente; Znuny/sidecar/portal intocados):** `$DC stop admin`.
 Reverter compose: `git checkout <sha> -- apps/admin docker-compose.yml && $DC up -d admin`.

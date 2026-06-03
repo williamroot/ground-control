@@ -362,9 +362,10 @@ parametrizada, enforcement server-side.
 
 ## D19 — Console de Administração: auth de agente via GI + escrita de cliente via operação GI custom
 
-**Status:** FINAL (Fase 1 + Fase 2 implementadas, gates verdes, e2e provado;
-deploy: artefatos prontos + runbook, exposição pública pendente de 1 credencial
-CF — ver "Evidência/Status" no fim). **Spike:**
+**Status:** FINAL — mergeado na `main` e **DEPLOYADO em prod** (gates verdes, e2e
+provado, onboarding real verificado ao vivo); única pendência = rotear o
+subdomínio público `gerti.was.dev.br` (precisa de CF API token — ver
+"Evidência/Status" no fim). **Spike:**
 `docs/superpowers/spikes/2026-06-02-r1g-znuny-admin-gi.md` (transcrições reais via
 `ssh gc` contra o Znuny 7.2.3 vivo).
 
@@ -453,12 +454,26 @@ idempotente, D6). Vazio → fail-closed (toda chamada GertiAdmin rejeitada com
 - Reviews: **security/authz APPROVE** (BYPASSRLS confinado a `/v1/admin/*`,
   `typ:admin` fail-closed, sem segredo logado, `UNIQUE(subdomain)` no DB);
   **code-review** pegou a ordem GI-antes-de-conflito → corrigida (acima).
-- **Deploy:** serviço `admin` (profile `gerti`, aditivo) + token wiring +
-  módulos/webservice GertiAdmin prontos e commitados; runbook em `OPS.md`
-  "Deploy do Console de Administração". **Exposição pública pendente:** o
-  subdomínio Cloudflare `gerti.was.dev.br` exige edição de ingress do tunnel
-  (read-modify-write, D3/D15) que precisa de um **CF API token** com
-  `Account:Cloudflare Tunnel:Edit` — hoje `.env.prod` só tem o
-  `CLOUDFLARE_TUNNEL_TOKEN` (connector, não edita config). Mesma classe de
-  bloqueio externo já documentada (D13 DNS). Tudo o mais do deploy é
-  `git`-checkout-da-branch + build/up per runbook.
+- **Merge:** `feature/spec-1g-admin` → `main` (`24da5c7`, push em `origin/main`).
+- **DEPLOYADO EM PROD e verificado ao vivo (2026-06-02, via `ssh gc`):**
+  `git pull` em `main` na VPS; imagem Znuny rebuildada (bakeia os 3 módulos GI
+  custom — `perl -c` passa no build — + renderiza `GertiAdmin::AccessToken` de
+  `GERTI_ADMIN_WS_TOKEN`=`ZNUNY_WS_TOKEN`); `znuny-web`+`znuny-daemon` recriados
+  (Healthy, login público 200); webservice `GertiAdmin` presente (id 2,
+  `GertiCustomerAuth` intacto); `sidecar` rebuildado+up (Healthy, sem migration
+  nova — `sidecar-migrate` Exit 0); serviço `admin` build+up (Healthy).
+  `ZNUNY_ADMIN_WS_URL` interno (`http://znuny-web/.../Webservice/GertiAdmin`) +
+  `ZNUNY_WS_TOKEN` (gerado, 64-hex) em `.env.prod`. **Prova e2e em PROD:** login
+  de agente real (`william`) pelo sidecar vivo → 200 + `gsid_adm`; um onboarding
+  real (`POST /v1/admin/tenants`) → 201 criando **CustomerCompany + CustomerUser
+  reais no Znuny** via GertiAdmin (token/URL deployados corretos) + linhas
+  `gerti.tenant/branding/portal_user_role`; dados throwaway limpos depois (Znuny
+  invalidado ValidID=2, `gerti.tenant` deletado cascata). Portal/sidecar/Znuny
+  pré-existentes intactos.
+- **Único pendente — exposição pública** `gerti.was.dev.br`: a edição de ingress
+  do tunnel (read-modify-write, D3/D15) precisa de um **CF API token** com
+  `Account:Cloudflare Tunnel:Edit` que **não está** disponível (`.env.prod` só
+  tem o `CLOUDFLARE_TUNNEL_TOKEN` connector, que não edita config) — mesma classe
+  de bloqueio externo já documentada (D13 DNS). O console está **rodando e
+  verificado internamente**; falta só rotear `gerti.was.dev.br → admin:3000`
+  (passo de ingress + CNAME no runbook `OPS.md`), 1 min com o token.
