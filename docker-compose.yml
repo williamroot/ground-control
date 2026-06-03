@@ -251,6 +251,11 @@ services:
       # reais em .env.prod na VPS; default vazio (nunca :? — D13).
       ZNUNY_WS_URL: ${ZNUNY_WS_URL:-}
       ZNUNY_WS_TOKEN: ${ZNUNY_WS_TOKEN:-}
+      # Webservice Znuny GertiAdmin p/ o write-client de onboarding (#1G-a,
+      # D19): base até .../Webservice/GertiAdmin; o token reusa ZNUNY_WS_TOKEN
+      # (mesmo AccessToken cfg key GertiAdmin::AccessToken no Znuny). Default
+      # vazio (nunca :? — D13); valor real em .env.prod na VPS.
+      ZNUNY_ADMIN_WS_URL: ${ZNUNY_ADMIN_WS_URL:-}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8001/v1/health || exit 1"]
       interval: 15s
