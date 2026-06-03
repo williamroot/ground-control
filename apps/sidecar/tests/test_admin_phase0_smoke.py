@@ -68,8 +68,11 @@ async def test_admin_login_route_registered(monkeypatch: pytest.MonkeyPatch) -> 
     _settings(monkeypatch)
     transport = ASGITransport(app=create_app())
     async with AsyncClient(transport=transport, base_url="http://t") as c:
-        # login não exige sessão (é o ponto de entrada) → stub 501, não 404/401
+        # login não exige sessão (é o ponto de entrada): a rota está registrada e
+        # roteia (não 404/401). T1.A implementou o corpo — sem ZNUNY_WS_URL o GI
+        # cai em ZnunyUnavailable → 503 (failure-safe). O importante aqui é só
+        # provar que o router está montado; o 200/401/503 fica em test_admin_auth.
         r = await c.post(
             "/v1/admin/auth/login", headers=_HOST, json={"login": "william", "password": "x"}
         )
-        assert r.status_code == 501
+        assert r.status_code not in (404, 401)
