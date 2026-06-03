@@ -1,0 +1,36 @@
+---
+Debugger:
+  DebugThreshold: error
+  TestMode: '0'
+Description: Gerti admin customer write (#1G-a, ADR D19) — CustomerCompany/CustomerUser/SetPassword via GI
+FrameworkVersion: 7.2.x
+Provider:
+  Operation:
+    CustomerCompanyAdd:
+      Description: Create a CustomerCompany (Gerti custom op)
+      Type: CustomerCompany::CustomerCompanyAdd
+    CustomerUserAdd:
+      Description: Create a CustomerUser (Gerti custom op)
+      Type: CustomerUser::CustomerUserAdd
+    CustomerUserSetPassword:
+      Description: Set a CustomerUser password (Gerti custom op)
+      Type: CustomerUser::SetPassword
+  Transport:
+    Config:
+      KeepAlive: ''
+      MaxLength: '100000000'
+      RouteOperationMapping:
+        CustomerCompanyAdd:
+          RequestMethod:
+          - POST
+          Route: /CustomerCompany
+        CustomerUserAdd:
+          RequestMethod:
+          - POST
+          Route: /CustomerUser
+        CustomerUserSetPassword:
+          RequestMethod:
+          - POST
+          Route: /CustomerUser/Password
+    Type: HTTP::REST
+RemoteSystem: ''

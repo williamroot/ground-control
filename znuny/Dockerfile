@@ -138,6 +138,26 @@ RUN set -eux; \
         || perl -I${OTRS_HOME} -I${OTRS_HOME}/Kernel/cpan-lib \
                 -c ${OTRS_HOME}/Custom/Kernel/System/Cache/Redis.pm
 
+# ── Custom GI write operations for the GertiAdmin webservice (#1G-a, D19).
+#    Core GI cannot create CustomerCompany/CustomerUser; these wrap the native
+#    Perl API. Same upgrade-safe Custom/ overlay as Cache::Redis above.
+COPY Custom/Kernel/GenericInterface/Operation/CustomerCompany/CustomerCompanyAdd.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/CustomerCompany/CustomerCompanyAdd.pm
+COPY Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserAdd.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserAdd.pm
+COPY Custom/Kernel/GenericInterface/Operation/CustomerUser/SetPassword.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/CustomerUser/SetPassword.pm
+RUN set -eux; \
+    chown -R otrs:www-data ${OTRS_HOME}/Custom; \
+    for m in \
+        Custom/Kernel/GenericInterface/Operation/CustomerCompany/CustomerCompanyAdd.pm \
+        Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserAdd.pm \
+        Custom/Kernel/GenericInterface/Operation/CustomerUser/SetPassword.pm ; \
+    do \
+        perl -I${OTRS_HOME} -I${OTRS_HOME}/Kernel/cpan-lib -I${OTRS_HOME}/Custom \
+             -c ${OTRS_HOME}/$m ; \
+    done
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY Config.pm.tmpl ${OTRS_HOME}/Kernel/Config.pm.tmpl
 RUN chmod +x /usr/local/bin/entrypoint.sh
