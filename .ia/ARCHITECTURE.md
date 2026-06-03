@@ -251,6 +251,44 @@ O portal é read-only sobre o domínio #1C. Nenhuma rota de escrita foi exposta.
 
 ---
 
+## Console de Administração (`apps/admin/`) — Spec #1G-a
+
+Nuxt 3 SSR **separado** do portal (própria imagem/serviço compose `admin`,
+profile `gerti`, redes `app`+`edge`), identidade **FIXA Gerti/WAS** — NÃO é
+white-label. É a casa da equipe Gerti para **onboarding de cliente** e **criar
+contrato**. ADR D19.
+
+```
+Browser → cloudflared → admin:3000 → sidecar:8001 (/v1/admin/*, cross-tenant)
+```
+
+- **Auth = agente Znuny** (não customer): `POST /v1/admin/auth/login` valida via
+  GI (`Session::SessionCreate` com `UserLogin`+`Password` → `Kernel::System::Auth`,
+  D19) e emite o cookie **`gsid_adm`** (JWT HS256 `{agent_login, role:"gerti_staff",
+  typ:"admin"}`), **distinto** do `gsid` do cliente. `get_admin_session` é
+  fail-closed por `typ:admin`+role; um `gsid` de cliente nunca vale em `/v1/admin/*`
+  e vice-versa (isolamento bidirecional provado no e2e).
+- **Cross-tenant, dois caminhos de DB (D16):** criar tenant/branding/papéis usa
+  `AdminSessionLocal` (BYPASSRLS) com `tenant_id` explícito; criar contrato abre
+  `tenant_session_scope(id)` (RLS-subject) + `ContractService` — preserva as
+  invariantes #1C. BYPASSRLS só em `/v1/admin/*`.
+- **Escrita no Znuny via GI** (Spec #0): o webservice custom **`GertiAdmin`**
+  (`znuny/Custom/Kernel/GenericInterface/Operation/...`) embrulha a API Perl nativa
+  (`CustomerCompanyAdd`/`CustomerUserAdd`/`SetPassword`), idempotente e com
+  `AccessToken` fail-closed. O sidecar é a única porta; o browser nunca fala com o
+  Znuny.
+- **Páginas:** `/login` (agente), `/` (lista de clientes), `/clientes/novo`
+  (assistente: dados+branding+usuários/papéis), `/clientes/[id]` (detalhe),
+  `/clientes/[id]/contratos/novo` (form por tipo de contrato). Guarda de rota
+  `admin-auth` (gate real é o 401 do sidecar). Subdomínio white-label do cliente
+  continua **manual** (D-1G-4) — a UI mostra ao operador o subdomínio a registrar.
+
+### Deploy (profile `gerti`)
+
+Serviço `admin` aditivo/profile-gated (padrão D13/D15). Runbook completo em
+[`OPS.md`](OPS.md) "Deploy do Console de Administração"; decisão em
+[`DECISIONS.md`](DECISIONS.md) D19. Sem migration nova (#1G-a).
+
 ## Landing (`landing/`)
 
 Estático (HTML/CSS/JS), estética mission-control. Deploy próprio independente: nginx + cloudflared → `groundcontrol.was.dev.br`. Não compartilha containers com a stack Znuny. Detalhes em `landing/README.md`.
