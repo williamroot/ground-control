@@ -1,0 +1,163 @@
+"""Cliente GI de ticket (Spec #1E). Escrita/leitura de ticket no Znuny via o
+webservice custom GertiTicket (mesmo padrão de znuny_customer_admin.py): base
+ZNUNY_ADMIN_WS_URL com path /Webservice/GertiTicket; AccessToken = ZNUNY_WS_TOKEN
+no corpo JSON. Erros REUSADOS de znuny_customer_admin (ZnunyUnavailable -> 503,
+ZnunyWriteError -> 4xx). Corpo preenchido na Task 7; assinaturas congeladas aqui
+para a Fase 1 (Znuny) e a Fase 3 (portal) não divergirem.
+
+Convenção de URL: o webservice GertiTicket é servido na MESMA URL base do
+GertiAdmin trocando o último segmento. Resolve-se de ZNUNY_TICKET_WS_URL se
+presente, senão deriva de ZNUNY_ADMIN_WS_URL trocando '/GertiAdmin' por
+'/GertiTicket' (deploy injeta ZNUNY_TICKET_WS_URL explícito na Fase 4).
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from typing import Any
+
+import httpx
+
+from gerti_sidecar.integrations.znuny_customer_admin import (
+    ZnunyUnavailable,
+    ZnunyWriteError,
+)
+
+__all__ = [
+    "TicketCreated",
+    "TicketDetail",
+    "TicketSummary",
+    "ZnunyUnavailable",
+    "ZnunyWriteError",
+    "create_ticket",
+    "form_meta",
+    "get_ticket",
+    "reply_ticket",
+    "search_tickets",
+]
+
+_TIMEOUT = 15.0
+
+
+@dataclass(frozen=True)
+class TicketCreated:
+    znuny_ticket_id: int
+    ticket_number: str
+
+
+@dataclass(frozen=True)
+class TicketSummary:
+    znuny_ticket_id: int
+    ticket_number: str
+    title: str
+    state: str
+    created: str
+    contract_id: str | None
+
+
+@dataclass(frozen=True)
+class TicketDetail:
+    znuny_ticket_id: int
+    ticket_number: str
+    title: str
+    state: str
+    priority: str
+    created: str
+    contract_id: str | None
+    customer_id: str
+    articles: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class Attachment:
+    filename: str
+    content_type: str
+    content_base64: str
+
+
+async def create_ticket(
+    *,
+    customer_user: str,
+    customer_id: str,
+    title: str,
+    body: str,
+    service: str | None,
+    type_: str | None,
+    priority: str | None,
+    contract_id: str,
+    attachments: list[Attachment] | None = None,
+) -> TicketCreated:
+    raise NotImplementedError  # Task 7
+
+
+async def search_tickets(
+    *,
+    scope: str,  # "own" | "company"
+    customer_user: str,
+    customer_id: str,
+) -> list[TicketSummary]:
+    raise NotImplementedError  # Task 7
+
+
+async def get_ticket(*, znuny_ticket_id: int, customer_id: str) -> TicketDetail:
+    raise NotImplementedError  # Task 7
+
+
+async def reply_ticket(
+    *, znuny_ticket_id: int, customer_user: str, customer_id: str, body: str
+) -> None:
+    raise NotImplementedError  # Task 7
+
+
+async def form_meta(*, customer_user: str) -> dict[str, list[dict[str, Any]]]:
+    raise NotImplementedError  # Task 7
+
+
+def _resolve_ticket_endpoint() -> tuple[str, str]:
+    explicit = os.environ.get("ZNUNY_TICKET_WS_URL", "")
+    if explicit:
+        base = explicit
+    else:
+        base = os.environ.get("ZNUNY_ADMIN_WS_URL", "").replace("/GertiAdmin", "/GertiTicket")
+    token = os.environ.get("ZNUNY_WS_TOKEN", "")
+    return base, token
+
+
+async def _post(route: str, body: dict[str, Any]) -> dict[str, Any]:
+    """POST failure-safe para uma Route do GertiTicket (espelha _post do admin)."""
+    base, token = _resolve_ticket_endpoint()
+    url = base.rstrip("/") + route
+    payload = {"AccessToken": token, **body}
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(url, json=payload)
+    except httpx.HTTPError as exc:
+        raise ZnunyUnavailable(str(exc)) from exc
+    if resp.status_code >= 500:
+        raise ZnunyUnavailable(f"znuny http {resp.status_code}")
+    if resp.status_code >= 400:
+        raise ZnunyWriteError(_err(_safe_json(resp)) or f"znuny http {resp.status_code}")
+    data = _safe_json(resp)
+    if data is None:
+        raise ZnunyUnavailable("resposta não-JSON do Znuny")
+    if "Error" in data:
+        raise ZnunyWriteError(_err(data) or "znuny rejeitou a operação")
+    return data
+
+
+def _safe_json(resp: httpx.Response) -> dict[str, Any] | None:
+    try:
+        data = resp.json()
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _err(data: dict[str, Any] | None) -> str:
+    if not data:
+        return ""
+    e = data.get("Error")
+    if isinstance(e, dict):
+        return str(e.get("ErrorMessage") or e.get("ErrorCode") or "znuny error")
+    return str(e) if e else ""
