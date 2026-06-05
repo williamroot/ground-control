@@ -88,7 +88,30 @@ async def create_ticket(
     contract_id: str,
     attachments: list[Attachment] | None = None,
 ) -> TicketCreated:
-    raise NotImplementedError  # Task 7
+    payload: dict[str, Any] = {
+        "CustomerUser": customer_user,
+        "CustomerID": customer_id,
+        "Title": title,
+        "Body": body,
+        "ContractId": contract_id,
+    }
+    if service:
+        payload["Service"] = service
+    if type_:
+        payload["Type"] = type_
+    if priority:
+        payload["Priority"] = priority
+    if attachments:
+        payload["Attachments"] = [
+            {
+                "Filename": a.filename,
+                "ContentType": a.content_type,
+                "ContentBase64": a.content_base64,
+            }
+            for a in attachments
+        ]
+    data = await _post("/Ticket", payload)
+    return TicketCreated(int(data["TicketID"]), str(data["TicketNumber"]))
 
 
 async def search_tickets(
@@ -97,21 +120,62 @@ async def search_tickets(
     customer_user: str,
     customer_id: str,
 ) -> list[TicketSummary]:
-    raise NotImplementedError  # Task 7
+    data = await _post(
+        "/Ticket/Search",
+        {"Scope": scope, "CustomerUser": customer_user, "CustomerID": customer_id},
+    )
+    rows = data.get("Tickets") or []
+    return [
+        TicketSummary(
+            znuny_ticket_id=int(r["TicketID"]),
+            ticket_number=str(r.get("TicketNumber") or ""),
+            title=str(r.get("Title") or ""),
+            state=str(r.get("State") or ""),
+            created=str(r.get("Created") or ""),
+            contract_id=(str(r["ContractId"]) if r.get("ContractId") else None),
+        )
+        for r in rows
+    ]
 
 
 async def get_ticket(*, znuny_ticket_id: int, customer_id: str) -> TicketDetail:
-    raise NotImplementedError  # Task 7
+    data = await _post(
+        "/Ticket/Get", {"TicketID": znuny_ticket_id, "CustomerID": customer_id}
+    )
+    return TicketDetail(
+        znuny_ticket_id=int(data["TicketID"]),
+        ticket_number=str(data.get("TicketNumber") or ""),
+        title=str(data.get("Title") or ""),
+        state=str(data.get("State") or ""),
+        priority=str(data.get("Priority") or ""),
+        created=str(data.get("Created") or ""),
+        contract_id=(str(data["ContractId"]) if data.get("ContractId") else None),
+        customer_id=str(data.get("CustomerID") or ""),
+        articles=list(data.get("Articles") or []),
+    )
 
 
 async def reply_ticket(
     *, znuny_ticket_id: int, customer_user: str, customer_id: str, body: str
 ) -> None:
-    raise NotImplementedError  # Task 7
+    await _post(
+        "/Ticket/Reply",
+        {
+            "TicketID": znuny_ticket_id,
+            "CustomerUser": customer_user,
+            "CustomerID": customer_id,
+            "Body": body,
+        },
+    )
 
 
 async def form_meta(*, customer_user: str) -> dict[str, list[dict[str, Any]]]:
-    raise NotImplementedError  # Task 7
+    data = await _post("/FormMeta", {"CustomerUser": customer_user})
+    return {
+        "services": list(data.get("Services") or []),
+        "priorities": list(data.get("Priorities") or []),
+        "types": list(data.get("Types") or []),
+    }
 
 
 def _resolve_ticket_endpoint() -> tuple[str, str]:
