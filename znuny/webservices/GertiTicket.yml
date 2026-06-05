@@ -1,0 +1,51 @@
+# znuny/webservices/GertiTicket.yml
+---
+Debugger:
+  DebugThreshold: error
+  TestMode: '0'
+Description: Gerti portal ticketing (#1E) — Create/Search/Get/Reply/FormMeta via GI
+FrameworkVersion: 7.2.x
+Provider:
+  Operation:
+    TicketCreate:
+      Description: Open a customer ticket linked to a contract (Gerti custom op)
+      Type: GertiTicket::TicketCreate
+    TicketSearch:
+      Description: List customer tickets (own/company)
+      Type: GertiTicket::TicketSearch
+    TicketGet:
+      Description: Ticket detail + customer-visible articles (ownership-guarded)
+      Type: GertiTicket::TicketGet
+    TicketReply:
+      Description: Customer reply to an existing ticket
+      Type: GertiTicket::TicketReply
+    FormMeta:
+      Description: Services/priorities/types for the open-ticket form
+      Type: GertiTicket::FormMeta
+  Transport:
+    Config:
+      KeepAlive: ''
+      MaxLength: '100000000'
+      RouteOperationMapping:
+        TicketCreate:
+          RequestMethod:
+          - POST
+          Route: /Ticket
+        TicketSearch:
+          RequestMethod:
+          - POST
+          Route: /Ticket/Search
+        TicketGet:
+          RequestMethod:
+          - POST
+          Route: /Ticket/Get
+        TicketReply:
+          RequestMethod:
+          - POST
+          Route: /Ticket/Reply
+        FormMeta:
+          RequestMethod:
+          - POST
+          Route: /FormMeta
+    Type: HTTP::REST
+RemoteSystem: ''
