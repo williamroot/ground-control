@@ -163,6 +163,30 @@ RUN set -eux; \
 COPY webservices/GertiAdmin.yml ${OTRS_HOME}/webservices/GertiAdmin.yml
 RUN chown -R otrs:www-data ${OTRS_HOME}/webservices
 
+# ── Custom GI operations for the GertiTicket webservice (#1E). Portal ticketing:
+#    open/list/detail/reply linked to a contract. Same Custom/ overlay pattern.
+COPY Custom/Kernel/GenericInterface/Operation/GertiTicket/TicketCreate.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/TicketCreate.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiTicket/TicketSearch.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/TicketSearch.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiTicket/TicketGet.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/TicketGet.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiTicket/TicketReply.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/TicketReply.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiTicket/FormMeta.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/FormMeta.pm
+RUN set -eux; \
+    chown -R otrs:www-data ${OTRS_HOME}/Custom; \
+    for m in TicketCreate TicketSearch TicketGet TicketReply FormMeta ; do \
+        perl -I${OTRS_HOME} -I${OTRS_HOME}/Kernel/cpan-lib -I${OTRS_HOME}/Custom \
+             -c ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/$m.pm ; \
+    done
+
+# ── GertiTicket webservice definition (#1E) + DynamicField helper, baked in.
+COPY webservices/GertiTicket.yml ${OTRS_HOME}/webservices/GertiTicket.yml
+COPY scripts/ensure-gerti-dynamicfield.pl ${OTRS_HOME}/scripts/ensure-gerti-dynamicfield.pl
+RUN chown -R otrs:www-data ${OTRS_HOME}/webservices ${OTRS_HOME}/scripts/ensure-gerti-dynamicfield.pl
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY Config.pm.tmpl ${OTRS_HOME}/Kernel/Config.pm.tmpl
 RUN chmod +x /usr/local/bin/entrypoint.sh
