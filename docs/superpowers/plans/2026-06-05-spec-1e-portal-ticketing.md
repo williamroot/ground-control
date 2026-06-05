@@ -297,7 +297,7 @@ sub Run {
     return $TokenError if $TokenError;
 
     my $D = $Param{Data};
-    for my $Needed (qw(CustomerUser Title Body ContractId)) {
+    for my $Needed (qw(CustomerUser CustomerID Title Body ContractId)) {
         if ( !IsStringWithData( $D->{$Needed} ) ) {
             return $Self->ReturnError(
                 ErrorCode    => 'TicketCreate.MissingParameter',
@@ -313,7 +313,8 @@ sub Run {
     my %CreateArgs = (
         Title        => $D->{Title},
         CustomerUser => $D->{CustomerUser},
-        CustomerID   => $D->{CustomerID} || $D->{CustomerUser},
+        CustomerID   => $D->{CustomerID},
+        Lock         => 'unlock',
         OwnerID      => 1,
         UserID       => 1,
         StateType    => 'new',
