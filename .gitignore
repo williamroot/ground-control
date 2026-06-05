@@ -15,3 +15,6 @@ znuny/*.tar.gz
 *.log
 /tmp/
 .deploy-secrets.local
+
+# Visual brainstorming companion (superpowers)
+.superpowers/
