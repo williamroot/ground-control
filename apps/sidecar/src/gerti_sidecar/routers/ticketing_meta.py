@@ -20,7 +20,7 @@ from gerti_sidecar.auth.session import SessionPayload, get_current_session
 from gerti_sidecar.db import get_tenant_session
 from gerti_sidecar.domain.consumption_service import ConsumptionService
 from gerti_sidecar.integrations import znuny_ticket
-from gerti_sidecar.integrations.znuny_customer_admin import ZnunyUnavailable
+from gerti_sidecar.integrations.znuny_customer_admin import ZnunyUnavailable, ZnunyWriteError
 from gerti_sidecar.models import Contract
 from gerti_sidecar.models.enums import ContractStatus
 
@@ -72,6 +72,8 @@ async def form_meta(
         meta = await znuny_ticket.form_meta(customer_user=session_payload["customer_login"])
     except ZnunyUnavailable as exc:
         raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
+    except ZnunyWriteError as exc:
+        raise HTTPException(status_code=502, detail="znuny_form_meta_error") from exc
     return FormMeta(
         services=meta["services"],
         priorities=meta["priorities"],

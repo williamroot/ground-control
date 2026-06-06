@@ -25,6 +25,7 @@ from gerti_sidecar.integrations.znuny_customer_admin import (
 )
 
 __all__ = [
+    "Attachment",
     "TicketCreated",
     "TicketDetail",
     "TicketSummary",
@@ -111,6 +112,8 @@ async def create_ticket(
             for a in attachments
         ]
     data = await _post("/Ticket", payload)
+    if data.get("TicketID") is None or data.get("TicketNumber") is None:
+        raise ZnunyUnavailable("resposta inesperada do Znuny")
     return TicketCreated(int(data["TicketID"]), str(data["TicketNumber"]))
 
 
@@ -135,13 +138,14 @@ async def search_tickets(
             contract_id=(str(r["ContractId"]) if r.get("ContractId") else None),
         )
         for r in rows
+        if r.get("TicketID") is not None
     ]
 
 
 async def get_ticket(*, znuny_ticket_id: int, customer_id: str) -> TicketDetail:
-    data = await _post(
-        "/Ticket/Get", {"TicketID": znuny_ticket_id, "CustomerID": customer_id}
-    )
+    data = await _post("/Ticket/Get", {"TicketID": znuny_ticket_id, "CustomerID": customer_id})
+    if data.get("TicketID") is None:
+        raise ZnunyUnavailable("resposta inesperada do Znuny")
     return TicketDetail(
         znuny_ticket_id=int(data["TicketID"]),
         ticket_number=str(data.get("TicketNumber") or ""),
