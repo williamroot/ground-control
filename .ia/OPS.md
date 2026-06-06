@@ -332,6 +332,84 @@ Reverter compose: `git checkout <sha> -- apps/admin docker-compose.yml && $DC up
 Para o token Znuny: o rebuild da imagem é idempotente; reverter o sha do
 `znuny/` e rebuild. **NUNCA** `make reset` (destrói o DB compartilhado).
 
+### Deploy do fluxo de tickets do portal (Spec #1E — profile `gerti`)
+
+Aditivo e profile-gated (padrão D13/D15): nenhum serviço `gerti` sobe sem
+`--profile gerti`; um `make up` da stack Znuny pura fica intocado. Sem
+migration nova (tabela `gerti.ticket_contract_link` foi provisionada na
+migration `0008`).
+
+**Pré-requisitos (humano, one-time, em `~/ground-control/.env.prod` na VPS —
+gitignored — NUNCA commitar):**
+- `ZNUNY_TICKET_WS_URL` = base do webservice GertiTicket, p.ex.
+  `https://znuny-dev.was.dev.br/znuny/nph-genericinterface.pl/Webservice/GertiTicket`.
+- `ZNUNY_WS_TOKEN` (já presente desde #1G-a) — reusado como `AccessToken`
+  do webservice GertiTicket e renderizado no `Config.pm` do Znuny pelo
+  entrypoint como `GertiAdmin::AccessToken`.
+
+```bash
+# 0) levar o código #1E para a VPS:
+ssh gc 'cd ~/ground-control && git fetch origin && git checkout feature/spec-1e-portal-ticketing && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 1) Znuny: rebuild da imagem (bakeia operações GertiTicket + GertiTicket.yml
+#    via COPY no Dockerfile; perl -c é gate de build) e recria web+daemon.
+#    NOTA: recria o core Znuny (downtime curto). Provisionamento é idempotente (D6).
+ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-daemon"
+
+# 2) criar o DynamicField GertiContractId no Znuny (idempotente):
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && perl scripts/ensure-gerti-dynamicfield.pl"'
+
+# 3) importar o webservice GertiTicket no Znuny (idempotente):
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List | grep -qi GertiTicket || \
+   bin/otrs.Console.pl Admin::WebService::Add --source-path /opt/otrs/webservices/GertiTicket.yml"'
+#   GUARD: confirmar que os 3 webservices estão presentes (nunca remover os outros):
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List | grep -iE \"GertiCustomerAuth|GertiAdmin|GertiTicket\""'
+#   → deve listar GertiCustomerAuth + GertiAdmin + GertiTicket (nenhum pode sumir)
+
+# 4) sidecar: rebuild (traz /v1/tickets* e /v1/ticketing/*; SEM migration nova) + up:
+ssh gc "cd ~/ground-control && $DC build sidecar && $DC up -d sidecar && $DC ps"
+
+# 5) portal: rebuild (traz páginas de tickets) + up:
+ssh gc "cd ~/ground-control && $DC build portal && $DC up -d portal && $DC ps"
+
+# 6) verificação e2e em prod:
+#    a) abrir chamado real via portal (tenant Aurora ou TechNova) vinculado a contrato
+#    b) conferir DynamicField GertiContractId preenchido no ticket Znuny
+#    c) conferir linha em gerti.ticket_contract_link:
+ssh gc 'docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "select * from gerti.ticket_contract_link order by created_at desc limit 5;"'
+#    d) limpar o ticket throwaway criado no teste
+
+# 7) serviços anteriores intactos:
+curl -fsS https://znuny-dev.was.dev.br/znuny/index.pl | grep -qi login && echo ZNUNY_OK
+curl -fsS https://api-dev.was.dev.br/v1/health && echo SIDECAR_OK
+curl -fsS https://aurora.was.dev.br/ | grep -qi 'Aurora' && echo AURORA_OK
+curl -fsS https://technova.was.dev.br/ | grep -qi 'TechNova' && echo TECHNOVA_OK
+curl -fsS https://gerti.was.dev.br/login | grep -qi 'login' && echo ADMIN_OK
+curl -fsS https://groundcontrol.was.dev.br >/dev/null && echo LANDING_OK
+```
+
+**Rollback (tickets somente; Znuny/sidecar base/portal base intactos):**
+
+```bash
+$DC stop portal    # desliga o portal (chamados somem do UI)
+$DC stop sidecar   # opcional: desliga /v1/tickets* também
+```
+
+Para reverter código Znuny de tickets: `git checkout <sha-anterior> -- znuny/` →
+rebuild: `$DC build znuny-web && $DC up -d znuny-web znuny-daemon`. O DynamicField
+e a linha `ticket_contract_link` persistem no DB (não destrutivo). **NUNCA**
+`make reset` (destrói o DB Znuny compartilhado).
+
+> **Status:** implementado e gateado nesta branch (`feature/spec-1e-portal-ticketing`).
+> Gate `perl -c` no build do Znuny verde; gate sidecar (`ruff` + `mypy` + `pytest`)
+> verde. **Deploy na VPS é etapa separada** (este runbook). Smoke vivo do Znuny
+> e verificação e2e em prod pendentes de execução na VPS.
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)
