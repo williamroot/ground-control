@@ -40,9 +40,18 @@ async def test_search_company_scope(monkeypatch):
     async def fake_post(route, body):
         assert route == "/Ticket/Search"
         assert body["Scope"] == "company"
-        return {"Tickets": [{"TicketID": 1, "TicketNumber": "n1", "Title": "x",
-                             "State": "new", "Created": "2026-01-01 00:00:00",
-                             "ContractId": "c1"}]}
+        return {
+            "Tickets": [
+                {
+                    "TicketID": 1,
+                    "TicketNumber": "n1",
+                    "Title": "x",
+                    "State": "new",
+                    "Created": "2026-01-01 00:00:00",
+                    "ContractId": "c1",
+                }
+            ]
+        }
 
     monkeypatch.setattr(znuny_ticket, "_post", fake_post)
     rows = await znuny_ticket.search_tickets(scope="company", customer_user="j", customer_id="ACME")
@@ -55,9 +64,17 @@ async def test_get_ticket_passes_customer_id(monkeypatch):
     async def fake_post(route, body):
         assert route == "/Ticket/Get"
         assert body["CustomerID"] == "ACME"
-        return {"TicketID": 7, "TicketNumber": "n", "Title": "t", "State": "open",
-                "Priority": "3 normal", "Created": "2026-01-01 00:00:00",
-                "CustomerID": "ACME", "ContractId": "c1", "Articles": []}
+        return {
+            "TicketID": 7,
+            "TicketNumber": "n",
+            "Title": "t",
+            "State": "open",
+            "Priority": "3 normal",
+            "Created": "2026-01-01 00:00:00",
+            "CustomerID": "ACME",
+            "ContractId": "c1",
+            "Articles": [],
+        }
 
     monkeypatch.setattr(znuny_ticket, "_post", fake_post)
     d = await znuny_ticket.get_ticket(znuny_ticket_id=7, customer_id="ACME")
