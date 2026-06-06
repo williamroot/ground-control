@@ -249,6 +249,38 @@ Browser → cloudflared → portal:3000 → sidecar:8001 → gerti schema RLS
 
 O portal é read-only sobre o domínio #1C. Nenhuma rota de escrita foi exposta.
 
+### Portal #1E — abertura/lista/detalhe de chamados
+
+Implementado e gateado; deploy per runbook (`OPS.md`). Billing/consumo (#1B) é o próximo spec.
+
+#### Fluxo
+
+```
+Browser → portal:3000 → sidecar:8001 → GertiTicket GI → Znuny
+                                      → gerti schema (ticket_contract_link)
+```
+
+- **Seleção de contrato:** automática se o customer tiver exatamente 1 contrato ativo;
+  seletor condicional exibido se houver ≥ 2 (422 se nenhum escolhido); 404 para contrato
+  desconhecido (RLS). O `contract_id` é gravado no DynamicField **`GertiContractId`**
+  do ticket Znuny e em `gerti.ticket_contract_link` (billing-ready para o #1B).
+- **Webservice Znuny** (`GertiTicket`): 5 operações (`TicketCreate`, `TicketSearch`,
+  `TicketGet`, `TicketReply`, `FormMeta`), `AccessToken` fail-closed (reusa
+  `GertiAdmin::AccessToken`). Definição em `znuny/webservices/GertiTicket.yml`;
+  módulos Perl em `znuny/Custom/Kernel/GenericInterface/Operation/GertiTicket/`.
+  `perl -c` é gate de build da imagem.
+- **DynamicField `GertiContractId`:** criado idempotentemente por
+  `znuny/scripts/ensure-gerti-dynamicfield.pl` (passo explícito no runbook de deploy).
+- **Endpoints sidecar:** `GET /v1/ticketing/contracts` (selecionáveis pelo customer,
+  non-admin), `GET /v1/ticketing/form-meta`, `POST /v1/tickets` (multipart, cria ticket),
+  `GET /v1/tickets` (lista role-scoped), `GET /v1/tickets/{id}` (ownership-guarded),
+  `POST /v1/tickets/{id}/reply`.
+- **Páginas portal:** `/tickets` (lista, role-scoped), `/tickets/novo` (form
+  single-page + seletor condicional de contrato), `/tickets/[id]` (detalhe + reply).
+- **Env var nova:** `ZNUNY_TICKET_WS_URL` (base do GertiTicket; fallback: derivado
+  de `ZNUNY_ADMIN_WS_URL` trocando `/GertiAdmin` → `/GertiTicket`).
+  `ZNUNY_WS_TOKEN` reusado como AccessToken.
+
 ---
 
 ## Console de Administração (`apps/admin/`) — Spec #1G-a
