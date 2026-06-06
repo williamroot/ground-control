@@ -24,6 +24,7 @@ from gerti_sidecar.routers import (
     dashboard,
     health,
     me,
+    ticketing_meta,
 )
 
 logger = logging.getLogger("gerti_sidecar")
@@ -61,6 +62,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix=settings.api_v1_prefix)
     app.include_router(contracts.router, prefix=settings.api_v1_prefix)
     app.include_router(dashboard.router, prefix=settings.api_v1_prefix)
+    app.include_router(ticketing_meta.router, prefix=settings.api_v1_prefix)
     # Console de Administração (Spec #1G-a) — cross-tenant, sessão gsid_adm.
     app.include_router(admin_auth.router, prefix=settings.api_v1_prefix)
     app.include_router(admin_tenants.router, prefix=settings.api_v1_prefix)
