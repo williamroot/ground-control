@@ -57,7 +57,8 @@ async function logout() {
           {{ b?.display_name ?? 'Portal' }}
         </span>
 
-        <!-- Nav por papel (#1H): admin -> Contratos; help-desk -> Tickets -->
+        <!-- Nav por papel (#1H/#1E): admin -> Contratos + Chamados;
+             help-desk -> Chamados. -->
         <nav v-if="role" class="ml-5 hidden items-center gap-1 sm:flex">
           <NuxtLink
             v-if="role === 'admin'"
@@ -67,14 +68,12 @@ async function logout() {
             :style="isActive('/') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
           >Contratos</NuxtLink>
           <NuxtLink
+            v-if="role === 'admin' || role === 'helpdesk'"
             to="/tickets"
-            class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition"
+            class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
             :class="isActive('/tickets') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
             :style="isActive('/tickets') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
-          >
-            Tickets
-            <span class="rounded-full bg-elevated px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-dimmed">em breve</span>
-          </NuxtLink>
+          >Chamados</NuxtLink>
         </nav>
 
         <div class="ml-auto flex items-center gap-3">
