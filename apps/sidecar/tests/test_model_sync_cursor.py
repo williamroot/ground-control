@@ -8,8 +8,12 @@ from gerti_sidecar.models import ConsumptionSyncCursor, ZnunyInstance
 @pytest.mark.asyncio
 async def test_cursor_roundtrip(session):
     inst = ZnunyInstance(
-        name="i", base_url="http://z", db_dsn_secret_ref="x",
-        webservice_token_secret_ref="x", webhook_signing_secret_ref="x", mode="pool",
+        name="i",
+        base_url="http://z",
+        db_dsn_secret_ref="x",
+        webservice_token_secret_ref="x",
+        webhook_signing_secret_ref="x",
+        mode="pool",
     )
     session.add(inst)
     await session.flush()

@@ -34,6 +34,6 @@ def test_no_direct_znuny_schema_access():
             continue
         text = f.read_text(encoding="utf-8").lower()
         for needle in _FORBIDDEN:
-            assert needle.lower() not in text, (
-                f"{f.name} acessa schema/tabela znuny diretamente: {needle}"
-            )
+            assert (
+                needle.lower() not in text
+            ), f"{f.name} acessa schema/tabela znuny diretamente: {needle}"

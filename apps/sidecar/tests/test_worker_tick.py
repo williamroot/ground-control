@@ -12,7 +12,8 @@ async def test_tick_calls_reconcile_and_daily_close(monkeypatch):
     calls = {"reconcile": 0, "close": 0}
 
     class FakeRecon:
-        def __init__(self, gi): pass
+        def __init__(self, gi):
+            pass
 
         async def reconcile(self):
             calls["reconcile"] += 1

@@ -75,19 +75,25 @@ class ReconciliationService:
         ticket_ids = {e.ticket_id for e in page.entries}
         async with db.AdminSessionLocal() as admin:
             links = (
-                await admin.execute(
-                    select(TicketContractLink).where(
-                        TicketContractLink.znuny_ticket_id.in_(ticket_ids)
+                (
+                    await admin.execute(
+                        select(TicketContractLink).where(
+                            TicketContractLink.znuny_ticket_id.in_(ticket_ids)
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             link_by_ticket: dict[int, TicketContractLink] = {
                 lnk.znuny_ticket_id: lnk for lnk in links
             }
             contract_ids = {lnk.contract_id for lnk in links}
             contracts = (
-                await admin.execute(select(Contract).where(Contract.id.in_(contract_ids)))
-            ).scalars().all()
+                (await admin.execute(select(Contract).where(Contract.id.in_(contract_ids))))
+                .scalars()
+                .all()
+            )
             contract_by_id: dict[uuid.UUID, Contract] = {c.id: c for c in contracts}
 
         factor = _time_unit_to_minutes()
@@ -121,9 +127,7 @@ class ReconciliationService:
                         if e.article_id
                         else f"znuny:ticket:{e.ticket_id}"
                     )
-                    event_id = uuid.uuid5(
-                        NS_TIMEACCOUNTING, f"znuny:timeaccounting:{e.id}"
-                    )
+                    event_id = uuid.uuid5(NS_TIMEACCOUNTING, f"znuny:timeaccounting:{e.id}")
                     await svc.record(
                         RecordConsumption(
                             contract_id=lnk.contract_id,

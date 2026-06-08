@@ -14,12 +14,18 @@ async def test_time_accounting_since_maps(monkeypatch):
         return {
             "Entries": [
                 {
-                    "Id": 11, "TicketId": 19, "ArticleId": 50,
-                    "TimeUnit": "30", "Created": "2026-06-08 10:00:00",
+                    "Id": 11,
+                    "TicketId": 19,
+                    "ArticleId": 50,
+                    "TimeUnit": "30",
+                    "Created": "2026-06-08 10:00:00",
                 },
                 {
-                    "Id": 12, "TicketId": 19, "ArticleId": 51,
-                    "TimeUnit": "15", "Created": "2026-06-08 11:00:00",
+                    "Id": 12,
+                    "TicketId": 19,
+                    "ArticleId": 51,
+                    "TimeUnit": "15",
+                    "Created": "2026-06-08 11:00:00",
                 },
             ],
             "MaxId": 12,

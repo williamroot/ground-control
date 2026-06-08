@@ -126,8 +126,10 @@ async def test_reconcile_converts_and_is_idempotent(  # type: ignore[no-untyped-
     # verifica conversão sob o tenant
     async with tenant_session_scope(t.id, factory=app_session_factory) as s:
         rows = (
-            await s.execute(select(ConsumptionEvent).order_by(ConsumptionEvent.id))
-        ).scalars().all()
+            (await s.execute(select(ConsumptionEvent).order_by(ConsumptionEvent.id)))
+            .scalars()
+            .all()
+        )
         assert len(rows) == 2
         hb_ev = next(r for r in rows if r.contract_id == hb.id)
         cb_ev = next(r for r in rows if r.contract_id == cb.id)
@@ -136,9 +138,7 @@ async def test_reconcile_converts_and_is_idempotent(  # type: ignore[no-untyped-
         assert float(cb_ev.billable_minutes) == 60.0
         assert float(cb_ev.billable_amount_brl) == 200.0  # 60min/60 * 200 = 200
         # webhook_event_id determinístico
-        assert hb_ev.webhook_event_id == uuid.uuid5(
-            NS_TIMEACCOUNTING, "znuny:timeaccounting:101"
-        )
+        assert hb_ev.webhook_event_id == uuid.uuid5(NS_TIMEACCOUNTING, "znuny:timeaccounting:101")
 
     # cursor avançou
     async with db.AdminSessionLocal() as a:

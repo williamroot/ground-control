@@ -31,9 +31,9 @@ class CycleCloser:
         async with db.AdminSessionLocal() as admin:
             rows = (
                 await admin.execute(
-                    select(ContractCycle.id, Contract.tenant_id).join(
-                        Contract, Contract.id == ContractCycle.contract_id
-                    ).where(
+                    select(ContractCycle.id, Contract.tenant_id)
+                    .join(Contract, Contract.id == ContractCycle.contract_id)
+                    .where(
                         ContractCycle.kind == CycleKind.closing,
                         ContractCycle.status == CycleStatus.open,
                         ContractCycle.period_end < day,
