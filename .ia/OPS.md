@@ -422,6 +422,90 @@ e a linha `ticket_contract_link` persistem no DB (não destrutivo). **NUNCA**
 > Único pré-existente não relacionado: ingress público de `gerti.was.dev.br` (admin #1G-a)
 > segue pendente de CF API token.
 
+### Deploy do worker de consumo/cobrança (Spec #1B — profile `gerti`)
+
+Aditivo e profile-gated (padrão D13/D15): nenhum serviço `gerti` sobe sem
+`--profile gerti`; um `make up` da stack Znuny pura fica intocado.
+Adiciona uma **nova operação GI** ao webservice `GertiTicket` já existente
+(`TimeAccountingSince`) e um novo serviço compose **`sidecar-worker`** (loop
+de reconciliação de consumo + fechamento de ciclos).
+
+**Pré-requisitos (humano, one-time, em `~/ground-control/.env.prod` na VPS —
+gitignored — NUNCA commitar):**
+- Nenhuma variável obrigatória nova: a URL do GertiTicket é derivada
+  automaticamente de `ZNUNY_ADMIN_WS_URL` (troca `/GertiAdmin` →
+  `/GertiTicket`), assim como `ZNUNY_WS_TOKEN` já presente.
+- **Opcionais** (padrão aplicado se ausentes):
+  - `RECONCILE_INTERVAL_SECONDS` — intervalo do loop de reconciliação (default `120`).
+  - `TIME_UNIT_TO_MINUTES` — fator de conversão de unidade de tempo para minutos (default `1`).
+
+```bash
+# 0) levar o código #1B para a VPS:
+ssh gc 'cd ~/ground-control && git fetch origin && git checkout feature/spec-1b-consumo-cobranca && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 1) Znuny: rebuild da imagem (bakeia a nova op GertiTicket::TimeAccountingSince
+#    via COPY no Dockerfile; perl -c é gate de build) e recria web+daemon.
+#    NOTA: recria o core Znuny (downtime curto). Provisionamento é idempotente (D6).
+ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-daemon"
+
+# 2) CRÍTICO — atualizar o webservice GertiTicket (já existe em prod desde #1E):
+#    Admin::WebService::Add FALHA se o WS já existir — usar UPDATE idempotente:
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && \
+   bin/otrs.Console.pl Admin::WebService::List | grep -qi GertiTicket && \
+   bin/otrs.Console.pl Admin::WebService::Update --name GertiTicket \
+     --source-path /opt/otrs/webservices/GertiTicket.yml || \
+   bin/otrs.Console.pl Admin::WebService::Add --name GertiTicket \
+     --source-path /opt/otrs/webservices/GertiTicket.yml"'
+#   GUARD: confirmar que os 3 webservices seguem presentes:
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List | grep -iE \"GertiCustomerAuth|GertiAdmin|GertiTicket\""'
+#   → deve listar GertiCustomerAuth + GertiAdmin + GertiTicket (nenhum pode sumir)
+#   O GertiTicket agora inclui a operação TimeAccountingSince.
+
+# 3) sidecar: rebuild (traz reconciliation_service + cycle_closer + jobs/worker)
+#    + migration 0013 (consumption_sync_cursor) + app + worker:
+ssh gc "cd ~/ground-control && $DC build sidecar"
+ssh gc "cd ~/ground-control && $DC up -d sidecar-migrate"
+#   aguardar Exit 0:
+ssh gc "cd ~/ground-control && $DC ps sidecar-migrate"
+ssh gc "cd ~/ground-control && $DC up -d sidecar sidecar-worker && $DC ps"
+#   → sidecar: Up/healthy; sidecar-worker: Up; sidecar-migrate: Exit 0
+
+# 4) verificação e2e:
+#    a) lançar TimeUnits num ticket vinculado a contrato (via painel Znuny)
+#    b) forçar/aguardar um tick do worker (ou docker compose restart sidecar-worker)
+#    c) conferir consumption_event gerado + saldo debitado:
+ssh gc 'docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "select id, contract_id, billable_minutes, billable_amount_brl, created_at \
+      from gerti.consumption_event order by created_at desc limit 5;"'
+#    d) conferir no portal /v1/dashboard ou detalhe do contrato que o saldo diminuiu
+#    e) limpar o ticket/time-entry throwaway criado no teste
+
+# 5) serviços anteriores intactos:
+curl -fsS https://znuny-dev.was.dev.br/znuny/index.pl | grep -qi login && echo ZNUNY_OK
+curl -fsS https://api-dev.was.dev.br/v1/health && echo SIDECAR_OK
+curl -fsS https://aurora.was.dev.br/ | grep -qi 'Aurora' && echo AURORA_OK
+curl -fsS https://technova.was.dev.br/ | grep -qi 'TechNova' && echo TECHNOVA_OK
+curl -fsS https://gerti.was.dev.br/login | grep -qi 'login' && echo ADMIN_OK
+```
+
+**Rollback (worker somente; Znuny/sidecar/portal/admin intocados):**
+
+```bash
+$DC stop sidecar-worker   # reconciliação para; nada destrutivo (cursor permanece)
+```
+
+Para reverter código: `git checkout <sha-anterior> -- apps/sidecar znuny/ docker-compose.yml`
+→ rebuild: `$DC build znuny-web sidecar && $DC up -d znuny-web znuny-daemon sidecar`.
+Migration reversa (se necessário): `$DC run --rm sidecar-migrate uv run alembic downgrade -1`.
+**NUNCA** `make reset` (destrói o DB Znuny compartilhado).
+
+> **Status:** implementado e gateado na branch `feature/spec-1b-consumo-cobranca`;
+> `perl -c` gate de build verde + sidecar gate (`ruff`+`mypy`+`pytest`) verde.
+> **Deploy na VPS é etapa separada** (rodar os passos acima após merge).
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)
