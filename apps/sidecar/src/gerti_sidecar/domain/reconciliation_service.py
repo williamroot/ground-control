@@ -97,6 +97,9 @@ class ReconciliationService:
         for e in page.entries:
             lnk = link_by_ticket.get(e.ticket_id)
             if lnk is None:
+                # Cursor avança mesmo sobre entradas sem vínculo; um ticket linkado APÓS
+                # o scan do seu lançamento perderia aquele tempo. Isso é seguro porque
+                # #1E vincula tickets na criação (antes de qualquer lançamento).
                 continue  # ticket sem contrato → ignora
             by_tenant[lnk.tenant_id].append((e, lnk))
 

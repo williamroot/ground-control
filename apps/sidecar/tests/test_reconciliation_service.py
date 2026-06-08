@@ -144,3 +144,36 @@ async def test_reconcile_converts_and_is_idempotent(  # type: ignore[no-untyped-
     async with db.AdminSessionLocal() as a:
         cur = await a.get(ConsumptionSyncCursor, inst.id)
         assert cur.last_time_accounting_id == 103
+
+
+@pytest.mark.asyncio
+async def test_gi_unavailable_does_not_advance_cursor(  # type: ignore[no-untyped-def]
+    engine, app_session_factory, session, monkeypatch
+):
+    # Patcha ANTES de qualquer uso de db.AdminSessionLocal
+    admin_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    monkeypatch.setattr(db, "AdminSessionLocal", admin_factory)
+    monkeypatch.setattr(db, "SessionLocal", app_session_factory)
+
+    inst, t, hb, _cb = await _seed(session)
+
+    # Seta cursor para 5 explicitamente (o _seed cria com 0)
+    async with admin_factory() as a:
+        cur = await a.get(ConsumptionSyncCursor, inst.id)
+        cur.last_time_accounting_id = 5
+        await a.commit()
+
+    # GI stub que levanta ZnunyUnavailable
+    class _DownGI:
+        async def time_accounting_since(self, *, since_id, limit=500):  # type: ignore[no-untyped-def]
+            raise znuny_ticket.ZnunyUnavailable("down")
+
+    svc = ReconciliationService(gi=_DownGI())
+
+    with pytest.raises(znuny_ticket.ZnunyUnavailable):
+        await svc.reconcile()
+
+    # Cursor deve continuar em 5 — não foi avançado
+    async with admin_factory() as a:
+        cur = await a.get(ConsumptionSyncCursor, inst.id)
+        assert cur.last_time_accounting_id == 5
