@@ -405,10 +405,20 @@ rebuild: `$DC build znuny-web && $DC up -d znuny-web znuny-daemon`. O DynamicFie
 e a linha `ticket_contract_link` persistem no DB (não destrutivo). **NUNCA**
 `make reset` (destrói o DB Znuny compartilhado).
 
-> **Status:** implementado e gateado nesta branch (`feature/spec-1e-portal-ticketing`).
-> Gate `perl -c` no build do Znuny verde; gate sidecar (`ruff` + `mypy` + `pytest`)
-> verde. **Deploy na VPS é etapa separada** (este runbook). Smoke vivo do Znuny
-> e verificação e2e em prod pendentes de execução na VPS.
+> **Status (2026-06-08): mergeado na `main` (`origin/main` em `e95734d`) + e2e LOCAL 100% verde.**
+> Gate `perl -c` no build do Znuny verde; gate sidecar (`ruff` + `mypy` + `pytest`, 131) verde;
+> portal (typecheck + vitest 56) verde. **e2e vivo no stack local** (Znuny+sidecar de pé):
+> abrir → cria ticket Znuny real com DynamicField `GertiContractId` + linha em
+> `gerti.ticket_contract_link`; auto-seleção de contrato único; 422 com ≥2 sem escolha;
+> `GET /v1/ticketing/contracts` (não-admin) lista; `form-meta` lê prioridades do Znuny vivo;
+> listar/detalhe/responder OK; guarda de posse cross-tenant → 404. Tudo verificado ao vivo.
+> **Bug de runbook corrigido no e2e:** `Admin::WebService::Add` exige **`--name`** (sem ele
+> imprime usage e NÃO importa — mascarado pelo `grep -qi … ||`); afetava #1E **e** #1G-a.
+> Corrigido nos dois pontos deste arquivo. **Deploy na VPS pendente:** SSH p/ `gc` e o jump
+> host `100.96.54.61` em timeout (mesma condição externa intermitente da nota de Hosts).
+> Assim que o SSH voltar: `git pull` na `main` + os passos deste runbook (rebuild znuny-web/
+> sidecar/portal + `ensure-gerti-dynamicfield.pl` + import idempotente do GertiTicket **com
+> `--name`** + e2e em prod). Nenhuma mudança de código pendente.
 
 ## Backup (a definir em prod)
 
