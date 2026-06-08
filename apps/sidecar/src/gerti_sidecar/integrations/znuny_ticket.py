@@ -29,6 +29,8 @@ __all__ = [
     "TicketCreated",
     "TicketDetail",
     "TicketSummary",
+    "TimeAccountingPage",
+    "TimeEntry",
     "ZnunyUnavailable",
     "ZnunyWriteError",
     "create_ticket",
@@ -36,6 +38,7 @@ __all__ = [
     "get_ticket",
     "reply_ticket",
     "search_tickets",
+    "time_accounting_since",
 ]
 
 _TIMEOUT = 15.0
@@ -75,6 +78,40 @@ class Attachment:
     filename: str
     content_type: str
     content_base64: str
+
+
+@dataclass(frozen=True)
+class TimeEntry:
+    id: int
+    ticket_id: int
+    article_id: int | None
+    time_unit: float
+    created: str
+
+
+@dataclass(frozen=True)
+class TimeAccountingPage:
+    entries: list[TimeEntry]
+    max_id: int
+
+
+async def time_accounting_since(*, since_id: int, limit: int = 500) -> TimeAccountingPage:
+    data = await _post("/TimeAccounting/Since", {"SinceId": since_id, "Limit": limit})
+    rows = data.get("Entries") or []
+    entries = [
+        TimeEntry(
+            id=int(r["Id"]),
+            ticket_id=int(r["TicketId"]),
+            article_id=(
+                int(r["ArticleId"]) if r.get("ArticleId") not in (None, "", 0, "0") else None
+            ),
+            time_unit=float(r.get("TimeUnit") or 0),
+            created=str(r.get("Created") or ""),
+        )
+        for r in rows
+        if r.get("Id") is not None
+    ]
+    return TimeAccountingPage(entries=entries, max_id=int(data.get("MaxId") or since_id))
 
 
 async def create_ticket(
