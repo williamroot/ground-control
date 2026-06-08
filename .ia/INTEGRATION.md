@@ -112,13 +112,13 @@ Estado atual (ponto de convergência — item aberto):
 | Login resolve papel + claim `role` no JWT + `require_admin` (admin-only em `/v1/contracts*` e `/v1/dashboard`); `/v1/me` devolve `role` | **Pronto** — least-privilege em toda omissão |
 | Portal #1H: middleware nomeada `auth`, nav por papel, página `/tickets` (placeholder #1E), login por e-mail | **Pronto** |
 | Seed papéis: `portal_user_role` (admin+helpdesk/tenant) + `scripts/seed-helpdesk.pl` (customer_user help-desk no Znuny) | **Pronto** |
-| Tickets / catálogo / abrir-chamado (#1E) | **Pronto, gateado; deploy per runbook** |
-| #1E: webservice Znuny `GertiTicket` (5 ops: `TicketCreate`/`TicketSearch`/`TicketGet`/`TicketReply`/`FormMeta`); `AccessToken` fail-closed | **Pronto, gateado; deploy per runbook** |
-| #1E: DynamicField `GertiContractId` (criado idempotentemente por `ensure-gerti-dynamicfield.pl`) | **Pronto, gateado; deploy per runbook** |
-| #1E: `GET /v1/ticketing/contracts` (selecionáveis pelo customer, non-admin) + `GET /v1/ticketing/form-meta` | **Pronto, gateado; deploy per runbook** |
-| #1E: `POST /v1/tickets` (multipart, cria ticket), `GET /v1/tickets` (role-scoped), `GET /v1/tickets/{id}` (ownership-guarded), `POST /v1/tickets/{id}/reply` | **Pronto, gateado; deploy per runbook** |
-| #1E: páginas portal `/tickets`, `/tickets/novo`, `/tickets/[id]` | **Pronto, gateado; deploy per runbook** |
-| #1E: `gerti.ticket_contract_link` populado após criação do ticket Znuny (billing-ready) | **Pronto, gateado; deploy per runbook** |
+| Tickets / catálogo / abrir-chamado (#1E) | **Pronto + DEPLOYADO em prod (2026-06-08, e2e ao vivo)** |
+| #1E: webservice Znuny `GertiTicket` (5 ops: `TicketCreate`/`TicketSearch`/`TicketGet`/`TicketReply`/`FormMeta`); `AccessToken` fail-closed | **Pronto + DEPLOYADO em prod (2026-06-08, e2e ao vivo)** |
+| #1E: DynamicField `GertiContractId` (criado idempotentemente por `ensure-gerti-dynamicfield.pl`) | **Pronto + DEPLOYADO em prod (2026-06-08, e2e ao vivo)** |
+| #1E: `GET /v1/ticketing/contracts` (selecionáveis pelo customer, non-admin) + `GET /v1/ticketing/form-meta` | **Pronto + DEPLOYADO em prod (2026-06-08, e2e ao vivo)** |
+| #1E: `POST /v1/tickets` (multipart, cria ticket), `GET /v1/tickets` (role-scoped), `GET /v1/tickets/{id}` (ownership-guarded), `POST /v1/tickets/{id}/reply` | **Pronto + DEPLOYADO em prod (2026-06-08, e2e ao vivo)** |
+| #1E: páginas portal `/tickets`, `/tickets/novo`, `/tickets/[id]` | **Pronto + DEPLOYADO em prod (2026-06-08, e2e ao vivo)** |
+| #1E: `gerti.ticket_contract_link` populado após criação do ticket Znuny (billing-ready) | **Pronto + DEPLOYADO em prod (2026-06-08, e2e ao vivo)** |
 | Billing / consumo (#1B) — próximo spec | Não iniciado |
 | Console de Administração #1G-a: auth de agente (`/v1/admin/auth/*`, cookie `gsid_adm`), onboarding (`POST /v1/admin/tenants` → GI + tenant/branding/papéis), criar contrato (`POST /v1/admin/tenants/{id}/contracts`), app `apps/admin/` | **Pronto + DEPLOYADO em prod** (verificado ao vivo; ingress público `gerti.was.dev.br` pendente de CF API token — ADR D19) |
 | Znuny GI custom (#1G-a, Opção A): webservice `GertiAdmin` + ops `CustomerCompanyAdd`/`CustomerUserAdd`/`SetPassword` (idempotentes, `AccessToken` fail-closed) em `znuny/Custom/...` | **Pronto, provado ao vivo** |
