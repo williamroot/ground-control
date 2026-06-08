@@ -450,14 +450,19 @@ DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
 ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-daemon"
 
 # 2) CRÍTICO — atualizar o webservice GertiTicket (já existe em prod desde #1E):
-#    Admin::WebService::Add FALHA se o WS já existir — usar UPDATE idempotente:
+#    Admin::WebService::Add FALHA se o WS já existir — usar UPDATE idempotente.
+#    NOTA: nesta versão do Znuny, Admin::WebService::Update exige --webservice-id
+#    (NÃO --name); resolver o id pela saída de Admin::WebService::List.
 ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
   "cd /opt/otrs && \
-   bin/otrs.Console.pl Admin::WebService::List | grep -qi GertiTicket && \
-   bin/otrs.Console.pl Admin::WebService::Update --name GertiTicket \
-     --source-path /opt/otrs/webservices/GertiTicket.yml || \
-   bin/otrs.Console.pl Admin::WebService::Add --name GertiTicket \
-     --source-path /opt/otrs/webservices/GertiTicket.yml"'
+   WSID=\$(bin/otrs.Console.pl Admin::WebService::List | sed -n \"s/.*GertiTicket (\\([0-9]\\+\\)).*/\\1/p\"); \
+   if [ -n \"\$WSID\" ]; then \
+     bin/otrs.Console.pl Admin::WebService::Update --webservice-id \"\$WSID\" \
+       --source-path /opt/otrs/webservices/GertiTicket.yml; \
+   else \
+     bin/otrs.Console.pl Admin::WebService::Add --name GertiTicket \
+       --source-path /opt/otrs/webservices/GertiTicket.yml; \
+   fi"'
 #   GUARD: confirmar que os 3 webservices seguem presentes:
 ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
   "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List | grep -iE \"GertiCustomerAuth|GertiAdmin|GertiTicket\""'
