@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # logging ----------------------------------------------------------
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
+    # worker de consumo (#1B) -----------------------------------------
+    reconcile_interval_seconds: int = 120
+    time_unit_to_minutes: float = 1.0
+
     @field_validator("database_url")
     @classmethod
     def must_be_async_dsn(cls, v: PostgresDsn) -> PostgresDsn:
