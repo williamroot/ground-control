@@ -280,7 +280,7 @@ ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-
 # 2) importar/atualizar o webservice GertiAdmin no Znuny (idempotente):
 ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
   "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List | grep -qi GertiAdmin || \
-   bin/otrs.Console.pl Admin::WebService::Add --source-path /opt/otrs/webservices/GertiAdmin.yml"'
+   bin/otrs.Console.pl Admin::WebService::Add --name GertiAdmin --source-path /opt/otrs/webservices/GertiAdmin.yml"'
 #   (o YAML é COPY'd p/ a imagem no build; confirmar Admin::WebService::List lista
 #    GertiCustomerAuth E GertiAdmin — nunca remover/substituir o de auth.)
 
@@ -364,7 +364,7 @@ ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/
 # 3) importar o webservice GertiTicket no Znuny (idempotente):
 ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
   "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List | grep -qi GertiTicket || \
-   bin/otrs.Console.pl Admin::WebService::Add --source-path /opt/otrs/webservices/GertiTicket.yml"'
+   bin/otrs.Console.pl Admin::WebService::Add --name GertiTicket --source-path /opt/otrs/webservices/GertiTicket.yml"'
 #   GUARD: confirmar que os 3 webservices estão presentes (nunca remover os outros):
 ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
   "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List | grep -iE \"GertiCustomerAuth|GertiAdmin|GertiTicket\""'
