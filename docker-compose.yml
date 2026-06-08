@@ -261,6 +261,11 @@ services:
       # (mesmo AccessToken cfg key GertiAdmin::AccessToken no Znuny). Default
       # vazio (nunca :? — D13); valor real em .env.prod na VPS.
       ZNUNY_ADMIN_WS_URL: ${ZNUNY_ADMIN_WS_URL:-}
+      # Webservice Znuny GertiTicket p/ o cliente de ticket (#1E): base até
+      # .../Webservice/GertiTicket; mesmo AccessToken (ZNUNY_WS_TOKEN). Default
+      # vazio — o cliente deriva de ZNUNY_ADMIN_WS_URL (/GertiAdmin→/GertiTicket)
+      # quando ausente (nunca :? — D13); valor real em .env.prod na VPS.
+      ZNUNY_TICKET_WS_URL: ${ZNUNY_TICKET_WS_URL:-}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8001/v1/health || exit 1"]
       interval: 15s
