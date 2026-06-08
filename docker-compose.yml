@@ -274,6 +274,34 @@ services:
       start_period: 20s
 
   # ───────────────────────────────────────────────────────────────────
+  #  Worker de consumo/fechamento (Spec #1B) — profile `gerti`.
+  #  Mesma imagem do sidecar, command proprio. Reconcilia time_accounting
+  #  do Znuny -> consumption_event (idempotente) e fecha ciclos vencidos.
+  # ───────────────────────────────────────────────────────────────────
+  sidecar-worker:
+    profiles: ["gerti"]
+    build: { context: ./apps/sidecar, target: prod }
+    image: ground-control/sidecar:${GERTI_SIDECAR_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      postgres:        { condition: service_healthy }
+      sidecar-migrate: { condition: service_completed_successfully }
+    networks: [data, edge, app]
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://gerti_sidecar:${GERTI_SIDECAR_DB_PASSWORD:-}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-znuny}
+      LOG_LEVEL: INFO
+      SESSION_SECRET: ${GERTI_SESSION_SECRET:-}
+      DATABASE_ADMIN_URL: postgresql+asyncpg://gerti_admin_user:${GERTI_ADMIN_DB_PASSWORD:-}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-znuny}
+      ZNUNY_WS_URL: ${ZNUNY_WS_URL:-}
+      ZNUNY_WS_TOKEN: ${ZNUNY_WS_TOKEN:-}
+      ZNUNY_ADMIN_WS_URL: ${ZNUNY_ADMIN_WS_URL:-}
+      ZNUNY_TICKET_WS_URL: ${ZNUNY_TICKET_WS_URL:-}
+      RECONCILE_INTERVAL_SECONDS: ${RECONCILE_INTERVAL_SECONDS:-120}
+      TIME_UNIT_TO_MINUTES: ${TIME_UNIT_TO_MINUTES:-1}
+    command: ["uv", "run", "python", "-m", "gerti_sidecar.jobs.worker"]
+
+  # ───────────────────────────────────────────────────────────────────
   #  Gerti Portal Cliente white-label (Spec #1F-a) — profile `gerti`.
   #  Aditivo: nada sobe sem --profile gerti. Fala só com `sidecar`.
   #  Deploy runbook: .ia/OPS.md "Deploy do portal".
