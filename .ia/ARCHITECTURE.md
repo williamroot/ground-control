@@ -321,6 +321,42 @@ Serviço `admin` aditivo/profile-gated (padrão D13/D15). Runbook completo em
 [`OPS.md`](OPS.md) "Deploy do Console de Administração"; decisão em
 [`DECISIONS.md`](DECISIONS.md) D19. Sem migration nova (#1G-a).
 
+### Worker de consumo/cobrança (#1B)
+
+Serviço compose **`sidecar-worker`** (mesma imagem do `sidecar`, command
+`uv run python -m gerti_sidecar.jobs.worker`, profile `gerti`) implementa o
+ciclo automático de billing:
+
+**Fluxo de pull (sidecar-worker → Znuny → DB):**
+
+```
+sidecar-worker
+  └─ loop a cada RECONCILE_INTERVAL_SECONDS (default 120 s)
+       └─ GI GertiTicket::TimeAccountingSince (cursor consumption_sync_cursor)
+            └─ reconciliation_service: entrada por ticket vinculado
+                 └─ consumption_event por entrada (idempotente via webhook_event_id=uuid5)
+                      └─ balance() debita automaticamente
+  └─ 1×/dia: cycle_closer → CycleService.close (fecha ciclos vencidos por tenant)
+```
+
+- **Cursor:** tabela operacional `gerti.consumption_sync_cursor` (migration `0013`;
+  watermark por instância Znuny; não é tabela de tenant — lida com BYPASSRLS).
+- **Segurança multi-tenant:** leitura cross-tenant via `BYPASSRLS` (busca entradas
+  de todos os tenants de uma vez); escrita de `consumption_event` por tenant via
+  `tenant_session_scope(id)` (RLS-subject) — preserva as invariantes #1C.
+- **Conversão:** `hour_bank` → `billable_minutes`; `credit_brl`/`shared` →
+  `billable_amount_brl = round(minutes/60 × unit_price, 2)`. Outros tipos
+  (`n/a`, `saas`, …) são registrados mas não afetam o saldo.
+- **Idempotência:** `webhook_event_id = uuid5(namespace, f"timeaccounting:{id}")`
+  — reprocessar não duplica.
+- **Op Znuny nova:** `TimeAccountingSince` no webservice `GertiTicket` (read-only,
+  lê tabela nativa `time_accounting` desde um cursor, `AccessToken` fail-closed;
+  `perl -c` é gate de build da imagem).
+- **Faturamento/glosa UI:** Spec #2 (invoice/NF) e #1G-b (glosa UI) permanecem
+  fora do escopo desta branch.
+
+Runbook de deploy em [`OPS.md`](OPS.md) "Deploy do worker de consumo/cobrança".
+
 ## Landing (`landing/`)
 
 Estático (HTML/CSS/JS), estética mission-control. Deploy próprio independente: nginx + cloudflared → `groundcontrol.was.dev.br`. Não compartilha containers com a stack Znuny. Detalhes em `landing/README.md`.

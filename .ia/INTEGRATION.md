@@ -65,12 +65,13 @@ Estado atual (ponto de convergência — item aberto):
 
 ## (d) Integração runtime Znuny ↔ sidecar (Spec #0 — alvo)
 
-- **GertiHooks.opm** (Perl mínimo, Spec #1B — *não iniciado*): dynamic
+- **GertiHooks.opm** (Perl mínimo — webhooks HMAC; fora do escopo do #1B): dynamic
   fields (`GertiContractId`, `GertiBillableMinutes`, `GertiBillingStatus`),
   queues template e event handlers que disparam **webhooks HMAC**.
-- **Znuny → sidecar:** webhook assinado (HMAC) em mudança de
-  ticket/artigo → endpoint IN do sidecar → grava `gerti.consumption_event`
-  (idempotência por `webhook_event_id`).
+- **Znuny → sidecar (#1B, pull):** `sidecar-worker` faz **pull** via GI
+  `TimeAccountingSince` (cursor `consumption_sync_cursor`) → `reconciliation_service`
+  → grava `gerti.consumption_event` (idempotência por `webhook_event_id=uuid5`).
+  Webhooks HMAC push (GertiHooks.opm) permanecem fora do escopo desta fase.
 - **Sidecar → Znuny:** escrita via **Generic Interface** (REST); leitura
   do schema `znuny` read-only. Nunca SQL direto no schema Znuny.
 - **Fluxo de domínio:** `contract → contract_cycle → consumption_event →
@@ -119,7 +120,12 @@ Estado atual (ponto de convergência — item aberto):
 | #1E: `POST /v1/tickets` (multipart, cria ticket), `GET /v1/tickets` (role-scoped), `GET /v1/tickets/{id}` (ownership-guarded), `POST /v1/tickets/{id}/reply` | **Pronto + DEPLOYADO em prod (2026-06-08, e2e ao vivo)** |
 | #1E: páginas portal `/tickets`, `/tickets/novo`, `/tickets/[id]` | **Pronto + DEPLOYADO em prod (2026-06-08, e2e ao vivo)** |
 | #1E: `gerti.ticket_contract_link` populado após criação do ticket Znuny (billing-ready) | **Pronto + DEPLOYADO em prod (2026-06-08, e2e ao vivo)** |
-| Billing / consumo (#1B) — próximo spec | Não iniciado |
+| Billing / consumo (#1B) | **Pronto, gateado; deploy per runbook** |
+| #1B: GI op `TimeAccountingSince` (GertiTicket WS, read-only, `time_accounting` since cursor, `AccessToken` fail-closed) | **Pronto, gateado; deploy per runbook** |
+| #1B: migration `0013_consumption_sync_cursor` (watermark operacional `gerti.consumption_sync_cursor`) | **Pronto, gateado; deploy per runbook** |
+| #1B: `reconciliation_service` (pull GI → `consumption_event` idempotente via uuid5; conversão hour_bank/credit_brl/shared; cross-tenant BYPASSRLS read + per-tenant RLS write; avança cursor) | **Pronto, gateado; deploy per runbook** |
+| #1B: `cycle_closer` (fecha ciclos vencidos por tenant via `CycleService.close`, 1×/dia) | **Pronto, gateado; deploy per runbook** |
+| #1B: `sidecar-worker` (serviço compose; loop asyncio: reconcile + close cycles) | **Pronto, gateado; deploy per runbook** |
 | Console de Administração #1G-a: auth de agente (`/v1/admin/auth/*`, cookie `gsid_adm`), onboarding (`POST /v1/admin/tenants` → GI + tenant/branding/papéis), criar contrato (`POST /v1/admin/tenants/{id}/contracts`), app `apps/admin/` | **Pronto + DEPLOYADO em prod** (verificado ao vivo; ingress público `gerti.was.dev.br` pendente de CF API token — ADR D19) |
 | Znuny GI custom (#1G-a, Opção A): webservice `GertiAdmin` + ops `CustomerCompanyAdd`/`CustomerUserAdd`/`SetPassword` (idempotentes, `AccessToken` fail-closed) em `znuny/Custom/...` | **Pronto, provado ao vivo** |
 | Gestão avançada pela UI (editar contrato/fechar ciclo/glosa/reajuste) #1G-b | Pendente (deferred §9) |
