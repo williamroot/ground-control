@@ -175,9 +175,11 @@ COPY Custom/Kernel/GenericInterface/Operation/GertiTicket/TicketReply.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/TicketReply.pm
 COPY Custom/Kernel/GenericInterface/Operation/GertiTicket/FormMeta.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/FormMeta.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiTicket/TimeAccountingSince.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/TimeAccountingSince.pm
 RUN set -eux; \
     chown -R otrs:www-data ${OTRS_HOME}/Custom; \
-    for m in TicketCreate TicketSearch TicketGet TicketReply FormMeta ; do \
+    for m in TicketCreate TicketSearch TicketGet TicketReply FormMeta TimeAccountingSince ; do \
         perl -I${OTRS_HOME} -I${OTRS_HOME}/Kernel/cpan-lib -I${OTRS_HOME}/Custom \
              -c ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/$m.pm ; \
     done

@@ -22,6 +22,9 @@ Provider:
     FormMeta:
       Description: Services/priorities/types for the open-ticket form
       Type: GertiTicket::FormMeta
+    TimeAccountingSince:
+      Description: Read native time_accounting rows since a cursor (Spec #1B)
+      Type: GertiTicket::TimeAccountingSince
   Transport:
     Config:
       KeepAlive: ''
@@ -47,5 +50,9 @@ Provider:
           RequestMethod:
           - POST
           Route: /FormMeta
+        TimeAccountingSince:
+          RequestMethod:
+          - POST
+          Route: /TimeAccounting/Since
     Type: HTTP::REST
 RemoteSystem: ''
