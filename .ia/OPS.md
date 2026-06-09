@@ -612,7 +612,20 @@ Para reverter código: `git checkout <sha-anterior> -- apps/sidecar apps/admin z
 Migration reversa (se necessário): `$DC run --rm sidecar-migrate uv run alembic downgrade -1`.
 **NUNCA** `make reset` (destrói o DB Znuny compartilhado).
 
-> **Status (2026-06-09): mergeado na `main` (`origin/main` em `05bb825`); e2e LOCAL 100% verde.**
+> **Status (2026-06-09): DEPLOYADO em prod e verificado ao vivo.** `main` na VPS; `znuny-web`
+> rebuildado (3 ops `syntax OK` + `GertiAgent::AccessToken` renderizado), Healthy; `GertiTicket`
+> atualizado por `--webservice-id 3` (3 ops de agente incluídas; os 3 webservices intactos);
+> migration **0014** aplicada (`gerti.agent_timer`); `sidecar`+`admin` Healthy. **`ZNUNY_AGENT_WS_TOKEN`
+> adicionado ao `.env.prod`.** **Prova e2e em prod (agente william, ticket Aurora 36, contrato
+> AUR-HORAS-2026 hour_bank):** search mostra o contrato; start→stop(ajuste 30min) cria
+> `time_accounting`+nota → #1B reconcilia → `consumption_event` (30min) → **saldo 31.25h→30.75h
+> (−0.5h)**; ownership cross-agente (bruno) → **404**; teto `adjust_minutes` → **409**. Throwaway
+> limpo (`time_accounting`/timer/link; `consumption_event` é append-only e persiste). Serviços
+> anteriores intactos (znuny/api-dev 200). **Único pré-existente não relacionado:** ingress
+> público de `gerti.was.dev.br` (Console admin, onde vive `/atendimento`) segue pendente de CF API
+> token desde #1G-a — o `admin` roda Healthy internamente; o e2e foi pela API do sidecar.
+>
+> _(histórico) mergeado na `main` (`origin/main` em `05bb825`); e2e LOCAL 100% verde antes do deploy._
 > Gates verdes: `perl -c` no build Znuny (3 ops novas), sidecar `ruff`+`mypy`+`pytest` (149),
 > admin typecheck+vitest (41). **e2e vivo no stack local** (verificado): agente busca ticket
 > Aurora vinculado → start/pause/resume → stop (ajuste 30min + nota) cria `time_accounting`
