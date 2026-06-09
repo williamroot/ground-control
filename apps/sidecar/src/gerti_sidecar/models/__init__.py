@@ -10,6 +10,7 @@ from gerti_sidecar.models.contract_policy import (
     ContractRenewalPolicy,
 )
 from gerti_sidecar.models.contract_scope import ContractScopeCi, ContractScopeService
+from gerti_sidecar.models.csat import CsatResponse
 from gerti_sidecar.models.cycle import ContractCycle
 from gerti_sidecar.models.portal_user_role import PortalUserRole
 from gerti_sidecar.models.sync_cursor import ConsumptionSyncCursor
@@ -30,6 +31,7 @@ __all__ = [
     "ContractRenewalPolicy",
     "ContractScopeCi",
     "ContractScopeService",
+    "CsatResponse",
     "Glosa",
     "PortalUserRole",
     "ServiceCatalogItem",
