@@ -276,6 +276,13 @@ services:
       # AgentTicketSearch/AgentTicketGet → GertiAgent::AccessToken no Znuny).
       # Mais poderoso que o token customer #1E; default vazio (nunca :? — D13).
       ZNUNY_AGENT_WS_TOKEN: ${ZNUNY_AGENT_WS_TOKEN:-}
+      # IA (#1N) — motor Ollama Cloud (gpt-oss:120b). Feature opt-in: sem chave
+      # ou AI_FEATURES_ENABLED!=true => endpoints 404 e painel some (kill-switch).
+      # OLLAMA_API_KEY é SEGREDO: só em .env.prod na VPS (nunca commitar — D13).
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-https://ollama.com}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gpt-oss:120b}
+      AI_FEATURES_ENABLED: ${AI_FEATURES_ENABLED:-false}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8001/v1/health || exit 1"]
       interval: 15s
