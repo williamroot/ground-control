@@ -13,6 +13,8 @@ from typing import Literal
 from pydantic import PostgresDsn, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from gerti_sidecar.integrations.ollama import OllamaClient
+
 Environment = Literal["development", "staging", "production", "test"]
 
 _DEFAULT_SESSION_SECRET = "dev-insecure-session-secret-change-me"
@@ -54,6 +56,14 @@ class Settings(BaseSettings):
     # worker de consumo (#1B) -----------------------------------------
     reconcile_interval_seconds: int = 120
     time_unit_to_minutes: float = 1.0
+
+    # IA: Ollama Cloud (#1N, roadmap §A) ------------------------------
+    # Feature opt-in: vazio/False => IA desabilitada (endpoints 404, UI some).
+    ollama_api_key: str = ""  # OLLAMA_API_KEY (vazio = IA off, fail-soft)
+    ollama_base_url: str = "https://ollama.com"  # OLLAMA_BASE_URL
+    ollama_model: str = "gpt-oss:120b"  # OLLAMA_MODEL
+    ollama_timeout_seconds: int = 120  # OLLAMA_TIMEOUT_SECONDS
+    ai_features_enabled: bool = False  # AI_FEATURES_ENABLED (kill-switch global)
 
     @field_validator("database_url")
     @classmethod
@@ -108,3 +118,13 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Instância em cache (lru_cache) lida do ambiente. Importar via dependência do FastAPI."""
     return Settings()  # type: ignore[call-arg]
+
+
+def get_ollama_client(settings: Settings) -> OllamaClient:
+    """Factory do cliente Ollama a partir das Settings (#1N)."""
+    return OllamaClient(
+        base_url=settings.ollama_base_url,
+        api_key=settings.ollama_api_key,
+        model=settings.ollama_model,
+        timeout=float(settings.ollama_timeout_seconds),
+    )
