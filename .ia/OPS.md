@@ -507,9 +507,21 @@ Para reverter código: `git checkout <sha-anterior> -- apps/sidecar znuny/ docke
 Migration reversa (se necessário): `$DC run --rm sidecar-migrate uv run alembic downgrade -1`.
 **NUNCA** `make reset` (destrói o DB Znuny compartilhado).
 
-> **Status:** implementado e gateado na branch `feature/spec-1b-consumo-cobranca`;
-> `perl -c` gate de build verde + sidecar gate (`ruff`+`mypy`+`pytest`) verde.
-> **Deploy na VPS é etapa separada** (rodar os passos acima após merge).
+> **Status (2026-06-09): mergeado na `main` (`origin/main` em `bffa1bf`); DEPLOYADO em prod.**
+> Gates pré-deploy verdes: `perl -c` no build, sidecar `ruff`+`mypy`+`pytest` (138), e
+> **e2e LOCAL 100% verde** (reconciliação debita saldo ao vivo: hour_bank 34.0→33.5h e
+> credit_brl 20000→19900 BRL = 30/60×200; idempotente via uuid5; ciclo vencido fechado).
+> **Prod:** `git pull` (bffa1bf); `znuny-web` rebuildado (`TimeAccountingSince syntax OK`) +
+> Healthy; webservice **GertiTicket atualizado por `--webservice-id`** (op nova incluída;
+> GertiCustomerAuth 1 + GertiAdmin 2 + GertiTicket 3 intactos); migration **0013** aplicada
+> (`gerti.consumption_sync_cursor` presente); `sidecar` Healthy + `sidecar-worker` Up. **Worker
+> provado vivo em prod:** log `cycles.closed count=1` — o fechamento automático de ciclo já
+> operou em produção. **Pendente (bloqueio externo de SSH — jump host `100.96.54.61` em
+> timeout):** a verificação ao vivo do *e2e de consumo em prod* (criar ticket vinculado →
+> lançar tempo → saldo debita) e a limpeza de eventuais dados de teste. Assim que o SSH voltar,
+> rodar a verificação §4 acima + conferir/limpar throwaways. **Bugs de runbook corrigidos no
+> e2e:** (1) `Admin::WebService::Update` exige `--webservice-id` (não `--name`) nesta versão
+> Znuny; (2) `sidecar-worker` precisa de `healthcheck: {disable: true}` (não roda HTTP).
 
 ## Backup (a definir em prod)
 
