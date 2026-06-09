@@ -612,12 +612,20 @@ Para reverter código: `git checkout <sha-anterior> -- apps/sidecar apps/admin z
 Migration reversa (se necessário): `$DC run --rm sidecar-migrate uv run alembic downgrade -1`.
 **NUNCA** `make reset` (destrói o DB Znuny compartilhado).
 
-> **Status:** implementado e gateado nesta branch (`feature/spec-1j-time-tracker`).
-> Gates verdes: `perl -c` no build Znuny (3 ops novas), sidecar `ruff`+`mypy`+`pytest`,
-> admin typecheck+vitest. Deploy na VPS é etapa separada.
-> **ATENÇÃO: novo segredo `ZNUNY_AGENT_WS_TOKEN` obrigatório no `.env.prod`** antes
-> do deploy — sem ele o entrypoint não renderiza `GertiAgent::AccessToken` e as 3
-> ops de agente falham com `AccessToken inválido` (fail-closed).
+> **Status (2026-06-09): mergeado na `main` (`origin/main` em `05bb825`); e2e LOCAL 100% verde.**
+> Gates verdes: `perl -c` no build Znuny (3 ops novas), sidecar `ruff`+`mypy`+`pytest` (149),
+> admin typecheck+vitest (41). **e2e vivo no stack local** (verificado): agente busca ticket
+> Aurora vinculado → start/pause/resume → stop (ajuste 30min + nota) cria `time_accounting`
+> (create_by=agente) + nota interna → worker #1B reconcilia → `consumption_event` (30min,
+> worker:reconcile) → saldo **33.5h→33.0h** (−0.5h); guarda de posse cross-agente → **404**;
+> start idempotente; teto `adjust_minutes` → **409**. Dois rounds de review de segurança
+> aplicados: **token `GertiAgent` separado** + **ownership check (IDOR)** + guarda de pause +
+> teto de ajuste. **Deploy na VPS PENDENTE** (bloqueio externo de SSH — jump host
+> `100.96.54.61` em timeout; público segue 200). Quando o SSH voltar: adicionar
+> **`ZNUNY_AGENT_WS_TOKEN`** ao `.env.prod` (NOVO segredo obrigatório — sem ele o entrypoint não
+> renderiza `GertiAgent::AccessToken` e as 3 ops de agente falham fail-closed) + `git pull` +
+> os passos acima (rebuild znuny-web + Update GertiTicket `--webservice-id` + migration 0014 +
+> sidecar/admin) + e2e em prod.
 
 ## Backup (a definir em prod)
 
