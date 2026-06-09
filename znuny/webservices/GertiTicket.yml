@@ -40,6 +40,9 @@ Provider:
     ConfigItemGet:
       Description: ITSM Config Item detail (ownership-guarded, Spec #1K)
       Type: GertiTicket::ConfigItemGet
+    TicketStats:
+      Description: Aggregated ticket counts scoped by CustomerID (Spec #1O)
+      Type: GertiTicket::TicketStats
   Transport:
     Config:
       KeepAlive: ''
@@ -89,5 +92,9 @@ Provider:
           RequestMethod:
           - POST
           Route: /ConfigItem/Get
+        TicketStats:
+          RequestMethod:
+          - POST
+          Route: /Ticket/Stats
     Type: HTTP::REST
 RemoteSystem: ''

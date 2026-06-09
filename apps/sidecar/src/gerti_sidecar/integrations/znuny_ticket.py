@@ -33,6 +33,7 @@ __all__ = [
     "Attachment",
     "TicketCreated",
     "TicketDetail",
+    "TicketStats",
     "TicketSummary",
     "TimeAccountingPage",
     "TimeEntry",
@@ -48,6 +49,7 @@ __all__ = [
     "get_ticket",
     "reply_ticket",
     "search_tickets",
+    "ticket_stats",
     "time_accounting_add",
     "time_accounting_since",
 ]
@@ -138,6 +140,22 @@ class AgentTicket:
     state: str
     customer_id: str
     articles: list[Article]
+
+
+@dataclass(frozen=True)
+class TicketStats:
+    """Contagens de ticket agregadas por CustomerID (Spec #1O).
+
+    Tudo escopado pelo CustomerID do tenant na op GI /Ticket/Stats (anti-IDOR
+    no Perl: nunca conta tickets de outro CustomerID). Failure-soft no domínio.
+    """
+
+    by_state: dict[str, int]
+    by_priority: dict[str, int]
+    by_day: list[dict[str, Any]]
+    sla_breached: int
+    sla_at_risk: int
+    total: int
 
 
 @dataclass(frozen=True)
@@ -398,6 +416,35 @@ async def config_item_get(*, config_item_id: int, customer_id: str) -> AssetDeta
         customer_id=str(data.get("CustomerID") or ""),
         created=str(data.get("Created") or ""),
         attributes=dict(data.get("Attributes") or {}),
+    )
+
+
+async def ticket_stats(*, customer_id: str, since: str, until: str) -> TicketStats:
+    """Contagens de ticket agregadas por CustomerID (Spec #1O).
+
+    Usa o token de admin (_post) — o GI escopa por CustomerCompany (anti-IDOR);
+    `since`/`until` são timestamps Znuny ('YYYY-MM-DD HH:MM:SS'). Os blocos
+    ausentes degradam para vazios (failure-soft no domínio cuida do GI fora do ar).
+    """
+    data = await _post(
+        "/Ticket/Stats",
+        {"CustomerCompany": customer_id, "Since": since, "Until": until},
+    )
+    by_state = {str(k): int(v) for k, v in (data.get("ByState") or {}).items()}
+    by_priority = {str(k): int(v) for k, v in (data.get("ByPriority") or {}).items()}
+    by_day = [
+        {"date": str(r.get("date") or ""), "count": int(r.get("count") or 0)}
+        for r in (data.get("ByDay") or [])
+    ]
+    total = data.get("Total")
+    total_int = int(total) if total is not None else sum(by_state.values())
+    return TicketStats(
+        by_state=by_state,
+        by_priority=by_priority,
+        by_day=by_day,
+        sla_breached=int(data.get("SlaBreached") or 0),
+        sla_at_risk=int(data.get("SlaAtRisk") or 0),
+        total=total_int,
     )
 
 
