@@ -357,6 +357,62 @@ sidecar-worker
 
 Runbook de deploy em [`OPS.md`](OPS.md) "Deploy do worker de consumo/cobrança".
 
+### Time tracker do agente (#1J)
+
+Estende o Console de Administração (`apps/admin/`) e o sidecar com controle
+de tempo por agente, integrado ao fluxo de billing do #1B.
+
+**Superfície de UI (`apps/admin/`):**
+- `/atendimento` — busca de tickets cross-tenant (chip de timers ativos) com
+  controle de timer inline por linha.
+- `/atendimento/[id]` — detalhe do ticket com card de timer proeminente + badge
+  do contrato vinculado (`ContractBadge`). Stop dialog permite `adjust_minutes`
+  (cap 1440 min) + nota obrigatória antes de lançar.
+- Composable `useTimers`; componentes `TimerControls`, `TimerStopDialog`,
+  `ContractBadge`. Link de navegação no menu admin.
+
+**3 ops GI novas no webservice `GertiTicket` — token separado:**
+- `TimeAccountingAdd` — cria artigo interno (nota de stop) + `TicketAccountTime`
+  no Znuny; resolve `UserID` do agente pelo login.
+- `AgentTicketSearch` — busca cross-tenant de tickets por agente.
+- `AgentTicketGet` — detalhe de ticket para agente (inclui contrato vinculado).
+
+Estas ops usam **`GertiAgent::AccessToken`** (env `ZNUNY_AGENT_WS_TOKEN`),
+**token separado** do `GertiAdmin::AccessToken` (`ZNUNY_WS_TOKEN`). Segurança
+por separação: as ops de agente são root/cross-tenant; comprometer o token de
+admin não expõe as ops de agente e vice-versa. Renderizado em `Config.pm.tmpl`
+pelo entrypoint; `perl -c` é gate de build da imagem.
+
+**Tabela `gerti.agent_timer` (migration `0014_agent_timer`):**
+- Tabela operacional não-tenant (lida com BYPASSRLS pelo sidecar).
+- `PARTIAL UNIQUE INDEX` garante no máximo um timer ativo por par
+  `(agent_login, ticket_id)` — invariante de negócio aplicada na DB.
+
+**`domain/timer_service.py`:**
+- `start` (idempotente), `pause` (com guarda), `resume`, `stop`.
+- Stop: computa minutos, aplica `adjust_minutes` (cap 1440), chama
+  `time_accounting_add` via GI, marca timer como `stopped`.
+- **Ownership check** por agente em pause/resume/stop — `TimerNotFound` → 404.
+- Estado do timer é server-side (a UI só reflete; o agente não pode fraudar tempo).
+
+**Endpoints sidecar — `/v1/admin/timer/*` (todos sob `get_admin_session`):**
+- `POST /v1/admin/timer/start`, `pause`, `resume`, `stop`
+- `GET /v1/admin/timer/active`
+- `GET /v1/admin/tickets` (busca), `GET /v1/admin/tickets/{id}` (detalhe com
+  contrato vinculado via join).
+
+**Fluxo stop → billing:**
+```
+stop → time_accounting_add (Znuny, artigo interno) → sidecar-worker (#1B)
+     → reconciliation_service → consumption_event → balance() debita saldo
+```
+Ticket sem contrato vinculado: `time_accounting` é gravado no Znuny mas o
+`consumption_event` não é gerado até o vínculo existir (UI avisa o agente).
+Billing é downstream/assíncrono via worker #1B.
+
+Implementado e gateado; deploy per runbook [`OPS.md`](OPS.md) "Deploy do time
+tracker do agente".
+
 ## Landing (`landing/`)
 
 Estático (HTML/CSS/JS), estética mission-control. Deploy próprio independente: nginx + cloudflared → `groundcontrol.was.dev.br`. Não compartilha containers com a stack Znuny. Detalhes em `landing/README.md`.

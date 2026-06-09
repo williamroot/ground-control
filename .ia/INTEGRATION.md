@@ -128,6 +128,16 @@ Estado atual (ponto de convergência — item aberto):
 | #1B: `sidecar-worker` (serviço compose; loop asyncio: reconcile + close cycles) | **Pronto, gateado; deploy per runbook** |
 | Console de Administração #1G-a: auth de agente (`/v1/admin/auth/*`, cookie `gsid_adm`), onboarding (`POST /v1/admin/tenants` → GI + tenant/branding/papéis), criar contrato (`POST /v1/admin/tenants/{id}/contracts`), app `apps/admin/` | **Pronto + DEPLOYADO em prod** (verificado ao vivo; ingress público `gerti.was.dev.br` pendente de CF API token — ADR D19) |
 | Znuny GI custom (#1G-a, Opção A): webservice `GertiAdmin` + ops `CustomerCompanyAdd`/`CustomerUserAdd`/`SetPassword` (idempotentes, `AccessToken` fail-closed) em `znuny/Custom/...` | **Pronto, provado ao vivo** |
+| Time tracker do agente (#1J): GI op `TimeAccountingAdd` (artigo interno + `TicketAccountTime`, resolve UserID do agente) | **Pronto, gateado; deploy per runbook** |
+| #1J: GI op `AgentTicketSearch` (busca cross-tenant por agente) | **Pronto, gateado; deploy per runbook** |
+| #1J: GI op `AgentTicketGet` (detalhe de ticket para agente + contrato vinculado) | **Pronto, gateado; deploy per runbook** |
+| #1J: token `GertiAgent::AccessToken` (env `ZNUNY_AGENT_WS_TOKEN`) — separado do `GertiAdmin::AccessToken`; segurança por separação de ops root/cross-tenant | **Pronto, gateado; deploy per runbook** |
+| #1J: migration `0014_agent_timer` (tabela operacional `gerti.agent_timer` + partial unique index: max 1 timer ativo por agente/ticket) | **Pronto, gateado; deploy per runbook** |
+| #1J: `domain/timer_service.py` (start idempotente / pause / resume / stop com ownership check; computa minutos; cap `adjust_minutes` 1440; lança via GI e marca stopped) | **Pronto, gateado; deploy per runbook** |
+| #1J: `routers/admin_timer.py` (`/v1/admin/timer/{start,pause,resume,stop,active}`; sob `get_admin_session`) | **Pronto, gateado; deploy per runbook** |
+| #1J: `GET /v1/admin/tickets` (busca cross-tenant) + `GET /v1/admin/tickets/{id}` (detalhe + contrato vinculado) | **Pronto, gateado; deploy per runbook** |
+| #1J: pages `apps/admin/` `/atendimento` (lista + timers inline + chip ativos) + `/atendimento/[id]` (detalhe + timer card) | **Pronto, gateado; deploy per runbook** |
+| #1J: composable `useTimers`, componentes `TimerControls`/`TimerStopDialog`/`ContractBadge` | **Pronto, gateado; deploy per runbook** |
 | Gestão avançada pela UI (editar contrato/fechar ciclo/glosa/reajuste) #1G-b | Pendente (deferred §9) |
 | OIDC / PKCE (#1D) | Pendente (deferred §9) |
 | Export CSV/PDF, filtros avançados, i18n | Pendente (deferred §9) |
