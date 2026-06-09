@@ -133,6 +133,7 @@ class AssetDetail:
     deploy_state: str
     inci_state: str
     customer_id: str
+    created: str
     attributes: dict[str, object]
 
 
@@ -342,6 +343,7 @@ async def config_item_get(*, config_item_id: int, customer_id: str) -> AssetDeta
         deploy_state=str(data.get("DeplState") or ""),
         inci_state=str(data.get("InciState") or ""),
         customer_id=str(data.get("CustomerID") or ""),
+        created=str(data.get("Created") or ""),
         attributes=dict(data.get("Attributes") or {}),
     )
 

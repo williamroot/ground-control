@@ -71,5 +71,6 @@ async def get_asset(
         "deploy_state": d.deploy_state,
         "inci_state": d.inci_state,
         "customer_id": d.customer_id,
+        "created": d.created,
         "attributes": d.attributes,
     }

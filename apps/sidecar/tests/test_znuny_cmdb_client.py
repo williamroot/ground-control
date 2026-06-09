@@ -91,6 +91,38 @@ async def test_config_item_get_no_attributes(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_config_item_get_created_and_rich_attributes(monkeypatch):
+    """Task 7 (#1L fase 2) — AssetDetail.created + atributos genéricos mapeados."""
+
+    async def fake_post(route, body):
+        assert route == "/ConfigItem/Get"
+        return {
+            "Id": 10,
+            "Number": "10003",
+            "Class": "Computer",
+            "Name": "AUR-NB-001",
+            "DeplState": "Production",
+            "InciState": "Operational",
+            "CustomerID": "AURORA",
+            "Created": "2026-06-09 10:00:00",
+            "Attributes": {
+                "OperatingSystem": "Windows 11 Pro",
+                "CPU": "Intel i5",
+                "Memoria": "16 GB",
+                "Disco": "512 GB SSD",
+                "SerialNumber": "SN9",
+            },
+        }
+
+    monkeypatch.setattr(znuny_ticket, "_post", fake_post)
+    d = await znuny_ticket.config_item_get(config_item_id=10, customer_id="AURORA")
+    assert d.created == "2026-06-09 10:00:00"
+    assert d.attributes["OperatingSystem"] == "Windows 11 Pro"
+    assert d.attributes["Disco"] == "512 GB SSD"
+    assert d.attributes["Memoria"] == "16 GB"
+
+
+@pytest.mark.asyncio
 async def test_create_ticket_includes_config_item_id(monkeypatch):
     captured: dict[str, object] = {}
 
