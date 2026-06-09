@@ -1,6 +1,8 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import AreaChart from '../components/charts/AreaChart.vue'
+import BarChart from '../components/charts/BarChart.vue'
+import DonutChart from '../components/charts/DonutChart.vue'
 import ProgressBar from '../components/charts/ProgressBar.vue'
 
 describe('ProgressBar', () => {
@@ -35,5 +37,64 @@ describe('AreaChart', () => {
     expect(html).toContain('var(--brand-primary)')
     // SSR-safe: fixed viewBox, no width/height pixel binding from window
     expect(html).toContain('viewBox')
+  })
+})
+
+describe('BarChart', () => {
+  it('renders one rect per bar, uses brand var, SSR-safe viewBox', () => {
+    const w = mount(BarChart, {
+      props: { bars: [
+        { label: '1', value: 2 },
+        { label: '2', value: 5 },
+        { label: '3', value: 0 },
+      ] },
+    })
+    const html = w.html()
+    const rects = html.match(/<rect/g) ?? []
+    // 3 bars (zero-value bars still render a rect with min height)
+    expect(rects.length).toBe(3)
+    expect(html).toContain('var(--brand-primary)')
+    expect(html).toContain('viewBox')
+  })
+  it('renders empty state when no bars', () => {
+    const w = mount(BarChart, { props: { bars: [] } })
+    expect(w.text()).toContain('Sem dados')
+  })
+})
+
+describe('DonutChart', () => {
+  it('renders one slice per segment, proportional, SSR-safe', () => {
+    const w = mount(DonutChart, {
+      props: { segments: [
+        { label: 'open', value: 3 },
+        { label: 'closed', value: 7 },
+      ] },
+    })
+    const html = w.html()
+    const paths = html.match(/<path/g) ?? []
+    expect(paths.length).toBe(2)
+    expect(html).toContain('viewBox')
+    // brand palette by default
+    expect(html).toContain('var(--brand-primary)')
+  })
+  it('uses SEMANTIC colors (not brand) when palette=semantic (H8)', () => {
+    const w = mount(DonutChart, {
+      props: {
+        palette: 'semantic',
+        segments: [
+          { label: 'SLA estourado', value: 2, tone: 'error' },
+          { label: 'ok', value: 8, tone: 'success' },
+        ],
+      },
+    })
+    const html = w.html()
+    // semantic tones map to CSS semantic vars, never the brand var
+    expect(html).toContain('var(--color-error)')
+    expect(html).toContain('var(--color-success)')
+    expect(html).not.toContain('var(--brand-primary)')
+  })
+  it('renders empty state when no segments', () => {
+    const w = mount(DonutChart, { props: { segments: [] } })
+    expect(w.text()).toContain('Sem dados')
   })
 })
