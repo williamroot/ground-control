@@ -526,6 +526,99 @@ Migration reversa (se necessário): `$DC run --rm sidecar-migrate uv run alembic
 > (não `--name`) nesta versão Znuny; (2) `sidecar-worker` precisa de `healthcheck: {disable: true}`
 > (não roda HTTP).
 
+### Deploy do time tracker do agente (Spec #1J — profile `gerti`)
+
+Aditivo e profile-gated (padrão D13/D15): nenhum serviço `gerti` sobe sem
+`--profile gerti`; um `make up` da stack Znuny pura fica intocado.
+Adiciona **3 operações GI** ao webservice `GertiTicket` já existente
+(`TimeAccountingAdd`, `AgentTicketSearch`, `AgentTicketGet`) com token
+**separado** (`GertiAgent::AccessToken`) e um novo serviço de rotas no
+sidecar + app `admin` (`/atendimento`).
+
+> **Novo segredo obrigatório — `ZNUNY_AGENT_WS_TOKEN`:** token separado
+> das ops de agente (root/cross-tenant); gerar forte (32+ bytes hex) e
+> adicionar ao `.env.prod` na VPS **antes** do deploy. NUNCA commitar.
+
+**Pré-requisitos (humano, one-time, em `~/ground-control/.env.prod` na VPS —
+gitignored — NUNCA commitar):**
+- `ZNUNY_AGENT_WS_TOKEN` — **NOVO**: token do webservice `GertiAgent::AccessToken`
+  (ops de agente: root/cross-tenant; token separado do `ZNUNY_WS_TOKEN`/`GertiAdmin`;
+  gerar forte, ex.: `openssl rand -hex 32`).
+- Demais já presentes: `ZNUNY_WS_TOKEN` (`GertiAdmin::AccessToken`),
+  `ZNUNY_ADMIN_WS_URL`, `ZNUNY_TICKET_WS_URL`, `GERTI_SESSION_SECRET`,
+  `GERTI_SIDECAR_DB_PASSWORD`, `GERTI_ADMIN_DB_PASSWORD`.
+
+```bash
+ssh gc 'cd ~/ground-control && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 1) Znuny: rebuild da imagem (bakeia as 3 novas ops GertiTicket de agente +
+#    renderiza GertiAgent::AccessToken do env via Config.pm.tmpl + entrypoint;
+#    perl -c é gate de build) e recria web+daemon.
+#    NOTA: recria o core Znuny (downtime curto). Provisionamento é idempotente (D6).
+ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-daemon"
+
+# 2) CRÍTICO — atualizar o webservice GertiTicket (já existe em prod desde #1E):
+#    Admin::WebService::Update exige --webservice-id (NÃO --name nesta versão Znuny;
+#    aprendido no #1B — usar Update com id resolvido via Admin::WebService::List).
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && \
+   WSID=\$(bin/otrs.Console.pl Admin::WebService::List | sed -n \"s/.*GertiTicket (\\([0-9]\\+\\)).*/\\1/p\"); \
+   if [ -n \"\$WSID\" ]; then \
+     bin/otrs.Console.pl Admin::WebService::Update --webservice-id \"\$WSID\" \
+       --source-path /opt/otrs/webservices/GertiTicket.yml; \
+   else \
+     bin/otrs.Console.pl Admin::WebService::Add --name GertiTicket \
+       --source-path /opt/otrs/webservices/GertiTicket.yml; \
+   fi"'
+#   GUARD: confirmar que os 3 webservices seguem presentes (nunca remover os outros):
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List | grep -iE \"GertiCustomerAuth|GertiAdmin|GertiTicket\""'
+#   → deve listar GertiCustomerAuth + GertiAdmin + GertiTicket (nenhum pode sumir)
+#   O GertiTicket agora inclui TimeAccountingAdd + AgentTicketSearch + AgentTicketGet.
+
+# 3) sidecar + admin UI: rebuild (traz timer_service + /v1/admin/timer/* + /atendimento)
+#    + migration 0014 (agent_timer) + app:
+ssh gc "cd ~/ground-control && $DC build sidecar admin"
+ssh gc "cd ~/ground-control && $DC up -d sidecar-migrate"
+#   aguardar Exit 0:
+ssh gc "cd ~/ground-control && $DC ps sidecar-migrate"
+ssh gc "cd ~/ground-control && $DC up -d sidecar admin && $DC ps"
+#   → sidecar: Up/healthy; admin: Up/healthy; sidecar-migrate: Exit 0
+
+# 4) verificação e2e (resumo):
+#    a) logar no console admin (gsid_adm) com agente real (william/Gerti@Demo2026)
+#    b) ir p/ /atendimento e buscar ticket Aurora vinculado a contrato
+#    c) start timer → pause → resume → stop com adjust_minutes + nota
+#    d) conferir time_accounting criado no Znuny (psql ou GI):
+ssh gc 'docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "select ticket_id, time_unit, article_id, create_time from time_accounting order by create_time desc limit 5;"'
+#    e) aguardar/forçar tick do sidecar-worker (#1B): consumption_event deve aparecer
+#    f) conferir saldo debitado no contrato Aurora via /v1/admin/tenants/{id}/contracts
+#    g) limpar throwaways: timer na tabela gerti.agent_timer (soft-stopped já),
+#       time_accounting entry + artigo interno no Znuny; consumption_event é append-only.
+ssh gc 'docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "select id, agent_login, ticket_id, state, started_at, stopped_at from gerti.agent_timer order by started_at desc limit 5;"'
+```
+
+**Rollback (timer somente; Znuny/sidecar-worker/portal/admin base intocados):**
+
+```bash
+$DC stop admin    # UI /atendimento some; sidecar-worker e portal não são afetados
+```
+
+Para reverter código: `git checkout <sha-anterior> -- apps/sidecar apps/admin znuny/ docker-compose.yml`
+→ rebuild: `$DC build znuny-web sidecar admin && $DC up -d znuny-web znuny-daemon sidecar admin`.
+Migration reversa (se necessário): `$DC run --rm sidecar-migrate uv run alembic downgrade -1`.
+**NUNCA** `make reset` (destrói o DB Znuny compartilhado).
+
+> **Status:** implementado e gateado nesta branch (`feature/spec-1j-time-tracker`).
+> Gates verdes: `perl -c` no build Znuny (3 ops novas), sidecar `ruff`+`mypy`+`pytest`,
+> admin typecheck+vitest. Deploy na VPS é etapa separada.
+> **ATENÇÃO: novo segredo `ZNUNY_AGENT_WS_TOKEN` obrigatório no `.env.prod`** antes
+> do deploy — sem ele o entrypoint não renderiza `GertiAgent::AccessToken` e as 3
+> ops de agente falham com `AccessToken inválido` (fail-closed).
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)
