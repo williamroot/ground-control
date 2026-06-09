@@ -138,6 +138,12 @@ Estado atual (ponto de convergência — item aberto):
 | #1J: `GET /v1/admin/tickets` (busca cross-tenant) + `GET /v1/admin/tickets/{id}` (detalhe + contrato vinculado) | **Pronto, gateado; deploy per runbook** |
 | #1J: pages `apps/admin/` `/atendimento` (lista + timers inline + chip ativos) + `/atendimento/[id]` (detalhe + timer card) | **Pronto, gateado; deploy per runbook** |
 | #1J: composable `useTimers`, componentes `TimerControls`/`TimerStopDialog`/`ContractBadge` | **Pronto, gateado; deploy per runbook** |
+| #1K: 3 add-ons ITSM oficiais bakeados na imagem Znuny 7.2.1 (`GeneralCatalog`→`ITSMCore`→`ITSMConfigurationManagement`); `ensure-itsm.sh` instala idempotentemente no provisionamento; 5 classes nativas de CI com campo `CustomerID` (escopo por tenant) | **Pronto, gateado; deploy per runbook** |
+| #1K: GI `ConfigItemSearch` (busca por CustomerID/tenant) + `ConfigItemGet` (detalhe anti-IDOR) no webservice `GertiTicket` | **Pronto, gateado; deploy per runbook** |
+| #1K: `TicketCreate` estendido com `ConfigItemId` → link `RelevantTo` via `LinkObject` no Znuny | **Pronto, gateado; deploy per runbook** |
+| #1K: sidecar `GET /v1/assets` (lista CIs scoped por tenant) + `GET /v1/assets/{id}` (detalhe anti-IDOR 404) | **Pronto, gateado; deploy per runbook** |
+| #1K: `POST /v1/tickets` aceita `config_item_id` (opcional) | **Pronto, gateado; deploy per runbook** |
+| #1K: portal `/ativos` (lista read-only) + `/ativos/[id]` (detalhe) + "Abrir chamado sobre este ativo" → `/tickets/novo?ativo=<id>`; nav "Ativos"; proxies com guard de path-injection | **Pronto, gateado; deploy per runbook** |
 | Gestão avançada pela UI (editar contrato/fechar ciclo/glosa/reajuste) #1G-b | Pendente (deferred §9) |
 | OIDC / PKCE (#1D) | Pendente (deferred §9) |
 | Export CSV/PDF, filtros avançados, i18n | Pendente (deferred §9) |

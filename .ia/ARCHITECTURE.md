@@ -413,6 +413,57 @@ Billing é downstream/assíncrono via worker #1B.
 Implementado e gateado; deploy per runbook [`OPS.md`](OPS.md) "Deploy do time
 tracker do agente".
 
+### CMDB / Ativos (#1K)
+
+Estende o Znuny com os 3 **add-ons ITSM oficiais** (versão 7.2.1) e expõe o
+inventário de Config Items ao cliente de forma read-only, com escopo por tenant.
+
+**Znuny — add-ons ITSM:**
+Os `.opm` `GeneralCatalog`, `ITSMCore` e `ITSMConfigurationManagement` são
+bakeados na imagem (`znuny/addons/`) e instalados idempotentemente na
+inicialização pelo script `znuny/scripts/ensure-itsm.sh` (chamado pelo
+`entrypoint.sh`). As **5 classes nativas de CI** (Computador, Hardware, Rede,
+Software, Localização) incluem o campo `CustomerID` (Input type `CustomerCompany`)
+que é usado como chave de escopo por tenant — sem atributo customizado.
+
+**GI ops novas no webservice `GertiTicket`:**
+- `ConfigItemSearch` — busca Config Items por `CustomerID` (scoped por tenant).
+- `ConfigItemGet` — detalhe de CI com guarda de posse anti-IDOR (CustomerID
+  do item deve casar com o tenant do token).
+- `TicketCreate` estendido — aceita `ConfigItemId` e cria o link
+  `RelevantTo` via `Kernel::System::LinkObject` após a criação do ticket.
+
+**Sidecar (`apps/sidecar/`):**
+- `znuny_gi.config_item_search` / `config_item_get` (cliente GI).
+- `POST /v1/tickets` aceita `config_item_id` (opcional).
+- `GET /v1/assets` — lista CIs do tenant (scoped por `znuny_customer_id`).
+- `GET /v1/assets/{id}` — detalhe com guarda anti-IDOR → 404 se CustomerID não bater.
+- Sessão de customer (qualquer papel autenticado).
+
+**Portal (`apps/portal/`):**
+- `/ativos` — lista read-only de Config Items do tenant.
+- `/ativos/[id]` — detalhe; botão "Abrir chamado sobre este ativo" →
+  `/tickets/novo?ativo=<id>` (passa `config_item_id` no form).
+- Nav "Ativos" adicionada ao menu autenticado.
+- Proxies validam id numérico (guard de path-injection).
+
+**Fluxo:**
+```
+MSP cadastra CI no Znuny (CustomerID=AURORA)
+  → GI ConfigItemSearch/Get
+  → sidecar /v1/assets (scoped)
+  → portal /ativos (read-only)
+  → "Abrir chamado" → /tickets/novo?ativo=<id>
+  → POST /v1/tickets (config_item_id)
+  → GI TicketCreate + LinkObject RelevantTo
+  → ticket Znuny linkado ao CI
+```
+
+O MSP gerencia o inventário no Znuny; o portal expõe apenas visibilidade
+read-only ao cliente. Deploy per runbook [`OPS.md`](OPS.md)
+"Deploy do CMDB/ativos"; spike de API em
+`docs/superpowers/spikes/2026-06-09-r1k-znuny-itsm-cmdb.md`.
+
 ## Landing (`landing/`)
 
 Estático (HTML/CSS/JS), estética mission-control. Deploy próprio independente: nginx + cloudflared → `groundcontrol.was.dev.br`. Não compartilha containers com a stack Znuny. Detalhes em `landing/README.md`.
