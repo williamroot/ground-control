@@ -203,13 +203,17 @@ RUN chown -R otrs:www-data ${OTRS_HOME}/webservices ${OTRS_HOME}/scripts/ensure-
 # Dependency order: GeneralCatalog → ITSMCore → ITSMConfigurationManagement (version 7.2.1).
 # Source: https://addons.znuny.com/public/ (NOT download.znuny.org/releases/itsm/ — 404 for 7.2).
 # Install at runtime by local path (Admin::Package::Install <name> fails; path install works).
+# IMPORTANT: bake to ${OTRS_HOME}/itsm-opm (NOT ${OTRS_HOME}/var/...): /opt/otrs/var is a
+# NAMED VOLUME (znuny-var) → anything under var/ in the image is SHADOWED at runtime by the
+# volume mount, so var/packages would be empty in the running container. itsm-opm is on the
+# image layer, always present.
 RUN set -eux; \
-    mkdir -p "${OTRS_HOME}/var/packages"; \
+    mkdir -p "${OTRS_HOME}/itsm-opm"; \
     for p in GeneralCatalog ITSMCore ITSMConfigurationManagement; do \
       curl -fSL "https://addons.znuny.com/public/${p}-7.2.1.opm" \
-        -o "${OTRS_HOME}/var/packages/${p}-7.2.1.opm"; \
+        -o "${OTRS_HOME}/itsm-opm/${p}-7.2.1.opm"; \
     done; \
-    chown -R otrs:www-data ${OTRS_HOME}/var/packages
+    chown -R otrs:www-data ${OTRS_HOME}/itsm-opm
 
 COPY scripts/ensure-itsm.sh ${OTRS_HOME}/scripts/ensure-itsm.sh
 RUN chmod +x ${OTRS_HOME}/scripts/ensure-itsm.sh && \

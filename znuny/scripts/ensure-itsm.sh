@@ -23,7 +23,7 @@ do
     if bin/otrs.Console.pl Admin::Package::List | grep -qi "$name"; then
         echo "ITSM package $name already installed (metadata) — skipping install"
     else
-        bin/otrs.Console.pl Admin::Package::Install "/opt/otrs/var/packages/$file"
+        bin/otrs.Console.pl Admin::Package::Install "/opt/otrs/itsm-opm/$file"
     fi
 done
 
