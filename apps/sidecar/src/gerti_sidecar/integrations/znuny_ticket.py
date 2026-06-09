@@ -25,7 +25,9 @@ from gerti_sidecar.integrations.znuny_customer_admin import (
 )
 
 __all__ = [
+    "AgentTicket",
     "AgentTicketSummary",
+    "Article",
     "AssetDetail",
     "AssetSummary",
     "Attachment",
@@ -37,6 +39,7 @@ __all__ = [
     "ZnunyUnavailable",
     "ZnunyWriteError",
     "agent_get",
+    "agent_get_thread",
     "agent_search",
     "config_item_get",
     "config_item_search",
@@ -112,6 +115,29 @@ class AgentTicketSummary:
     customer_id: str
     owner: str
     created: str
+
+
+@dataclass(frozen=True)
+class Article:
+    """Artigo da thread de um ticket (para IA — #1N). role = SenderType do Znuny."""
+
+    role: str  # customer | agent | system
+    author: str
+    created: str
+    subject: str
+    body: str
+
+
+@dataclass(frozen=True)
+class AgentTicket:
+    """Ticket de agente com a thread completa (artigos) p/ sumarização/resposta (#1N)."""
+
+    znuny_ticket_id: int
+    ticket_number: str
+    title: str
+    state: str
+    customer_id: str
+    articles: list[Article]
 
 
 @dataclass(frozen=True)
@@ -302,6 +328,33 @@ async def agent_search(*, query: str | None, customer_id: str | None) -> list[Ag
 
 async def agent_get(*, znuny_ticket_id: int) -> dict[str, Any]:
     return await _post_agent("/Agent/Ticket/Get", {"TicketID": znuny_ticket_id})
+
+
+async def agent_get_thread(*, znuny_ticket_id: int) -> AgentTicket:
+    """Detalhe de ticket de agente mapeado para AgentTicket (thread tipada, #1N).
+
+    Reusa agent_get (que já traz Articles desde o #1J — From/SenderType/Subject/
+    Body/CreateTime). Mapeia SenderType -> role ('customer'/'agent'/'system').
+    """
+    data = await agent_get(znuny_ticket_id=znuny_ticket_id)
+    articles = [
+        Article(
+            role=str(a.get("SenderType") or ""),
+            author=str(a.get("From") or ""),
+            created=str(a.get("CreateTime") or ""),
+            subject=str(a.get("Subject") or ""),
+            body=str(a.get("Body") or ""),
+        )
+        for a in (data.get("Articles") or [])
+    ]
+    return AgentTicket(
+        znuny_ticket_id=int(data.get("TicketID") or znuny_ticket_id),
+        ticket_number=str(data.get("TicketNumber") or ""),
+        title=str(data.get("Title") or ""),
+        state=str(data.get("State") or ""),
+        customer_id=str(data.get("CustomerID") or ""),
+        articles=articles,
+    )
 
 
 async def config_item_search(*, customer_id: str) -> list[AssetSummary]:
