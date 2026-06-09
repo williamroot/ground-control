@@ -640,6 +640,113 @@ Migration reversa (se necessário): `$DC run --rm sidecar-migrate uv run alembic
 > os passos acima (rebuild znuny-web + Update GertiTicket `--webservice-id` + migration 0014 +
 > sidecar/admin) + e2e em prod.
 
+### Deploy do CMDB/ativos (Spec #1K — profile `gerti` + rebuild Znuny)
+
+Aditivo e profile-gated (padrão D13/D15): nenhum serviço `gerti` sobe sem
+`--profile gerti`; um `make up` da stack Znuny pura fica intocado.
+Estende o webservice `GertiTicket` com **3 operações GI novas**
+(`ConfigItemSearch`, `ConfigItemGet`, `TicketCreate` estendido com
+`LinkObject RelevantTo`) e bakeia os **3 add-ons ITSM oficiais** na imagem
+Znuny (`GeneralCatalog` → `ITSMCore` → `ITSMConfigurationManagement`,
+versão **7.2.1** — instalados idempotentemente por `znuny/scripts/ensure-itsm.sh`
+chamado pelo entrypoint). Sem migration nova no sidecar.
+
+**Pré-requisitos (humano, one-time, em `~/ground-control/.env.prod` na VPS —
+gitignored — NUNCA commitar):**
+- Nenhuma variável nova: `ZNUNY_WS_TOKEN` (`GertiAdmin::AccessToken`) e
+  `ZNUNY_AGENT_WS_TOKEN` (`GertiAgent::AccessToken`) já presentes (#1G-a/#1J)
+  são reusados como `AccessToken` das novas ops GI.
+- Demais já presentes: `ZNUNY_ADMIN_WS_URL`, `ZNUNY_TICKET_WS_URL`,
+  `GERTI_SESSION_SECRET`, `GERTI_SIDECAR_DB_PASSWORD`, `GERTI_ADMIN_DB_PASSWORD`.
+
+```bash
+ssh gc 'cd ~/ground-control && git fetch origin && git checkout feature/spec-1k-cmdb-ativos && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 1) Znuny: rebuild da imagem.
+#    O build bakeia os 3 .opm ITSM (COPY znuny/addons/ → /opt/otrs/addons/),
+#    as 3 novas ops GI de CMDB (COPY znuny/Custom/...) e o ensure-itsm.sh.
+#    perl -c é gate de build de todas as ops GertiTicket.
+#    O entrypoint chama ensure-itsm.sh na inicialização: instala/verifica os
+#    add-ons em ordem (GeneralCatalog → ITSMCore → ITSMConfigurationManagement)
+#    idempotentemente (skip se já instalados) e rebuilda o SysConfig/Agent/
+#    Customer menus. Provisionamento é idempotente (D6).
+#    NOTA: recria o core Znuny (downtime curto).
+ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-daemon"
+
+# 2) CRÍTICO — atualizar o webservice GertiTicket (já existe em prod desde #1E).
+#    Admin::WebService::Update exige --webservice-id (NÃO --name nesta versão Znuny;
+#    aprendido no #1B e confirmado no #1J).
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && \
+   WSID=\$(bin/otrs.Console.pl Admin::WebService::List | sed -n \"s/.*GertiTicket (\\([0-9]\\+\\)).*/\\1/p\"); \
+   if [ -n \"\$WSID\" ]; then \
+     bin/otrs.Console.pl Admin::WebService::Update --webservice-id \"\$WSID\" \
+       --source-path /opt/otrs/webservices/GertiTicket.yml; \
+   else \
+     bin/otrs.Console.pl Admin::WebService::Add --name GertiTicket \
+       --source-path /opt/otrs/webservices/GertiTicket.yml; \
+   fi"'
+#   GUARD: confirmar que os 3 webservices seguem presentes (nunca remover os outros):
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List | grep -iE \"GertiCustomerAuth|GertiAdmin|GertiTicket\""'
+#   → deve listar GertiCustomerAuth + GertiAdmin + GertiTicket (nenhum pode sumir)
+#   O GertiTicket agora inclui ConfigItemSearch + ConfigItemGet + TicketCreate+LinkObject.
+
+# 3) sidecar: rebuild (traz /v1/assets*, config_item_id em /v1/tickets; SEM migration nova) + up:
+ssh gc "cd ~/ground-control && $DC build sidecar && $DC up -d sidecar && $DC ps"
+
+# 4) portal: rebuild (traz /ativos, /ativos/[id], nav "Ativos") + up:
+ssh gc "cd ~/ground-control && $DC build portal && $DC up -d portal && $DC ps"
+
+# 5) verificação e2e:
+#    a) MSP: criar um Config Item para Aurora com CustomerID=AURORA no Znuny
+#       (ITSM → Config Items → Add → classe Computador, CustomerID=AURORA)
+#    b) logar no portal Aurora como customer → acessar /ativos → CI deve aparecer
+#    c) clicar no CI → /ativos/<id> deve mostrar o detalhe
+#    d) clicar "Abrir chamado sobre este ativo" → /tickets/novo?ativo=<id>
+#    e) submeter o ticket → conferir ticket Znuny criado com link RelevantTo:
+ssh gc 'docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && perl -e \"
+    use Kernel::System::ObjectManager;
+    local \\\$Kernel::OM = Kernel::System::ObjectManager->new();
+    my \\\$LinkObject = \\\$Kernel::OM->Get(\\\"Kernel::System::LinkObject\\\");
+    my %List = \\\$LinkObject->LinkList(
+      Object => \\\"Ticket\\\", Key => <TICKET_ID>,
+      Object2 => \\\"ITSMConfigItem\\\", UserID => 1,
+    );
+    use Data::Dumper; print Dumper(\\\\%List);
+  \""'
+#    f) confirmar link RelevantTo presente na saída do Dumper
+#    g) limpar throwaways: ticket Znuny + link + CI criados no teste (via UI MSP)
+
+# 6) serviços anteriores intactos:
+curl -fsS https://znuny-dev.was.dev.br/znuny/index.pl | grep -qi login && echo ZNUNY_OK
+curl -fsS https://api-dev.was.dev.br/v1/health && echo SIDECAR_OK
+curl -fsS https://aurora.was.dev.br/ | grep -qi 'Aurora' && echo AURORA_OK
+curl -fsS https://technova.was.dev.br/ | grep -qi 'TechNova' && echo TECHNOVA_OK
+curl -fsS https://gerti.was.dev.br/login | grep -qi 'login' && echo ADMIN_OK
+curl -fsS https://groundcontrol.was.dev.br >/dev/null && echo LANDING_OK
+```
+
+**Rollback (sidecar + portal somente; Znuny — add-ons persistem no DB, não destrutivo):**
+
+```bash
+$DC stop portal sidecar   # UI /ativos some; add-ons ITSM e tickets anteriores intactos
+```
+
+Para reverter código Znuny: `git checkout <sha-anterior> -- znuny/`
+→ rebuild: `$DC build znuny-web && $DC up -d znuny-web znuny-daemon`.
+Os add-ons ITSM instalados no DB Znuny **persistem** (desinstalar manualmente
+se necessário, em ordem inversa: `Admin::Package::Uninstall` para
+`ITSMConfigurationManagement` → `ITSMCore` → `GeneralCatalog`).
+**NUNCA** `make reset` (destrói o DB Znuny compartilhado).
+
+> **Status (2026-06-09): gateado na branch `feature/spec-1k-cmdb-ativos`; deploy
+> é etapa separada.** Gates verdes: `perl -c` das 3 novas ops GI no build Znuny,
+> sidecar `ruff`+`mypy`+`pytest`, portal typecheck+vitest, e2e local. Referência:
+> `docs/superpowers/spikes/2026-06-09-r1k-znuny-itsm-cmdb.md` (R1K freeze doc).
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)
