@@ -9,6 +9,11 @@ useHead({
 
 const route = useRoute()
 const isAuthedView = computed(() => route.path !== '/login')
+
+const navLinks = [
+  { to: '/', label: 'Clientes' },
+  { to: '/atendimento', label: 'Atendimento' },
+]
 </script>
 
 <template>
@@ -20,12 +25,26 @@ const isAuthedView = computed(() => route.path !== '/login')
       class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur"
     >
       <div class="mx-auto flex max-w-6xl items-center gap-3 px-5 py-3">
-        <span
-          class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-white shadow-sm font-display"
-        >G</span>
-        <span class="font-display text-lg font-bold tracking-tight">
-          {{ ADMIN_IDENTITY.display_name }}
-        </span>
+        <NuxtLink to="/" class="flex items-center gap-3">
+          <span
+            class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-white shadow-sm font-display"
+          >G</span>
+          <span class="font-display text-lg font-bold tracking-tight">
+            {{ ADMIN_IDENTITY.display_name }}
+          </span>
+        </NuxtLink>
+
+        <nav class="ml-4 flex items-center gap-1">
+          <ULink
+            v-for="link in navLinks"
+            :key="link.to"
+            :to="link.to"
+            class="rounded-md px-3 py-1.5 text-sm font-medium text-muted transition hover:bg-elevated hover:text-default"
+            active-class="bg-elevated text-highlighted"
+          >
+            {{ link.label }}
+          </ULink>
+        </nav>
       </div>
     </header>
 
