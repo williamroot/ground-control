@@ -32,8 +32,21 @@ router = APIRouter(prefix="/tickets", tags=["tickets"])
 
 _MAX_ATTACH_BYTES = 100 * 1024 * 1024  # 100 MB por arquivo (#1L)
 _ALLOWED_EXT = {
-    ".png", ".jpg", ".jpeg", ".pdf", ".txt", ".log", ".csv", ".zip", ".doc", ".docx",
-    ".mp4", ".mov", ".webm", ".mkv", ".avi",  # vídeo (#1L)
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".pdf",
+    ".txt",
+    ".log",
+    ".csv",
+    ".zip",
+    ".doc",
+    ".docx",
+    ".mp4",
+    ".mov",
+    ".webm",
+    ".mkv",
+    ".avi",  # vídeo (#1L)
 }
 
 
