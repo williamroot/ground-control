@@ -8,9 +8,10 @@ export type BadgeColor = 'success' | 'warning' | 'error' | 'info' | 'neutral'
 export function deployStateColor(state: string | null | undefined): BadgeColor {
   const s = (state ?? '').toLowerCase()
   if (!s) return 'neutral'
+  // Retirado/inativo antes de "ativo" — "inactive" contém "active".
+  if (/(retir|decommiss|inactive|inativo|expir|scrap)/.test(s)) return 'neutral'
   if (/(produc|production|active|ativo)/.test(s)) return 'success'
   if (/(maint|manuten|plan|test|pilot|repair)/.test(s)) return 'warning'
-  if (/(retir|decommiss|inactive|inativo|expir|scrap)/.test(s)) return 'neutral'
   return 'info'
 }
 
