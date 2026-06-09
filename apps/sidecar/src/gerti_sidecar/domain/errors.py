@@ -17,3 +17,15 @@ class ConsumptionError(DomainError):
 
 class CycleError(DomainError):
     """Invalid cycle operation."""
+
+
+class CsatError(DomainError):
+    """Invalid CSAT submission (ticket não encontrado/posse, score inválido) -> 404/422."""
+
+
+class TicketNotClosed(CsatError):
+    """CSAT só é permitido em ticket fechado -> 422."""
+
+
+class CsatAlreadyExists(CsatError):
+    """Já existe uma resposta CSAT para este ticket (UNIQUE) -> 409."""
