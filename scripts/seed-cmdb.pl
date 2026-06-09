@@ -74,6 +74,9 @@ my @ASSETS = (
             Model           => 'Latitude 5440',
             SerialNumber    => 'AUR-NB-001-SN7H2K',
             OperatingSystem => 'Windows 11 Pro',
+            CPU             => 'Intel i5-1135G7',
+            Memoria         => '16 GB',
+            Disco           => '512 GB SSD',
             Description     => 'Notebook da gerência de produção (Eduardo Salvi).',
         },
     },
@@ -82,7 +85,10 @@ my @ASSETS = (
             Vendor          => 'Lenovo',
             Model           => 'ThinkCentre M70q',
             SerialNumber    => 'AUR-PC-014-SN9X4B',
-            OperatingSystem => 'Windows 11 Pro',
+            OperatingSystem => 'Ubuntu 22.04 LTS',
+            CPU             => 'AMD Ryzen 5',
+            Memoria         => '32 GB',
+            Disco           => '1 TB SSD',
             Description     => 'Desktop do setor financeiro (estação 14).',
         },
     },
@@ -133,13 +139,42 @@ sub build_xmldata {
     return [ undef, { Version => [ undef, \%ver ] } ];
 }
 
-my %REPORT = ( created => 0, skipped => 0 );
+# ── verifica se a versão atual do CI já tem o campo Memoria preenchido ────────
+sub needs_enrichment {
+    my ($cid) = @_;
+    my $v = $CIObj->VersionGet( ConfigItemID => $cid, XMLDataGet => 1 );
+    return 0 unless $v && ref $v eq 'HASH';
+    my $node = eval { $v->{XMLData}->[1]{Version}[1] } || {};
+    my $mem  = eval { $node->{Memoria}[1]{Content} };
+    return ( !defined $mem || $mem eq '' ) ? 1 : 0;
+}
+
+my %REPORT = ( created => 0, skipped => 0, enriched => 0 );
 
 for my $a (@ASSETS) {
     my $existing = already_seeded( $a->{class}, $a->{name} );
     if ($existing) {
-        print "  = [$a->{class}] '$a->{name}' já existe (CI #$existing) — pulado\n";
-        $REPORT{skipped}++;
+        # approach (a): se já existe mas falta Memoria, adiciona versão enriquecida
+        if ( $a->{class} eq 'Computer' && needs_enrichment($existing) ) {
+            my $vid = $CIObj->VersionAdd(
+                ConfigItemID => $existing,
+                Name         => $a->{name},
+                DefinitionID => def_id( $a->{class} ),
+                DeplStateID  => $DEPL_PROD,
+                InciStateID  => $INCI_OP,
+                UserID       => $ROOT,
+                XMLData      => build_xmldata( $a->{attrs} ),
+            );
+            if ($vid) {
+                print "  ~ [$a->{class}] '$a->{name}' enriquecido (CI #$existing, nova versão #$vid)\n";
+                $REPORT{enriched}++;
+            } else {
+                print "  ! [$a->{class}] '$a->{name}' FALHA ao enriquecer (CI #$existing)\n";
+            }
+        } else {
+            print "  = [$a->{class}] '$a->{name}' já existe (CI #$existing) — pulado\n";
+            $REPORT{skipped}++;
+        }
         next;
     }
 
@@ -167,7 +202,8 @@ for my $a (@ASSETS) {
 }
 
 print "\n=== RESUMO ===\n";
-printf "  ativos criados:  %d\n", $REPORT{created};
-printf "  ativos pulados:  %d (já existiam)\n", $REPORT{skipped};
+printf "  ativos criados:    %d\n", $REPORT{created};
+printf "  ativos enriquecidos: %d (VersionAdd com SO/CPU/Memória/Disco)\n", $REPORT{enriched};
+printf "  ativos pulados:    %d (já existiam e já tinham os campos)\n", $REPORT{skipped};
 print "\nSeed CMDB concluído. Reexecutar é seguro (idempotente).\n\n";
 exit 0;
