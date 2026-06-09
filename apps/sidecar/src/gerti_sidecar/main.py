@@ -18,6 +18,7 @@ from gerti_sidecar.routers import (
     admin_auth,
     admin_contracts,
     admin_tenants,
+    admin_timer,
     auth,
     branding,
     contracts,
@@ -69,6 +70,8 @@ def create_app() -> FastAPI:
     app.include_router(admin_auth.router, prefix=settings.api_v1_prefix)
     app.include_router(admin_tenants.router, prefix=settings.api_v1_prefix)
     app.include_router(admin_contracts.router, prefix=settings.api_v1_prefix)
+    # Time tracker do agente (Spec #1J).
+    app.include_router(admin_timer.router, prefix=settings.api_v1_prefix)
     app.add_middleware(TenantMiddleware)
 
     return app

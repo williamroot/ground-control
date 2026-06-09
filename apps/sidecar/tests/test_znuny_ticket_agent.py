@@ -28,9 +28,19 @@ async def test_time_accounting_add(monkeypatch):
 async def test_agent_search(monkeypatch):
     async def fake_post(route, body):
         assert route == "/Agent/Ticket/Search"
-        return {"Tickets": [{"TicketID": 19, "TicketNumber": "n", "Title": "t",
-                             "State": "open", "CustomerID": "AURORA", "Owner": "william",
-                             "Created": "2026-06-09 10:00:00"}]}
+        return {
+            "Tickets": [
+                {
+                    "TicketID": 19,
+                    "TicketNumber": "n",
+                    "Title": "t",
+                    "State": "open",
+                    "CustomerID": "AURORA",
+                    "Owner": "william",
+                    "Created": "2026-06-09 10:00:00",
+                }
+            ]
+        }
 
     monkeypatch.setattr(znuny_ticket, "_post_agent", fake_post)
     rows = await znuny_ticket.agent_search(query="impr", customer_id=None)

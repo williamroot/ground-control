@@ -14,9 +14,7 @@ class _GI:
     def __init__(self):
         self.calls: list = []
 
-    async def time_accounting_add(
-        self, *, znuny_ticket_id, agent_login, time_unit, note=None
-    ):
+    async def time_accounting_add(self, *, znuny_ticket_id, agent_login, time_unit, note=None):
         self.calls.append((znuny_ticket_id, agent_login, time_unit, note))
 
 

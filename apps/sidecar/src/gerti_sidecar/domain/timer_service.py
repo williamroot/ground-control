@@ -38,8 +38,9 @@ class TimerService:
         self._session = session
         self._gi = gi
 
-    async def start(self, *, agent_login: str, znuny_ticket_id: int,
-                    now: dt.datetime | None = None) -> AgentTimer:
+    async def start(
+        self, *, agent_login: str, znuny_ticket_id: int, now: dt.datetime | None = None
+    ) -> AgentTimer:
         now = now or _now()
         existing = (
             await self._session.execute(
@@ -53,8 +54,11 @@ class TimerService:
         if existing is not None:
             return existing  # idempotente
         t = AgentTimer(
-            agent_login=agent_login, znuny_ticket_id=znuny_ticket_id,
-            status="running", accumulated_seconds=0, last_started_at=now,
+            agent_login=agent_login,
+            znuny_ticket_id=znuny_ticket_id,
+            status="running",
+            accumulated_seconds=0,
+            last_started_at=now,
         )
         self._session.add(t)
         await self._session.flush()
@@ -88,8 +92,14 @@ class TimerService:
         await self._session.flush()
         return t
 
-    async def stop(self, timer_id: uuid.UUID, *, now: dt.datetime | None = None,
-                   adjust_minutes: float | None = None, note: str | None = None) -> AgentTimer:
+    async def stop(
+        self,
+        timer_id: uuid.UUID,
+        *,
+        now: dt.datetime | None = None,
+        adjust_minutes: float | None = None,
+        note: str | None = None,
+    ) -> AgentTimer:
         now = now or _now()
         t = await self._get(timer_id)
         if t.status == "stopped":
@@ -102,8 +112,10 @@ class TimerService:
             minutes = 0.01  # nunca lança 0 (TimeAccountingAdd exige > 0)
         # Lança no Znuny PRIMEIRO; só marca stopped se o GI confirmar.
         await self._gi.time_accounting_add(
-            znuny_ticket_id=t.znuny_ticket_id, agent_login=t.agent_login,
-            time_unit=float(minutes), note=note,
+            znuny_ticket_id=t.znuny_ticket_id,
+            agent_login=t.agent_login,
+            time_unit=float(minutes),
+            note=note,
         )
         t.accumulated_seconds = total
         t.status = "stopped"

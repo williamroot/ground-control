@@ -23,8 +23,12 @@ depends_on: str | Sequence[str] | None = None
 def upgrade() -> None:
     op.create_table(
         "agent_timer",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True,
-                  server_default=sa.text("gen_random_uuid()")),
+        sa.Column(
+            "id",
+            postgresql.UUID(as_uuid=True),
+            primary_key=True,
+            server_default=sa.text("gen_random_uuid()"),
+        ),
         sa.Column("agent_login", sa.String(), nullable=False),
         sa.Column("znuny_ticket_id", sa.Integer(), nullable=False),
         sa.Column("status", sa.String(), nullable=False),  # running|paused|stopped
@@ -33,11 +37,15 @@ def upgrade() -> None:
         sa.Column("note", sa.String()),
         sa.Column("committed_time_unit", sa.Numeric(10, 2)),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), nullable=False,
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
             server_default=sa.text("now()"),
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), nullable=False,
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
             server_default=sa.text("now()"),
         ),
         sa.CheckConstraint(

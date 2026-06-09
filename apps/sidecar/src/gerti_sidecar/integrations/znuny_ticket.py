@@ -247,9 +247,7 @@ async def time_accounting_add(
     await _post_agent("/TimeAccounting/Add", payload)
 
 
-async def agent_search(
-    *, query: str | None, customer_id: str | None
-) -> list[AgentTicketSummary]:
+async def agent_search(*, query: str | None, customer_id: str | None) -> list[AgentTicketSummary]:
     body: dict[str, Any] = {}
     if query:
         body["Query"] = query
