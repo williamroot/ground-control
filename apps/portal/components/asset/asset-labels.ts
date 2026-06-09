@@ -25,3 +25,28 @@ export function inciStateColor(state: string | null | undefined): BadgeColor {
   if (/(incid|fail|falha|down|critical|critic|erro)/.test(s)) return 'error'
   return 'neutral'
 }
+
+// Rótulos PT-BR das chaves de `attributes` do Config Item (#1L fase 2).
+// Chave desconhecida cai no próprio nome cru via assetAttrLabel().
+export const ASSET_ATTR_LABELS: Record<string, string> = {
+  OperatingSystem: 'Sistema operacional',
+  Vendor: 'Fabricante',
+  Model: 'Modelo',
+  SerialNumber: 'Nº de série',
+  CPU: 'CPU',
+  Memoria: 'Memória',
+  Disco: 'Disco',
+  Description: 'Descrição',
+  NetworkAddress: 'Endereço de rede',
+  Version: 'Versão',
+}
+
+// Ordem preferida das chaves conhecidas; o resto vem depois em ordem alfabética.
+export const ASSET_ATTR_ORDER: string[] = [
+  'OperatingSystem', 'Vendor', 'Model', 'SerialNumber', 'CPU',
+  'Memoria', 'Disco', 'NetworkAddress', 'Version', 'Description',
+]
+
+export function assetAttrLabel(key: string): string {
+  return ASSET_ATTR_LABELS[key] ?? key
+}
