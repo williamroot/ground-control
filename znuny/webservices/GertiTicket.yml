@@ -34,6 +34,12 @@ Provider:
     AgentTicketGet:
       Description: Agent-side ticket detail
       Type: GertiTicket::AgentTicketGet
+    ConfigItemSearch:
+      Description: Search ITSM Config Items scoped by CustomerID (Spec #1K)
+      Type: GertiTicket::ConfigItemSearch
+    ConfigItemGet:
+      Description: ITSM Config Item detail (ownership-guarded, Spec #1K)
+      Type: GertiTicket::ConfigItemGet
   Transport:
     Config:
       KeepAlive: ''
@@ -75,5 +81,13 @@ Provider:
           RequestMethod:
           - POST
           Route: /Agent/Ticket/Get
+        ConfigItemSearch:
+          RequestMethod:
+          - POST
+          Route: /ConfigItem/Search
+        ConfigItemGet:
+          RequestMethod:
+          - POST
+          Route: /ConfigItem/Get
     Type: HTTP::REST
 RemoteSystem: ''

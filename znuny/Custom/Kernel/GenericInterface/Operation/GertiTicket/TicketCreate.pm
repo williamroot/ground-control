@@ -126,9 +126,38 @@ sub Run {
 
     my $TicketNumber = $TicketObject->TicketNumberLookup( TicketID => $TicketID );
 
+    # Optional: link a Config Item to the new ticket (Spec #1K). A link failure
+    # must NOT fail ticket creation — log and ignore (R1K §4.4).
+    my $LinkedConfigItemID;
+    if ( IsStringWithData( $D->{ConfigItemID} ) ) {
+        my $LinkOk = $Kernel::OM->Get('Kernel::System::LinkObject')->LinkAdd(
+            SourceObject => 'Ticket',
+            SourceKey    => $TicketID,
+            TargetObject => 'ITSMConfigItem',
+            TargetKey    => $D->{ConfigItemID},
+            Type         => 'RelevantTo',
+            State        => 'Valid',
+            UserID       => 1,
+        );
+        if ($LinkOk) {
+            $LinkedConfigItemID = $D->{ConfigItemID};
+        }
+        else {
+            $Kernel::OM->Get('Kernel::System::Log')->Log(
+                Priority => 'error',
+                Message  => "GertiTicket::TicketCreate: LinkAdd Ticket $TicketID <-> "
+                    . "ITSMConfigItem $D->{ConfigItemID} failed (ignored).",
+            );
+        }
+    }
+
     return {
         Success => 1,
-        Data    => { TicketID => $TicketID, TicketNumber => $TicketNumber },
+        Data    => {
+            TicketID     => $TicketID,
+            TicketNumber => $TicketNumber,
+            ( defined $LinkedConfigItemID ? ( ConfigItemID => $LinkedConfigItemID ) : () ),
+        },
     };
 }
 
