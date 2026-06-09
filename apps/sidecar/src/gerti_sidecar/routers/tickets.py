@@ -10,13 +10,20 @@ Anexos via multipart no POST. RLS por tenant para gravar o link.
 from __future__ import annotations
 
 import base64
+import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerti_sidecar.auth.session import SessionPayload, get_current_session
-from gerti_sidecar.db import get_tenant_session
+from gerti_sidecar.db import get_tenant_session, tenant_session_scope
+from gerti_sidecar.domain.csat_service import (
+    CsatAlreadyExists,
+    CsatError,
+    CsatService,
+    TicketNotClosed,
+)
 from gerti_sidecar.domain.ticketing_service import (
     ContractChoiceRequired,
     NoActiveContract,
@@ -59,6 +66,15 @@ class OpenedTicketOut(BaseModel):
 def _customer_id(request: Request) -> str:
     tenant: Tenant = request.state.tenant
     return tenant.znuny_customer_id
+
+
+def _tenant_id(request: Request) -> uuid.UUID:
+    tenant: Tenant = request.state.tenant
+    return tenant.id
+
+
+def _is_closed(state: str | None) -> bool:
+    return "closed" in (state or "").lower()
 
 
 @router.post("", status_code=201, response_model=OpenedTicketOut)
@@ -162,6 +178,18 @@ async def get_ticket(
         raise HTTPException(status_code=404, detail="ticket_not_found") from exc
     except ZnunyUnavailable as exc:
         raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
+
+    # Estado do CSAT (#1M): submitted+score se já respondido; senão
+    # eligible = (ticket fechado AND ainda não respondido).
+    async with tenant_session_scope(_tenant_id(request)) as s:
+        existing = await CsatService(s, znuny_ticket).find(
+            tenant_id=_tenant_id(request), znuny_ticket_id=ticket_id
+        )
+    if existing is not None:
+        csat: dict[str, object] = {"submitted": True, "score": existing.score}
+    else:
+        csat = {"submitted": False, "eligible": _is_closed(d.state)}
+
     return {
         "znuny_ticket_id": d.znuny_ticket_id,
         "ticket_number": d.ticket_number,
@@ -171,6 +199,7 @@ async def get_ticket(
         "created": d.created,
         "contract_id": d.contract_id,
         "articles": d.articles,
+        "csat": csat,
     }
 
 
@@ -197,3 +226,41 @@ async def reply_ticket(
     except ZnunyUnavailable as exc:
         raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
     return {"ok": True}
+
+
+class CsatIn(BaseModel):
+    score: int = Field(ge=1, le=5)
+    comment: str | None = None
+
+
+class CsatOut(BaseModel):
+    submitted: bool = True
+    score: int
+
+
+@router.post("/{ticket_id}/csat", status_code=201, response_model=CsatOut)
+async def submit_csat(
+    ticket_id: int,
+    payload: CsatIn,
+    request: Request,
+    session_payload: SessionPayload = Depends(get_current_session),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> CsatOut:
+    try:
+        row = await CsatService(session, znuny_ticket).submit(
+            tenant_id=_tenant_id(request),
+            znuny_ticket_id=ticket_id,
+            customer_login=session_payload["znuny_login"],
+            customer_id=_customer_id(request),
+            score=payload.score,
+            comment=payload.comment,
+        )
+    except TicketNotClosed as exc:
+        raise HTTPException(status_code=422, detail="ticket_not_closed") from exc
+    except CsatAlreadyExists as exc:
+        raise HTTPException(status_code=409, detail="csat_already_submitted") from exc
+    except CsatError as exc:
+        raise HTTPException(status_code=404, detail="ticket_not_found") from exc
+    except ZnunyUnavailable as exc:
+        raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
+    return CsatOut(score=row.score)
