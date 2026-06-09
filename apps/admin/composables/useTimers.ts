@@ -26,6 +26,28 @@ function epochSeconds(iso: string | null): number {
   return Number.isNaN(ms) ? 0 : ms / 1000
 }
 
+// Helpers puros exportados para testes unitários determinísticos.
+// `elapsedSeconds(timer, nowMs)` recebe o timestamp epoch em milissegundos
+// (Date.now()) em vez de ler o ref reativo, tornando-o testável sem Nuxt.
+export function elapsedSeconds(timer: Timer, nowMs: number): number {
+  let total = timer.accumulated_seconds
+  if (timer.status === 'running' && timer.last_started_at) {
+    const delta = nowMs / 1000 - epochSeconds(timer.last_started_at)
+    total += Math.max(0, delta)
+  }
+  return Math.floor(total)
+}
+
+// HH:MM:SS (zero-padded). Exportado para testes sem instanciar o composable.
+export function formatHMS(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds))
+  const hh = Math.floor(s / 3600)
+  const mm = Math.floor((s % 3600) / 60)
+  const ss = s % 60
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(hh)}:${pad(mm)}:${pad(ss)}`
+}
+
 export function useTimers() {
   // Mapa znuny_ticket_id -> timer, compartilhado por toda a app (useState).
   const timers = useState<Record<number, Timer>>('timers', () => ({}))
@@ -40,25 +62,9 @@ export function useTimers() {
     return timers.value[ticketId]
   }
 
-  // Segundos decorridos: acumulado + (se rodando) o tempo desde last_started_at.
-  // Depende de `now` para recomputar a cada segundo enquanto roda.
+  // Segundos decorridos: delega ao helper puro exportado, passando `now` reativo.
   function elapsed(timer: Timer): number {
-    let total = timer.accumulated_seconds
-    if (timer.status === 'running' && timer.last_started_at) {
-      const delta = now.value / 1000 - epochSeconds(timer.last_started_at)
-      total += Math.max(0, delta)
-    }
-    return Math.floor(total)
-  }
-
-  // HH:MM:SS (zero-padded), tabular para não "pular" largura ao ticar.
-  function formatHMS(totalSeconds: number): string {
-    const s = Math.max(0, Math.floor(totalSeconds))
-    const hh = Math.floor(s / 3600)
-    const mm = Math.floor((s % 3600) / 60)
-    const ss = s % 60
-    const pad = (n: number) => String(n).padStart(2, '0')
-    return `${pad(hh)}:${pad(mm)}:${pad(ss)}`
+    return elapsedSeconds(timer, now.value)
   }
 
   async function refresh(): Promise<void> {
