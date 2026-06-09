@@ -154,7 +154,7 @@ async function submit() {
         + 'Fale com o suporte se acredita que isto é um engano.'
     }
     else if (status === 413) {
-      formError.value = 'Um dos anexos é grande demais (limite de 10 MB por arquivo).'
+      formError.value = 'Um dos anexos é grande demais (limite de 100 MB por arquivo).'
     }
     else if (status === 415) {
       formError.value = 'Tipo de anexo não permitido. Use PNG, JPG, PDF, TXT, LOG, CSV, ZIP ou DOC.'
