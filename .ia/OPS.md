@@ -831,6 +831,42 @@ $DC build portal  && $DC up -d sidecar sidecar-worker portal
 > replay **409** `csat_already_submitted` → `GET /v1/tickets/36` traz `csat:{submitted,score}` →
 > ticket aberto (#39) **422** `ticket_not_closed`. Posse company-scoped via `get_ticket(CustomerID)`.
 
+### Deploy da IA — Ollama Cloud (Spec #1N — profile `gerti`)
+
+**O que muda.** Console do agente ganha **resumo de ticket** e **resposta sugerida** via
+LLM **Ollama Cloud `gpt-oss:120b`**. Feature **opt-in** (`AI_FEATURES_ENABLED=true` +
+`OLLAMA_API_KEY`); sem isso, endpoints `404` e o painel some. Tabela operacional
+`gerti.ai_generation_log` (só metadados — agente/ticket/kind/model/duração/ok; **nunca**
+conteúdo). Sem mudança no Znuny (`AgentTicketGet` já trazia a thread desde #1J).
+
+> **Segredo (NUNCA commitar).** O `OLLAMA_API_KEY` vai SÓ no `.env.prod` da VPS (gitignored),
+> junto de `OLLAMA_BASE_URL=https://ollama.com`, `OLLAMA_MODEL=gpt-oss:120b`, `AI_FEATURES_ENABLED=true`.
+> O `docker-compose.yml` repassa essas vars ao `sidecar` (defaults vazios/false — kill-switch fail-safe).
+
+```bash
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+git pull origin main
+$DC build sidecar && $DC run --rm sidecar-migrate     # -> 0016_ai_generation_log
+$DC build admin   && $DC up -d sidecar sidecar-worker admin
+# smoke do motor: curl https://ollama.com/api/chat -H "Authorization: Bearer $OLLAMA_API_KEY" \
+#   -d '{"model":"gpt-oss:120b","messages":[{"role":"user","content":"ok"}],"stream":false}'
+```
+
+**Egress externo (decisão de segurança — ADR).** Resumir/sugerir **envia conteúdo de ticket
+para o Ollama Cloud** (serviço externo). Mitigações: opt-in por env; só agente (`gsid_adm`);
+resposta sugerida é **rascunho editável** (nunca auto-enviada ao cliente); auditoria em
+`ai_generation_log`. **Prompt injection:** conteúdo de ticket é não-confiável — defesa em
+camadas (spotlighting com delimitadores `<<<UNTRUSTED>>>`, sanitização dos marcadores,
+**sem tools/function-calling**, saída tratada como não-confiável + escapada no front, limites
+de tamanho, teste de regressão). Ver roadmap §E e `docs/superpowers/plans/2026-06-09-1n-ai-ollama.md`.
+
+> **Status (2026-06-09): DEPLOYADO em staging + e2e ao vivo.** Migration `0016`; sidecar
+> (206 testes) + admin (47) verdes. **e2e (agente william):** login 200 → `GET /v1/admin/ai/enabled`
+> `{enabled:true}` → `POST /summarize {ticket_id:36}` **200** (resumo PT-BR coerente: problema/
+> tentativas/estado/próximo passo, da thread real do Outlook) → `POST /suggest-reply` **200**
+> (rascunho profissional com a instrução do agente) → `ai_generation_log` com 2 linhas (summary
+> 3306ms / reply 3542ms, ok=t, gpt-oss:120b, sem conteúdo).
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)
