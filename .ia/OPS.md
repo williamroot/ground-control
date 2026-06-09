@@ -515,13 +515,16 @@ Migration reversa (se necessário): `$DC run --rm sidecar-migrate uv run alembic
 > Healthy; webservice **GertiTicket atualizado por `--webservice-id`** (op nova incluída;
 > GertiCustomerAuth 1 + GertiAdmin 2 + GertiTicket 3 intactos); migration **0013** aplicada
 > (`gerti.consumption_sync_cursor` presente); `sidecar` Healthy + `sidecar-worker` Up. **Worker
-> provado vivo em prod:** log `cycles.closed count=1` — o fechamento automático de ciclo já
-> operou em produção. **Pendente (bloqueio externo de SSH — jump host `100.96.54.61` em
-> timeout):** a verificação ao vivo do *e2e de consumo em prod* (criar ticket vinculado →
-> lançar tempo → saldo debita) e a limpeza de eventuais dados de teste. Assim que o SSH voltar,
-> rodar a verificação §4 acima + conferir/limpar throwaways. **Bugs de runbook corrigidos no
-> e2e:** (1) `Admin::WebService::Update` exige `--webservice-id` (não `--name`) nesta versão
-> Znuny; (2) `sidecar-worker` precisa de `healthcheck: {disable: true}` (não roda HTTP).
+> provado vivo em prod:** log `cycles.closed count=1`. **e2e de consumo em prod VERIFICADO ao
+> vivo (2026-06-09):** ticket Aurora vinculado ao `AUR-HORAS-2026` (hour_bank) → 45 min em
+> `time_accounting` → tick do worker → `gerti.consumption_event` (45 min, `ticket_work`,
+> `recorded_by=worker:reconcile`) + cursor avançado → saldo debitado. Ciclo auto-fechado
+> `7f130956` (`AUR-HORAS-2026`, period_end 2026-01-31, legitimamente vencido, 360 min
+> consolidados). Throwaways limpos (ticket Znuny + `time_accounting` + link removidos; o
+> `consumption_event` é append-only e persiste por design). Serviços anteriores intactos.
+> **Bugs de runbook corrigidos no e2e:** (1) `Admin::WebService::Update` exige `--webservice-id`
+> (não `--name`) nesta versão Znuny; (2) `sidecar-worker` precisa de `healthcheck: {disable: true}`
+> (não roda HTTP).
 
 ## Backup (a definir em prod)
 
