@@ -219,6 +219,10 @@ COPY scripts/ensure-itsm.sh ${OTRS_HOME}/scripts/ensure-itsm.sh
 RUN chmod +x ${OTRS_HOME}/scripts/ensure-itsm.sh && \
     chown otrs:www-data ${OTRS_HOME}/scripts/ensure-itsm.sh
 
+# ── CMDB Computer fields helper (#1L, R1L): idempotent append of Disco/Memoria.
+COPY scripts/ensure-cmdb-fields.pl ${OTRS_HOME}/scripts/ensure-cmdb-fields.pl
+RUN chown otrs:www-data ${OTRS_HOME}/scripts/ensure-cmdb-fields.pl
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY Config.pm.tmpl ${OTRS_HOME}/Kernel/Config.pm.tmpl
 RUN chmod +x /usr/local/bin/entrypoint.sh

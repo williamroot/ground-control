@@ -165,6 +165,10 @@ provision_all() {
     su otrs -s /bin/bash -c "cd ${OTRS_HOME} && bash scripts/ensure-itsm.sh" \
         && log "ITSM CMDB packages ensured." \
         || log "WARN: ensure-itsm.sh failed — ITSM CMDB may not be installed; continuing."
+    # ── CMDB fields (#1L, R1L): idempotent append of Disco/Memoria to Computer class.
+    su otrs -s /bin/bash -c "cd ${OTRS_HOME} && perl scripts/ensure-cmdb-fields.pl" \
+        && log "CMDB Computer fields (Disco/Memoria) ensured." \
+        || log "WARN: ensure-cmdb-fields falhou — continuando."
     su otrs -s /bin/bash -c "cd ${OTRS_HOME} && bin/otrs.Console.pl Maint::Cache::Delete" || true
     mkdir -p "$(dirname "${MARKER}")"
     date -u +%FT%TZ > "${MARKER}"
