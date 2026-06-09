@@ -82,7 +82,20 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ---
 
-## FASE 1 — Znuny: instalar CMDB + atributo CustomerCompany + ops GI
+> **⚠️ R1K SUPERSEDE (ler `docs/superpowers/spikes/2026-06-09-r1k-znuny-itsm-cmdb.md`):**
+> (1) São **3 pacotes** (GeneralCatalog→ITSMCore→ITSMConfigurationManagement), **versão 7.2.1**;
+> **ImportExport NÃO é necessário**. (2) `.opm` em `https://addons.znuny.com/public/<Pkg>-7.2.1.opm`
+> (NÃO `download.znuny.org/releases/itsm`); instalar por **caminho local** (`Admin::Package::Install
+> /path.opm`). (3) **`CustomerID` já é nativo** nas 5 classes (Input type `CustomerCompany`) →
+> **NÃO criar atributo custom**; o escopo por tenant usa o `CustomerID` nativo (o
+> `ensure-cmdb-customercompany.pl` é desnecessário). (4) API congelada: search =
+> `ConfigItemSearchExtended(ClassIDs=>[id], What=>[{"[%]{'Version'}[%]{'CustomerID'}[%]{'Content'}"=>cid}])`;
+> get = `ConfigItemGet`+`VersionGet(XMLDataGet=>1)`; link = `LinkObject->LinkAdd(SourceObject=>'Ticket',
+> TargetObject=>'ITSMConfigItem', Type=>'RelevantTo', State=>'Valid', UserID=>1)`. CI só é
+> pesquisável após `VersionAdd`; ids de classe/estado resolvidos por nome. **Onde o texto abaixo
+> diz "atributo CustomerCompany", leia "campo CustomerID nativo" e pule a criação de atributo.**
+
+## FASE 1 — Znuny: instalar CMDB (3 add-ons) + ops GI (escopo por CustomerID nativo)
 
 ### Task 1: Bake dos `.opm` + install idempotente + atributo CustomerCompany
 
