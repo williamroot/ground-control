@@ -812,6 +812,25 @@ docker compose exec -T znuny-web su -c "perl /opt/otrs/var/seed-cmdb.pl" -s /bin
 > Ryzen 5 / 32 GB / 1 TB); **IDOR**: CI da Aurora pedido como TECHNOVA → `NotFound`;
 > allowlist de vídeo (`.mp4/.mov/.webm/.mkv/.avi`) + cap 100 MB live no sidecar.
 
+### Deploy do CSAT no portal (Spec #1M — profile `gerti`)
+
+**O que muda.** Avaliação **1–5** do cliente quando o chamado é fechado, inline no
+detalhe do ticket no portal. Tabela `gerti.csat_response` (RLS, 1 resposta/ticket).
+Sem mudança no Znuny — só migration + sidecar + portal.
+
+```bash
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+git pull origin main
+$DC build sidecar && $DC run --rm sidecar-migrate         # alembic upgrade head -> 0015_csat
+$DC build portal  && $DC up -d sidecar sidecar-worker portal
+```
+
+> **Status (2026-06-09): DEPLOYADO em staging + e2e ao vivo.** Migration `0015_csat`
+> aplicada; sidecar (178 testes) + portal (80) verdes. **e2e (Aurora, via API):**
+> login 200 → `POST /v1/tickets/36/csat` (fechado) **201** `{submitted,score:5}` →
+> replay **409** `csat_already_submitted` → `GET /v1/tickets/36` traz `csat:{submitted,score}` →
+> ticket aberto (#39) **422** `ticket_not_closed`. Posse company-scoped via `get_ticket(CustomerID)`.
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)

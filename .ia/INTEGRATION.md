@@ -146,6 +146,7 @@ Estado atual (ponto de convergência — item aberto):
 | #1K: portal `/ativos` (lista read-only) + `/ativos/[id]` (detalhe) + "Abrir chamado sobre este ativo" → `/tickets/novo?ativo=<id>`; nav "Ativos"; proxies com guard de path-injection | **Pronto, gateado; deploy per runbook** |
 | #1L: anexos de **vídeo** no chamado (`.mp4/.mov/.webm/.mkv/.avi`, cap 100 MB/arquivo); GI `GertiTicket` `MaxLength` 200 MB (base64 de 100 MB) — ressalva Cloudflare free ~100 MB na borda | **Pronto + DEPLOYADO em staging (2026-06-09, e2e ao vivo)** |
 | #1L: classe Computer + `Disco`/`Memoria`/`CPU` via `ensure-cmdb-fields.pl` (idempotente, no provisionamento); `ConfigItemGet` mapeia **todos** os atributos da versão (genérico) + `Created`; portal `/ativos/[id]` com ficha rica (SO/CPU/Memória/Disco/data) | **Pronto + DEPLOYADO em staging (2026-06-09, e2e ao vivo)** |
+| #1M: CSAT 1–5 no portal ao fechar — tabela `csat_response` (RLS, UNIQUE por ticket), `POST /v1/tickets/{id}/csat` (guarda de posse via `get_ticket` + estado fechado; 409 replay, 422 aberto), bloco `csat` no detalhe, widget `CsatPrompt` (cores semânticas, H8); alimenta o dashboard #1O | **Pronto + DEPLOYADO em staging (2026-06-09, e2e ao vivo)** |
 | Gestão avançada pela UI (editar contrato/fechar ciclo/glosa/reajuste) #1G-b | Pendente (deferred §9) |
 | OIDC / PKCE (#1D) | Pendente (deferred §9) |
 | Export CSV/PDF, filtros avançados, i18n | Pendente (deferred §9) |
