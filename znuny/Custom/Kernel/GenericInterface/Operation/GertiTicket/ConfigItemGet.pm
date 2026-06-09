@@ -69,11 +69,22 @@ sub Run {
         );
     }
 
-    # Extract any useful attributes from the version XMLData.
-    my $SerialNumber = eval { $V->{XMLData}->[1]{Version}[1]{SerialNumber}[1]{Content} };
-
+    # Generic mapping: pull every attribute present on the version node (R1L §6,
+    # XMLData path $V->{XMLData}->[1]{Version}[1]{<Key>}[1]{Content}). Captures
+    # OperatingSystem/CPU/Memoria/Disco/SerialNumber/etc. automatically. CustomerID
+    # is skipped here (returned at the top level). Multi-value fields (e.g. CPU,
+    # CountMax 16) only expose the first value ([1]) — sufficient for read-only.
     my %Attributes;
-    $Attributes{SerialNumber} = $SerialNumber if defined $SerialNumber;
+    my $VerNode = eval { $V->{XMLData}->[1]{Version}[1] } || {};
+    for my $Key ( sort keys %{$VerNode} ) {
+        next if $Key eq 'CustomerID';
+        my $Content = eval { $VerNode->{$Key}[1]{Content} };
+        $Attributes{$Key} = $Content if defined $Content && $Content ne '';
+    }
+
+    # Creation date from the ConfigItemGet header (R1L §5: key = CreateTime,
+    # string 'YYYY-MM-DD HH:MM:SS').
+    my $Created = $CI->{CreateTime};
 
     return {
         Success => 1,
@@ -85,6 +96,7 @@ sub Run {
             DeplState  => $CI->{CurDeplState},
             InciState  => $CI->{CurInciState},
             CustomerID => $CustomerID,
+            Created    => $Created,
             Attributes => \%Attributes,
         },
     };
