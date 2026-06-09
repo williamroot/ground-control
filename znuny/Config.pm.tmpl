@@ -70,6 +70,13 @@ sub Load {
     #   que o sidecar envia. Vazio → fail-closed (AuthFail).
     $Self->{'GertiAgent::AccessToken'} = '__GERTI_AGENT_WS_TOKEN__';
 
+    # ── Habilita Serviço e Tipo de ticket (#1E form-meta) ───────────
+    #   Sem isto o Znuny não usa serviços/tipos e os dropdowns do portal
+    #   do cliente ficam vazios (FormMeta.pm gatea em Ticket::Type e
+    #   Service::CustomerUserServiceMemberList retorna vazio).
+    $Self->{'Ticket::Service'} = 1;
+    $Self->{'Ticket::Type'}    = 1;
+
     # ── data inserted by installer ──────────────────────────────────
     # $DIBI$
 

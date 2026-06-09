@@ -29,6 +29,8 @@ HD_LOCAL="scripts/seed-helpdesk.pl"
 HD_IN_CT="/opt/otrs/var/seed-helpdesk.pl"
 CMDB_LOCAL="scripts/seed-cmdb.pl"
 CMDB_IN_CT="/opt/otrs/var/seed-cmdb.pl"
+SA_LOCAL="scripts/seed-service-assign.pl"
+SA_IN_CT="/opt/otrs/var/seed-service-assign.pl"
 PGUSER="$(grep -E '^POSTGRES_USER=' .env 2>/dev/null | cut -d= -f2)"; PGUSER="${PGUSER:-znuny}"
 PGDB="$(grep -E '^POSTGRES_DB=' .env 2>/dev/null | cut -d= -f2)";   PGDB="${PGDB:-znuny}"
 
@@ -85,6 +87,12 @@ if [[ "${1:-}" != "--verify" ]]; then
   else
     hdr "Ativos CMDB da Aurora — PULADO (pacote ITSMConfigurationManagement não instalado)"
   fi
+
+  # Atribui serviços aos customer users Aurora + cria tipos de ticket (#1E form-meta)
+  hdr "Serviços → Aurora customer users + tipos de ticket (#1E form-meta, idempotente)"
+  $DC cp "$SA_LOCAL" "$WEB:$SA_IN_CT"
+  $DC exec -T "$WEB" chown otrs:otrs "$SA_IN_CT"
+  c_otrs "perl $SA_IN_CT"
 fi
 
 # garante helper de auth no container (também no modo --verify isolado)
