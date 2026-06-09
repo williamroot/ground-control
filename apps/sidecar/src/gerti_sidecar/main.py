@@ -19,6 +19,7 @@ from gerti_sidecar.routers import (
     admin_contracts,
     admin_tenants,
     admin_timer,
+    assets,
     auth,
     branding,
     contracts,
@@ -66,6 +67,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard.router, prefix=settings.api_v1_prefix)
     app.include_router(ticketing_meta.router, prefix=settings.api_v1_prefix)
     app.include_router(tickets.router, prefix=settings.api_v1_prefix)
+    app.include_router(assets.router, prefix=settings.api_v1_prefix)
     # Console de Administração (Spec #1G-a) — cross-tenant, sessão gsid_adm.
     app.include_router(admin_auth.router, prefix=settings.api_v1_prefix)
     app.include_router(admin_tenants.router, prefix=settings.api_v1_prefix)

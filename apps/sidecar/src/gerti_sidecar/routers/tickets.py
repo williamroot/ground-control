@@ -54,6 +54,7 @@ async def open_ticket(
     service: str | None = Form(None),
     type_: str | None = Form(None, alias="type"),
     priority: str | None = Form(None),
+    config_item_id: int | None = Form(None),
     files: list[UploadFile] = File(default=[]),
     session_payload: SessionPayload = Depends(get_current_session),
     session: AsyncSession = Depends(get_tenant_session),
@@ -85,6 +86,7 @@ async def open_ticket(
         priority=priority,
         contract_id=contract_id,
         attachments=attachments,
+        config_item_id=config_item_id,
     )
     try:
         out = await TicketingService(session, znuny_ticket).open_ticket(data)

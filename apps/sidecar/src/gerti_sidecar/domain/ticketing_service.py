@@ -38,6 +38,7 @@ class OpenTicketInput:
     priority: str | None
     contract_id: str | None
     attachments: list[Any]
+    config_item_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,7 @@ class TicketingService:
             priority=data.priority,
             contract_id=str(contract_id),
             attachments=data.attachments or None,
+            config_item_id=data.config_item_id,
         )
 
         # tenant_id vem do GUC app.current_tenant; a FK + RLS garantem o escopo.
