@@ -161,6 +161,10 @@ provision_all() {
     provision_db
     seed_admin
     configure_opensearch
+    # ── ITSM CMDB add-ons (#1K, R1K): idempotent install (baked .opm, 3 pkgs)
+    su otrs -s /bin/bash -c "cd ${OTRS_HOME} && bash scripts/ensure-itsm.sh" \
+        && log "ITSM CMDB packages ensured." \
+        || log "WARN: ensure-itsm.sh failed — ITSM CMDB may not be installed; continuing."
     su otrs -s /bin/bash -c "cd ${OTRS_HOME} && bin/otrs.Console.pl Maint::Cache::Delete" || true
     mkdir -p "$(dirname "${MARKER}")"
     date -u +%FT%TZ > "${MARKER}"

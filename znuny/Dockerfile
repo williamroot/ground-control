@@ -195,6 +195,22 @@ COPY webservices/GertiTicket.yml ${OTRS_HOME}/webservices/GertiTicket.yml
 COPY scripts/ensure-gerti-dynamicfield.pl ${OTRS_HOME}/scripts/ensure-gerti-dynamicfield.pl
 RUN chown -R otrs:www-data ${OTRS_HOME}/webservices ${OTRS_HOME}/scripts/ensure-gerti-dynamicfield.pl
 
+# ── Znuny ITSM CMDB add-ons (#1K, R1K): baked for idempotent install at provision.
+# Dependency order: GeneralCatalog → ITSMCore → ITSMConfigurationManagement (version 7.2.1).
+# Source: https://addons.znuny.com/public/ (NOT download.znuny.org/releases/itsm/ — 404 for 7.2).
+# Install at runtime by local path (Admin::Package::Install <name> fails; path install works).
+RUN set -eux; \
+    mkdir -p "${OTRS_HOME}/var/packages"; \
+    for p in GeneralCatalog ITSMCore ITSMConfigurationManagement; do \
+      curl -fSL "https://addons.znuny.com/public/${p}-7.2.1.opm" \
+        -o "${OTRS_HOME}/var/packages/${p}-7.2.1.opm"; \
+    done; \
+    chown -R otrs:www-data ${OTRS_HOME}/var/packages
+
+COPY scripts/ensure-itsm.sh ${OTRS_HOME}/scripts/ensure-itsm.sh
+RUN chmod +x ${OTRS_HOME}/scripts/ensure-itsm.sh && \
+    chown otrs:www-data ${OTRS_HOME}/scripts/ensure-itsm.sh
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY Config.pm.tmpl ${OTRS_HOME}/Kernel/Config.pm.tmpl
 RUN chmod +x /usr/local/bin/entrypoint.sh
