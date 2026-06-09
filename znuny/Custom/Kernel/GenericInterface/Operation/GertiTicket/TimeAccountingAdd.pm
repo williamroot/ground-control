@@ -56,10 +56,32 @@ sub Run {
     }
 
     my $TicketObject = $Kernel::OM->Get('Kernel::System::Ticket');
-    # ArticleID is optional; native API accepts time accounted to the ticket.
+
+    # Native TicketAccountTime REQUIRES a truthy ArticleID. Create an internal
+    # agent note (from the stop note) and account the time to it.
+    my $ArticleObject = $Kernel::OM->Get('Kernel::System::Ticket::Article');
+    my $Backend       = $ArticleObject->BackendForChannel( ChannelName => 'Internal' );
+    my $ArticleID     = $Backend->ArticleCreate(
+        TicketID             => $D->{TicketID},
+        SenderType           => 'agent',
+        IsVisibleForCustomer => 0,
+        From                 => $D->{AgentLogin},
+        Subject              => 'Apontamento de tempo',
+        Body                 => ( $D->{Note} // 'Tempo registrado via timer' ),
+        ContentType          => 'text/plain; charset=utf-8',
+        HistoryType          => 'AddNote',
+        HistoryComment       => 'Gerti timer',
+        UserID               => $UserID,
+    );
+    if ( !$ArticleID ) {
+        return $Self->ReturnError(
+            ErrorCode => 'TimeAccountingAdd.ArticleError', ErrorMessage => 'article create failed',
+        );
+    }
+
     my $OK = $TicketObject->TicketAccountTime(
         TicketID  => $D->{TicketID},
-        ArticleID => $D->{ArticleID} || undef,
+        ArticleID => $ArticleID,
         TimeUnit  => $D->{TimeUnit},
         UserID    => $UserID,
     );
@@ -69,14 +91,14 @@ sub Run {
         );
     }
 
-    return { Success => 1, Data => { OK => 1, UserID => $UserID } };
+    return { Success => 1, Data => { OK => 1, UserID => $UserID, ArticleID => $ArticleID } };
 }
 
 sub _CheckAccessToken {
     my ( $Self, %Param ) = @_;
     my $Provided = $Param{Data}->{AccessToken} || '';
-    my $Expected = $Kernel::OM->Get('Kernel::Config')->Get('GertiAdmin::AccessToken') || '';
-    return $Self->ReturnError( ErrorCode => 'GertiTicket.AuthFail', ErrorMessage => 'invalid AccessToken.' )
+    my $Expected = $Kernel::OM->Get('Kernel::Config')->Get('GertiAgent::AccessToken') || '';
+    return $Self->ReturnError( ErrorCode => 'GertiAgent.AuthFail', ErrorMessage => 'invalid AccessToken.' )
         if !IsStringWithData($Expected) || !IsStringWithData($Provided) || $Provided ne $Expected;
     return;
 }

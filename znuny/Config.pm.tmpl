@@ -63,6 +63,13 @@ sub Load {
     #   fail-closed (toda chamada GertiAdmin é rejeitada com AuthFail).
     $Self->{'GertiAdmin::AccessToken'} = '__GERTI_ADMIN_WS_TOKEN__';
 
+    # ── GertiAgent webservice AccessToken (#1J) ─────────────────────
+    #   Token SEPARADO, mais poderoso, lido pelas 3 ops de agente
+    #   (TimeAccountingAdd/AgentTicketSearch/AgentTicketGet — root UserID=>1,
+    #   cross-tenant, artigos internos). DEVE bater com ZNUNY_AGENT_WS_TOKEN
+    #   que o sidecar envia. Vazio → fail-closed (AuthFail).
+    $Self->{'GertiAgent::AccessToken'} = '__GERTI_AGENT_WS_TOKEN__';
+
     # ── data inserted by installer ──────────────────────────────────
     # $DIBI$
 

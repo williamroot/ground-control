@@ -55,17 +55,28 @@ timer só produz `time_accounting`); aditivo/profile-gated.
 
 ### 2.1 Znuny (`znuny/Custom/`) — 3 ops novas no webservice `GertiTicket`
 
-(mesmo `AccessToken` fail-closed; `perl -c` no build é o gate; nenhum webservice novo.)
+(`AccessToken` fail-closed; `perl -c` no build é o gate; nenhum webservice novo.)
+
+> **Token SEPARADO `GertiAgent::AccessToken` (review de segurança).** As 3 ops de
+> agente são **mais poderosas** (root `UserID=>1`, cross-tenant, artigos internos)
+> que as ops customer #1E. Por isso leem `GertiAgent::AccessToken` (env
+> `ZNUNY_AGENT_WS_TOKEN`), **distinto** do token customer `GertiAdmin::AccessToken`
+> (`ZNUNY_WS_TOKEN`) — um vazamento do token de fluxo-cliente não alcança as ops de
+> agente. Erro de auth: `GertiAgent.AuthFail`. As demais ops `GertiTicket` (#1E)
+> mantêm `GertiAdmin::AccessToken`.
 
 | Op | Embrulha | Papel |
 |---|---|---|
-| `TimeAccountingAdd` | `Ticket::TicketAccountTime` (+ `User::UserLookup` p/ resolver UserID do `AgentLogin`) | Grava 1 linha `time_accounting` no ticket (TimeUnit em minutos, `create_by`=UserID do agente) |
+| `TimeAccountingAdd` | `Ticket::Article::ArticleCreate` (nota interna) + `Ticket::TicketAccountTime` (+ `User::UserLookup` p/ resolver UserID do `AgentLogin`) | Cria uma **nota interna de agente** (a partir da nota do stop) e lança 1 linha `time_accounting` **nesse artigo** (TimeUnit em minutos, `create_by`=UserID do agente) |
 | `AgentTicketSearch` | `Ticket::TicketSearch` (sem escopo de customer) + `TicketGet` resumido | Busca cross-cliente p/ o agente (`Number`/`Title`/`CustomerID`/filtros) → lista resumida |
 | `AgentTicketGet` | `TicketGet` + `Article*` (artigos visíveis) | Detalhe p/ o agente (sem a guarda de posse por CustomerID do #1E — agente é staff) |
 
 > `TimeAccountingAdd` resolve o **UserID do Znuny** a partir do `AgentLogin` dentro do Perl
 > (`$UserObject->UserLookup(UserLogin => ...)`), então o sidecar passa só o login (que já tem na
-> sessão). Falha-fecha se o login não resolver.
+> sessão). Falha-fecha se o login não resolver. O nativo `TicketAccountTime` **exige** um
+> `ArticleID` truthy — por isso a op cria primeiro uma nota interna (canal `Internal`,
+> `SenderType=agent`, `IsVisibleForCustomer=0`, corpo = nota do stop) e contabiliza o tempo nela;
+> retorna o `ArticleID` criado. Falha-fecha (`TimeAccountingAdd.ArticleError`) se o artigo não criar.
 
 ### 2.2 Sidecar (`apps/sidecar`)
 
@@ -115,6 +126,13 @@ timer só produz `time_accounting`); aditivo/profile-gated.
   só para exibir/avisar (read-only).
 - Toda escrita/leitura de ticket/tempo no Znuny via **GI** (Spec #0) — zero SQL direto no schema
   znuny a partir do sidecar (grep-guard de teste). `TimeAccountingAdd` resolve UserID e falha-fecha.
+- **Token de agente separado.** As 3 ops de agente (`TimeAccountingAdd`/`AgentTicketSearch`/
+  `AgentTicketGet`) usam `GertiAgent::AccessToken` (env `ZNUNY_AGENT_WS_TOKEN`), **distinto** do
+  token customer `GertiAdmin::AccessToken` (`ZNUNY_WS_TOKEN`) das ops #1E. Como são mais poderosas
+  (root `UserID=>1`, cross-tenant, artigos internos), um vazamento do token de fluxo-cliente **não**
+  alcança as ops de agente. O sidecar POSTa essas 3 com `_post_agent` (lê `ZNUNY_AGENT_WS_TOKEN`).
+- `TimeAccountingAdd` cria uma **nota interna** (`IsVisibleForCustomer=0`, a partir da nota do stop)
+  e contabiliza o tempo **nesse artigo** — o nativo `TicketAccountTime` exige `ArticleID` truthy.
 - O stop só persiste `stopped` **após** o GI confirmar o lançamento — sem tempo perdido nem
   lançamento duplicado (um timer `stopped` não relança).
 

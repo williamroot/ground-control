@@ -106,6 +106,9 @@ services:
       # GertiAdmin webservice AccessToken (#1G-a, D19): reusa ZNUNY_WS_TOKEN
       # (mesmo segredo do sidecar). Vazio → fail-closed. Nunca :? (D13).
       GERTI_ADMIN_WS_TOKEN: ${ZNUNY_WS_TOKEN:-}
+      # GertiAgent webservice AccessToken (#1J): token SEPARADO p/ as 3 ops
+      # de agente (mais poderosas). Vazio → fail-closed. Nunca :? (D13).
+      GERTI_AGENT_WS_TOKEN: ${ZNUNY_AGENT_WS_TOKEN:-}
     volumes:
       - znuny-var:/opt/otrs/var
     ports:
@@ -144,6 +147,9 @@ services:
       ZNUNY_ADMIN_PASSWORD: ${ZNUNY_ADMIN_PASSWORD:-changeme}
       # GertiAdmin webservice AccessToken (#1G-a, D19): reusa ZNUNY_WS_TOKEN.
       GERTI_ADMIN_WS_TOKEN: ${ZNUNY_WS_TOKEN:-}
+      # GertiAgent webservice AccessToken (#1J): token SEPARADO p/ as 3 ops
+      # de agente (mais poderosas). Vazio → fail-closed. Nunca :? (D13).
+      GERTI_AGENT_WS_TOKEN: ${ZNUNY_AGENT_WS_TOKEN:-}
     volumes:
       - znuny-var:/opt/otrs/var
     networks: [app, data]
@@ -266,6 +272,10 @@ services:
       # vazio — o cliente deriva de ZNUNY_ADMIN_WS_URL (/GertiAdmin→/GertiTicket)
       # quando ausente (nunca :? — D13); valor real em .env.prod na VPS.
       ZNUNY_TICKET_WS_URL: ${ZNUNY_TICKET_WS_URL:-}
+      # Token SEPARADO p/ as 3 ops de agente #1J (TimeAccountingAdd/
+      # AgentTicketSearch/AgentTicketGet → GertiAgent::AccessToken no Znuny).
+      # Mais poderoso que o token customer #1E; default vazio (nunca :? — D13).
+      ZNUNY_AGENT_WS_TOKEN: ${ZNUNY_AGENT_WS_TOKEN:-}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8001/v1/health || exit 1"]
       interval: 15s

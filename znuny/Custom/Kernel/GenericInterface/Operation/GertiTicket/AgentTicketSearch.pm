@@ -61,8 +61,8 @@ sub Run {
 sub _CheckAccessToken {
     my ( $Self, %Param ) = @_;
     my $Provided = $Param{Data}->{AccessToken} || '';
-    my $Expected = $Kernel::OM->Get('Kernel::Config')->Get('GertiAdmin::AccessToken') || '';
-    return $Self->ReturnError( ErrorCode => 'GertiTicket.AuthFail', ErrorMessage => 'invalid AccessToken.' )
+    my $Expected = $Kernel::OM->Get('Kernel::Config')->Get('GertiAgent::AccessToken') || '';
+    return $Self->ReturnError( ErrorCode => 'GertiAgent.AuthFail', ErrorMessage => 'invalid AccessToken.' )
         if !IsStringWithData($Expected) || !IsStringWithData($Provided) || $Provided ne $Expected;
     return;
 }
