@@ -25,6 +25,15 @@ Provider:
     TimeAccountingSince:
       Description: Read native time_accounting rows since a cursor (Spec #1B)
       Type: GertiTicket::TimeAccountingSince
+    TimeAccountingAdd:
+      Description: Log a time_accounting entry for an agent (Spec #1J)
+      Type: GertiTicket::TimeAccountingAdd
+    AgentTicketSearch:
+      Description: Agent-side ticket search (no customer scope)
+      Type: GertiTicket::AgentTicketSearch
+    AgentTicketGet:
+      Description: Agent-side ticket detail
+      Type: GertiTicket::AgentTicketGet
   Transport:
     Config:
       KeepAlive: ''
@@ -54,5 +63,17 @@ Provider:
           RequestMethod:
           - POST
           Route: /TimeAccounting/Since
+        TimeAccountingAdd:
+          RequestMethod:
+          - POST
+          Route: /TimeAccounting/Add
+        AgentTicketSearch:
+          RequestMethod:
+          - POST
+          Route: /Agent/Ticket/Search
+        AgentTicketGet:
+          RequestMethod:
+          - POST
+          Route: /Agent/Ticket/Get
     Type: HTTP::REST
 RemoteSystem: ''
