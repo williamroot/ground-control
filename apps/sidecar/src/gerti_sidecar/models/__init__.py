@@ -1,5 +1,6 @@
 """Modelos SQLAlchemy do sidecar (schema gerti)."""
 
+from gerti_sidecar.models.agent_timer import AgentTimer
 from gerti_sidecar.models.base import Base
 from gerti_sidecar.models.catalog import ServiceCatalogItem, SharedCreditPool
 from gerti_sidecar.models.consumption import ConsumptionEvent, Glosa
@@ -18,6 +19,7 @@ from gerti_sidecar.models.ticket_link import TicketContractLink
 from gerti_sidecar.models.znuny_instance import ZnunyInstance
 
 __all__ = [
+    "AgentTimer",
     "Base",
     "ConsumptionEvent",
     "ConsumptionSyncCursor",
