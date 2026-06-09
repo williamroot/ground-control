@@ -287,6 +287,11 @@ services:
       postgres:        { condition: service_healthy }
       sidecar-migrate: { condition: service_completed_successfully }
     networks: [data, edge, app]
+    # O worker não expõe HTTP — desabilita o HEALTHCHECK (curl :8001) herdado
+    # da imagem do sidecar, que jamais passaria e marcaria o serviço unhealthy.
+    # Liveness do worker = restart: unless-stopped + o loop asyncio.
+    healthcheck:
+      disable: true
     environment:
       ENVIRONMENT: production
       DATABASE_URL: postgresql+asyncpg://gerti_sidecar:${GERTI_SIDECAR_DB_PASSWORD:-}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-znuny}
