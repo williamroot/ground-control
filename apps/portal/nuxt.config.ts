@@ -1,6 +1,14 @@
 export default defineNuxtConfig({
   ssr: true,
   modules: ['@nuxt/ui', '@pinia/nuxt', '@nuxt/eslint'],
+  // Favicon default NEUTRO (sem identidade Gerti/Ground Control) para /login e
+  // páginas não-branded. Em páginas branded o layout sobrescreve com o logo_url
+  // do tenant.
+  app: {
+    head: {
+      link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+    },
+  },
   // Tema claro/escuro/sistema com toggle na UI (ThemeToggle.vue). `system` é o
   // default (segue o SO); a escolha do usuário persiste via @nuxtjs/color-mode.
   // O fallback é light para SSR/sem-JS. As cores das páginas usam tokens

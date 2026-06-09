@@ -19,6 +19,13 @@ useHead(() => ({
       + `--brand-accent:${b.value?.accent_color ?? '#334155'};}`,
   }],
   title: b.value?.display_name ?? 'Portal',
+  // White-label: favicon = logo do tenant quando há; senão o default neutro
+  // (NUNCA a marca Gerti/Ground Control aqui).
+  link: [{
+    rel: 'icon',
+    href: b.value?.logo_url || '/favicon.svg',
+    type: b.value?.logo_url ? undefined : 'image/svg+xml',
+  }],
 }))
 
 // A top bar/logout só aparece nas páginas autenticadas (não no /login).

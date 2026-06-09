@@ -37,10 +37,12 @@ async function submit() {
         class="pointer-events-none absolute inset-0 opacity-[0.12]"
         style="background-image: radial-gradient(circle at 1px 1px, #fff 1px, transparent 0); background-size: 22px 22px;"
       />
-      <div class="relative flex items-center gap-2.5">
-        <span class="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-white/15 font-display text-lg font-bold backdrop-blur">
-          {{ ADMIN_IDENTITY.short_name.charAt(0) }}
-        </span>
+      <div class="relative flex items-center gap-3">
+        <img
+          src="/favicon.svg"
+          alt="Ground Control"
+          class="h-12 w-12 rounded-xl shadow-lg ring-1 ring-white/15"
+        >
         <span class="text-sm font-medium tracking-wide text-white/80">Console de Administração</span>
       </div>
       <div class="relative">

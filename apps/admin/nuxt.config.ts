@@ -1,6 +1,13 @@
 export default defineNuxtConfig({
   ssr: true,
   modules: ['@nuxt/ui', '@pinia/nuxt', '@nuxt/eslint'],
+  // Favicon global (marca Ground Control). Identidade FIXA Gerti/WAS — cobre /login
+  // e qualquer página antes do layout montar.
+  app: {
+    head: {
+      link: [{ rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+    },
+  },
   // Console de Administração (Spec #1G-a): identidade FIXA Gerti/WAS — NÃO é o
   // portal white-label do cliente. As cores da marca vêm do main.css (não há
   // branding por-tenant aqui). Tema claro/escuro/sistema como no portal.

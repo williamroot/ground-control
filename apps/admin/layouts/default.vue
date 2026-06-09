@@ -26,9 +26,7 @@ const navLinks = [
     >
       <div class="mx-auto flex max-w-6xl items-center gap-3 px-5 py-3">
         <NuxtLink to="/" class="flex items-center gap-3">
-          <span
-            class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-white shadow-sm font-display"
-          >G</span>
+          <img src="/favicon.svg" alt="Ground Control" class="h-8 w-8 rounded-lg shadow-sm">
           <span class="font-display text-lg font-bold tracking-tight">
             {{ ADMIN_IDENTITY.display_name }}
           </span>
