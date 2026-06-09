@@ -12,6 +12,7 @@ from gerti_sidecar.domain.portal_role_service import resolve_role
 from gerti_sidecar.integrations.znuny_gi import (
     ZnunyUnavailable,
     authenticate_customer,
+    resolve_login_from_email,
 )
 
 router = APIRouter(prefix="/auth", tags=["portal"])
@@ -38,10 +39,18 @@ async def login(
         raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
     if not ok:
         raise HTTPException(status_code=401, detail="invalid_credentials")
+    # Resolve o login canônico do Znuny (CustomerUserLogin), que pode diferir do
+    # e-mail digitado (ex: Aurora usa login curto). Failure-safe: erro → usa o
+    # valor cru. Role segue resolvido pelo e-mail original (portal_user_role).
+    znuny_login = (
+        await resolve_login_from_email(body.username) if "@" in body.username else body.username
+    )
     # Resolve o papel sob sessão tenant-scoped (RLS). Failure-safe: erro ⇒ helpdesk.
     async with tenant_session_scope(tenant.id) as s:
         role = await resolve_role(s, body.username)
-    token = encode_session(str(tenant.id), body.username, role.value, settings)
+    token = encode_session(
+        str(tenant.id), body.username, role.value, settings, znuny_login=znuny_login
+    )
     response.set_cookie(
         key=settings.session_cookie_name,
         value=token,

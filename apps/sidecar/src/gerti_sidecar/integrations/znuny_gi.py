@@ -47,8 +47,11 @@ def _resolve_endpoint() -> tuple[str, str]:
 _CUSTOMER_USER_TABLE = os.environ.get("ZNUNY_CUSTOMER_USER_TABLE", "public.customer_user")
 
 
-async def _resolve_login_from_email(email: str) -> str:
+async def resolve_login_from_email(email: str) -> str:
     """Resolve o `login` real do customer a partir do e-mail (READ-ONLY).
+
+    API pública: usada pelo router de auth para gravar o login canônico do
+    Znuny no claim `znuny_login` da sessão JWT.
 
     SELECT-only em public.customer_user. Failure-safe: qualquer erro (DB
     indisponível, sessão não inicializada, sem grant) cai no valor cru —
@@ -79,7 +82,7 @@ async def authenticate_customer(login: str, password: str) -> bool:
     # Login sempre por e-mail: se parece e-mail, resolve o CustomerUserLogin real.
     customer_login = login
     if "@" in login:
-        customer_login = await _resolve_login_from_email(login)
+        customer_login = await resolve_login_from_email(login)
     url, token = _resolve_endpoint()
     body = {
         "CustomerUserLogin": customer_login,

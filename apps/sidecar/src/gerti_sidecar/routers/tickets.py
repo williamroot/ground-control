@@ -77,7 +77,7 @@ async def open_ticket(
         )
 
     data = OpenTicketInput(
-        customer_user=session_payload["customer_login"],
+        customer_user=session_payload["znuny_login"],
         customer_id=_customer_id(request),
         title=title,
         body=body,
@@ -114,7 +114,7 @@ async def list_tickets(
     try:
         rows = await znuny_ticket.search_tickets(
             scope=scope,
-            customer_user=session_payload["customer_login"],
+            customer_user=session_payload["znuny_login"],
             customer_id=_customer_id(request),
         )
     except ZnunyUnavailable as exc:
@@ -172,7 +172,7 @@ async def reply_ticket(
     try:
         await znuny_ticket.reply_ticket(
             znuny_ticket_id=ticket_id,
-            customer_user=session_payload["customer_login"],
+            customer_user=session_payload["znuny_login"],
             customer_id=_customer_id(request),
             body=payload.body,
         )

@@ -69,7 +69,7 @@ async def form_meta(
     session_payload: SessionPayload = Depends(get_current_session),
 ) -> FormMeta:
     try:
-        meta = await znuny_ticket.form_meta(customer_user=session_payload["customer_login"])
+        meta = await znuny_ticket.form_meta(customer_user=session_payload["znuny_login"])
     except ZnunyUnavailable as exc:
         raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
     except ZnunyWriteError as exc:

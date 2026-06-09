@@ -1,9 +1,14 @@
 """Sessão de portal: JWT HS256 assinado + dependency anti cross-tenant.
 
-Payload: {tenant_id (str), customer_login (str), role (str), exp (int posix utc)}.
+Payload: {tenant_id (str), customer_login (str), znuny_login (str), role (str),
+         exp (int posix utc)}.
 get_current_session: 401 se sem tenant / cookie ausente|inválido|expirado;
 403 se o tenant do cookie != tenant do subdomínio (request.state.tenant).
 require_admin: 403 se o papel da sessão não for admin (Spec #1H).
+
+`znuny_login` é o CustomerUserLogin canônico do Znuny (pode diferir do e-mail
+digitado). Tokens antigos sem o claim (TTL em trânsito) fazem fallback para
+`customer_login`. Toda chamada GI que precisa do CustomerUser usa `znuny_login`.
 """
 
 from __future__ import annotations
@@ -23,17 +28,27 @@ _ALG = "HS256"
 class SessionPayload(TypedDict):
     tenant_id: str
     customer_login: str
+    znuny_login: str
     role: str
     exp: int
 
 
-def encode_session(tenant_id: str, customer_login: str, role: str, settings: Settings) -> str:
+def encode_session(
+    tenant_id: str,
+    customer_login: str,
+    role: str,
+    settings: Settings,
+    *,
+    znuny_login: str | None = None,
+) -> str:
     exp = int(
         (dt.datetime.now(dt.UTC) + dt.timedelta(seconds=settings.session_ttl_seconds)).timestamp()
     )
+    effective_znuny_login = znuny_login if znuny_login is not None else customer_login
     payload: SessionPayload = {
         "tenant_id": tenant_id,
         "customer_login": customer_login,
+        "znuny_login": effective_znuny_login,
         "role": role,
         "exp": exp,
     }
@@ -53,9 +68,14 @@ def decode_session(token: str, settings: Settings) -> SessionPayload | None:
     role = data.get("role")
     if role not in (PortalRole.admin.value, PortalRole.helpdesk.value):
         role = PortalRole.helpdesk.value
+    # Token sem `znuny_login` (emitido antes do #1F, TTL em trânsito) ⇒ fallback
+    # para customer_login (comportamento correto para TechNova onde login == e-mail).
+    raw_znuny_login = data.get("znuny_login")
+    znuny_login = raw_znuny_login if isinstance(raw_znuny_login, str) else data["customer_login"]
     return SessionPayload(
         tenant_id=data["tenant_id"],
         customer_login=data["customer_login"],
+        znuny_login=znuny_login,
         role=role,
         exp=int(data["exp"]),
     )
