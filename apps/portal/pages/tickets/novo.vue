@@ -223,8 +223,8 @@ async function submit() {
           />
         </UFormField>
 
-        <div class="grid gap-5 sm:grid-cols-2">
-          <UFormField label="Serviço" name="service" help="Opcional.">
+        <div v-if="serviceOptions.length || typeOptions.length" class="grid gap-5 sm:grid-cols-2">
+          <UFormField v-if="serviceOptions.length" label="Serviço" name="service" help="Opcional.">
             <USelect
               v-model="form.service"
               :items="serviceOptions"
@@ -233,7 +233,7 @@ async function submit() {
               class="w-full"
             />
           </UFormField>
-          <UFormField label="Tipo" name="type" help="Opcional.">
+          <UFormField v-if="typeOptions.length" label="Tipo" name="type" help="Opcional.">
             <USelect
               v-model="form.type"
               :items="typeOptions"
