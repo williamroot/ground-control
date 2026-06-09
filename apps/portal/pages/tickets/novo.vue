@@ -28,8 +28,17 @@ interface OpenedTicket {
 
 const headers = useRequestHeaders(['cookie'])
 const toast = useToast()
+const route = useRoute()
 const branding = useState<Branding>('branding', () => DEFAULT_BRANDING)
 const tenantName = computed(() => branding.value?.display_name ?? 'Portal')
+
+// #1K fase 3 — "abrir chamado a partir do ativo": quando a query ?ativo=<id>
+// está presente, o chamado nasce vinculado ao Config Item (config_item_id).
+const assetId = computed(() => {
+  const raw = route.query.ativo
+  const v = Array.isArray(raw) ? raw[0] : raw
+  return v ? String(v) : ''
+})
 
 // SSR: catálogo de contratos selecionáveis + meta do formulário (serviços,
 // prioridades, tipos). Falhas degradam para listas vazias — o form ainda abre.
@@ -113,6 +122,7 @@ async function submit() {
     fd.append('title', form.title.trim())
     fd.append('body', form.body.trim())
     if (showContractSelector.value && form.contractId) fd.append('contract_id', form.contractId)
+    if (assetId.value) fd.append('config_item_id', assetId.value)
     if (form.service) fd.append('service', form.service)
     if (form.type) fd.append('type', form.type)
     if (form.priority) fd.append('priority', form.priority)
@@ -180,6 +190,17 @@ async function submit() {
         Descreva o que está acontecendo. Quanto mais detalhes, mais rápido o time consegue ajudar.
       </p>
     </header>
+
+    <!-- #1K: chamado vinculado a um ativo (cor semântica info, NUNCA a marca — H8) -->
+    <UAlert
+      v-if="assetId"
+      color="info"
+      variant="soft"
+      icon="i-lucide-server"
+      title="Chamado sobre o ativo"
+      :description="`Este chamado será vinculado ao ativo #${assetId}.`"
+      class="mb-6"
+    />
 
     <UCard>
       <UForm :state="form" class="space-y-6" @submit="submit">
