@@ -15,6 +15,11 @@ interface Article {
   Body?: string
   CreateTime?: string
 }
+interface CsatState {
+  submitted: boolean
+  score?: number
+  eligible?: boolean
+}
 interface TicketDetail {
   znuny_ticket_id: number
   ticket_number: string
@@ -24,6 +29,7 @@ interface TicketDetail {
   created: string
   contract_id: string | null
   articles: Article[]
+  csat?: CsatState
 }
 interface SelectableContract { id: string, code: string }
 
@@ -126,6 +132,67 @@ async function sendReply() {
     replying.value = false
   }
 }
+
+// --- CSAT (#1M) ---
+// Mostra o widget quando o ticket está fechado e ainda não foi avaliado
+// (ticket.csat.eligible). Em sucesso, troca para o estado "respondido" local
+// (sem precisar de refresh) e atualiza o bloco csat do ticket.
+const csatSubmitting = ref(false)
+const csatShowPrompt = computed(() => ticket.value?.csat?.eligible === true)
+const csatSubmittedScore = computed<number | null>(() =>
+  ticket.value?.csat?.submitted ? (ticket.value.csat.score ?? null) : null)
+
+async function sendCsat(payload: { score: number, comment: string }) {
+  csatSubmitting.value = true
+  try {
+    await $fetch(`/api/portal/tickets/${id.value}/csat`, {
+      method: 'POST',
+      body: { score: payload.score, comment: payload.comment || null },
+    })
+    if (ticket.value) {
+      ticket.value.csat = { submitted: true, score: payload.score }
+    }
+    toast.add({
+      title: 'Avaliação enviada',
+      description: 'Obrigado pelo seu feedback!',
+      color: 'success',
+      icon: 'i-lucide-check-circle',
+    })
+  }
+  catch (err: unknown) {
+    const e = err as { status?: number, statusCode?: number }
+    const status = e.status ?? e.statusCode
+    if (status === 409) {
+      // já avaliado em outra aba/sessão — sincroniza o estado e avisa suave.
+      if (ticket.value) ticket.value.csat = { submitted: true, score: payload.score }
+      toast.add({
+        title: 'Chamado já avaliado',
+        description: 'Este chamado já tinha uma avaliação registrada.',
+        color: 'warning',
+        icon: 'i-lucide-info',
+      })
+    }
+    else if (status === 422) {
+      toast.add({
+        title: 'Avaliação indisponível',
+        description: 'Só é possível avaliar chamados já encerrados.',
+        color: 'warning',
+        icon: 'i-lucide-alert-circle',
+      })
+    }
+    else {
+      toast.add({
+        title: 'Não foi possível avaliar',
+        description: 'Tente novamente em instantes.',
+        color: 'error',
+        icon: 'i-lucide-alert-circle',
+      })
+    }
+  }
+  finally {
+    csatSubmitting.value = false
+  }
+}
 </script>
 
 <template>
@@ -179,6 +246,20 @@ async function sendReply() {
           </span>
         </div>
       </header>
+
+      <!-- CSAT (#1M): avaliação inline quando o chamado está fechado.
+           H8: cores semânticas no widget, nunca a marca. -->
+      <section
+        v-if="csatShowPrompt || csatSubmittedScore != null"
+        class="mb-6"
+        aria-label="Avaliação do atendimento"
+      >
+        <CsatPrompt
+          :submitted-score="csatSubmittedScore"
+          :loading="csatSubmitting"
+          @submit="sendCsat"
+        />
+      </section>
 
       <!-- Thread -->
       <section class="space-y-4" aria-label="Histórico de mensagens">
