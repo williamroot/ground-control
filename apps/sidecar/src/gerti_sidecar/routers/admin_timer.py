@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gerti_sidecar import db
 from gerti_sidecar.auth.admin_session import AdminSessionPayload, get_admin_session
-from gerti_sidecar.domain.timer_service import TimerError, TimerService
+from gerti_sidecar.domain.timer_service import TimerError, TimerNotFound, TimerService
 from gerti_sidecar.integrations import znuny_ticket
 from gerti_sidecar.integrations.znuny_customer_admin import ZnunyUnavailable, ZnunyWriteError
 from gerti_sidecar.models import AgentTimer, Contract, TicketContractLink
@@ -90,9 +90,13 @@ async def pause_timer(
     factory = _admin_factory()
     async with factory() as s:
         try:
-            t = await TimerService(s, znuny_ticket).pause(uuid.UUID(body.timer_id))
-        except TimerError as exc:
+            t = await TimerService(s, znuny_ticket).pause(
+                uuid.UUID(body.timer_id), admin["agent_login"]
+            )
+        except TimerNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except TimerError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         await s.commit()
         return _out(t)
 
@@ -105,7 +109,11 @@ async def resume_timer(
     factory = _admin_factory()
     async with factory() as s:
         try:
-            t = await TimerService(s, znuny_ticket).resume(uuid.UUID(body.timer_id))
+            t = await TimerService(s, znuny_ticket).resume(
+                uuid.UUID(body.timer_id), admin["agent_login"]
+            )
+        except TimerNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except TimerError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         await s.commit()
@@ -122,9 +130,12 @@ async def stop_timer(
         try:
             t = await TimerService(s, znuny_ticket).stop(
                 uuid.UUID(body.timer_id),
+                admin["agent_login"],
                 adjust_minutes=body.adjust_minutes,
                 note=body.note,
             )
+        except TimerNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except TimerError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ZnunyWriteError as exc:

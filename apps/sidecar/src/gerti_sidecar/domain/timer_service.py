@@ -19,9 +19,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerti_sidecar.models import AgentTimer
 
+MAX_ADJUST_MINUTES = 1440  # 24h — teto de ajuste manual no stop
+
 
 class TimerError(Exception):
     """Estado inválido do timer (->409/404)."""
+
+
+class TimerNotFound(TimerError):
+    """Timer não encontrado (ou não pertence ao agente solicitante) -> 404."""
 
 
 def _now() -> dt.datetime:
@@ -64,16 +70,29 @@ class TimerService:
         await self._session.flush()
         return t
 
-    async def _get(self, timer_id: uuid.UUID) -> AgentTimer:
-        t = await self._session.get(AgentTimer, timer_id)
+    async def _get(self, timer_id: uuid.UUID, agent_login: str) -> AgentTimer:
+        t = (
+            await self._session.execute(
+                select(AgentTimer).where(
+                    AgentTimer.id == timer_id,
+                    AgentTimer.agent_login == agent_login,
+                )
+            )
+        ).scalar_one_or_none()
         if t is None:
-            raise TimerError("timer inexistente")
+            raise TimerNotFound("timer inexistente")
         return t
 
-    async def pause(self, timer_id: uuid.UUID, *, now: dt.datetime | None = None) -> AgentTimer:
+    async def pause(
+        self, timer_id: uuid.UUID, agent_login: str, *, now: dt.datetime | None = None
+    ) -> AgentTimer:
         now = now or _now()
-        t = await self._get(timer_id)
-        if t.status == "running" and t.last_started_at is not None:
+        t = await self._get(timer_id, agent_login)
+        if t.status == "stopped":
+            raise TimerError("timer já encerrado")
+        if t.status != "running":
+            return t  # idempotente: já pausado
+        if t.last_started_at is not None:
             t.accumulated_seconds += int((now - t.last_started_at).total_seconds())
         t.status = "paused"
         t.last_started_at = None
@@ -81,9 +100,11 @@ class TimerService:
         await self._session.flush()
         return t
 
-    async def resume(self, timer_id: uuid.UUID, *, now: dt.datetime | None = None) -> AgentTimer:
+    async def resume(
+        self, timer_id: uuid.UUID, agent_login: str, *, now: dt.datetime | None = None
+    ) -> AgentTimer:
         now = now or _now()
-        t = await self._get(timer_id)
+        t = await self._get(timer_id, agent_login)
         if t.status == "stopped":
             raise TimerError("timer já encerrado")
         t.status = "running"
@@ -95,15 +116,20 @@ class TimerService:
     async def stop(
         self,
         timer_id: uuid.UUID,
+        agent_login: str,
         *,
         now: dt.datetime | None = None,
         adjust_minutes: float | None = None,
         note: str | None = None,
     ) -> AgentTimer:
         now = now or _now()
-        t = await self._get(timer_id)
+        t = await self._get(timer_id, agent_login)
         if t.status == "stopped":
             raise TimerError("timer já encerrado")
+        if adjust_minutes is not None and (
+            adjust_minutes < 0 or adjust_minutes > MAX_ADJUST_MINUTES
+        ):
+            raise TimerError(f"adjust_minutes fora do limite (0..{MAX_ADJUST_MINUTES})")
         total = t.accumulated_seconds
         if t.status == "running" and t.last_started_at is not None:
             total += int((now - t.last_started_at).total_seconds())

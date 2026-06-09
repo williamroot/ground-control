@@ -5,7 +5,7 @@ import datetime as dt
 
 import pytest
 
-from gerti_sidecar.domain.timer_service import TimerService
+from gerti_sidecar.domain.timer_service import TimerError, TimerNotFound, TimerService
 from gerti_sidecar.integrations import znuny_ticket
 from gerti_sidecar.models import AgentTimer
 
@@ -31,12 +31,12 @@ async def test_start_pause_resume_stop(session):
     # start de novo é idempotente (mesmo timer)
     t2 = await svc.start(agent_login="will", znuny_ticket_id=19, now=_t(5))
     assert t2.id == t.id
-    await svc.pause(t.id, now=_t(30))  # +30s
+    await svc.pause(t.id, "will", now=_t(30))  # +30s
     t = await session.get(AgentTimer, t.id)
     assert t.status == "paused" and t.accumulated_seconds == 30
-    await svc.resume(t.id, now=_t(40))
+    await svc.resume(t.id, "will", now=_t(40))
     # +60s → 90s total = 1.5min
-    await svc.stop(t.id, now=_t(100), adjust_minutes=None, note="feito")
+    await svc.stop(t.id, "will", now=_t(100), adjust_minutes=None, note="feito")
     t = await session.get(AgentTimer, t.id)
     assert t.status == "stopped"
     assert gi.calls and gi.calls[0][0] == 19 and gi.calls[0][1] == "will"
@@ -49,7 +49,7 @@ async def test_stop_with_adjust_minutes(session):
     gi = _GI()
     svc = TimerService(session, gi)
     t = await svc.start(agent_login="will", znuny_ticket_id=20, now=_t(0))
-    await svc.stop(t.id, now=_t(50), adjust_minutes=15.0, note=None)
+    await svc.stop(t.id, "will", now=_t(50), adjust_minutes=15.0, note=None)
     assert abs(float(gi.calls[0][2]) - 15.0) < 1e-6  # usa o ajuste, não o real
 
 
@@ -62,6 +62,48 @@ async def test_stop_keeps_unstopped_if_gi_fails(session):
     svc = TimerService(session, _BadGI())
     t = await svc.start(agent_login="will", znuny_ticket_id=21, now=_t(0))
     with pytest.raises(znuny_ticket.ZnunyUnavailable):
-        await svc.stop(t.id, now=_t(60), adjust_minutes=None, note=None)
+        await svc.stop(t.id, "will", now=_t(60), adjust_minutes=None, note=None)
     t = await session.get(AgentTimer, t.id)
     assert t.status != "stopped"  # sem perda: continua ativo p/ re-tentar
+
+
+@pytest.mark.asyncio
+async def test_cannot_act_on_another_agents_timer(session):
+    gi = _GI()
+    svc = TimerService(session, gi)
+    t = await svc.start(agent_login="will", znuny_ticket_id=22, now=_t(0))
+    # outro agente tentando parar o timer de "will"
+    with pytest.raises(TimerNotFound):
+        await svc.stop(t.id, "other", now=_t(30), adjust_minutes=None, note=None)
+    # outro agente tentando pausar o timer de "will"
+    with pytest.raises(TimerNotFound):
+        await svc.pause(t.id, "other", now=_t(30))
+    # o dono original ainda consegue parar normalmente
+    await svc.stop(t.id, "will", now=_t(60), adjust_minutes=None, note=None)
+    t = await session.get(AgentTimer, t.id)
+    assert t.status == "stopped"
+
+
+@pytest.mark.asyncio
+async def test_pause_stopped_raises(session):
+    gi = _GI()
+    svc = TimerService(session, gi)
+    t = await svc.start(agent_login="will", znuny_ticket_id=23, now=_t(0))
+    await svc.stop(t.id, "will", now=_t(30), adjust_minutes=None, note=None)
+    with pytest.raises(TimerError):
+        await svc.pause(t.id, "will", now=_t(60))
+
+
+@pytest.mark.asyncio
+async def test_adjust_minutes_cap(session):
+    gi = _GI()
+    svc = TimerService(session, gi)
+    # acima do teto → TimerError
+    t = await svc.start(agent_login="will", znuny_ticket_id=24, now=_t(0))
+    with pytest.raises(TimerError):
+        await svc.stop(t.id, "will", now=_t(10), adjust_minutes=99999, note=None)
+    # ajuste válido ainda funciona (timer ainda não foi stopado — GI não chamado)
+    await svc.stop(t.id, "will", now=_t(10), adjust_minutes=15, note=None)
+    t = await session.get(AgentTimer, t.id)
+    assert t.status == "stopped"
+    assert abs(float(gi.calls[0][2]) - 15.0) < 1e-6

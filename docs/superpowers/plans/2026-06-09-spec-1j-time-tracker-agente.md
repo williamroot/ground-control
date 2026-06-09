@@ -792,15 +792,22 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerti_sidecar.models import AgentTimer
 
+MAX_ADJUST_MINUTES = 1440  # 24h — teto de ajuste manual no stop
+
 
 class TimerError(Exception):
     """Estado inválido do timer (->409/404)."""
+
+
+class TimerNotFound(TimerError):
+    """Timer não encontrado (ou não pertence ao agente solicitante) -> 404."""
 
 
 def _now() -> dt.datetime:
@@ -813,12 +820,13 @@ def _round_minutes(seconds: float) -> float:
 
 
 class TimerService:
-    def __init__(self, session: AsyncSession, gi) -> None:
+    def __init__(self, session: AsyncSession, gi: Any) -> None:
         self._session = session
         self._gi = gi
 
-    async def start(self, *, agent_login: str, znuny_ticket_id: int,
-                    now: dt.datetime | None = None) -> AgentTimer:
+    async def start(
+        self, *, agent_login: str, znuny_ticket_id: int, now: dt.datetime | None = None
+    ) -> AgentTimer:
         now = now or _now()
         existing = (
             await self._session.execute(
@@ -832,23 +840,40 @@ class TimerService:
         if existing is not None:
             return existing  # idempotente
         t = AgentTimer(
-            agent_login=agent_login, znuny_ticket_id=znuny_ticket_id,
-            status="running", accumulated_seconds=0, last_started_at=now,
+            agent_login=agent_login,
+            znuny_ticket_id=znuny_ticket_id,
+            status="running",
+            accumulated_seconds=0,
+            last_started_at=now,
         )
         self._session.add(t)
         await self._session.flush()
         return t
 
-    async def _get(self, timer_id: uuid.UUID) -> AgentTimer:
-        t = await self._session.get(AgentTimer, timer_id)
+    async def _get(self, timer_id: uuid.UUID, agent_login: str) -> AgentTimer:
+        """Busca timer por id E por dono. TimerNotFound se ausente ou de outro agente."""
+        t = (
+            await self._session.execute(
+                select(AgentTimer).where(
+                    AgentTimer.id == timer_id,
+                    AgentTimer.agent_login == agent_login,
+                )
+            )
+        ).scalar_one_or_none()
         if t is None:
-            raise TimerError("timer inexistente")
+            raise TimerNotFound("timer inexistente")
         return t
 
-    async def pause(self, timer_id: uuid.UUID, *, now: dt.datetime | None = None) -> AgentTimer:
+    async def pause(
+        self, timer_id: uuid.UUID, agent_login: str, *, now: dt.datetime | None = None
+    ) -> AgentTimer:
         now = now or _now()
-        t = await self._get(timer_id)
-        if t.status == "running" and t.last_started_at is not None:
+        t = await self._get(timer_id, agent_login)
+        if t.status == "stopped":
+            raise TimerError("timer já encerrado")
+        if t.status != "running":
+            return t  # idempotente: já pausado
+        if t.last_started_at is not None:
             t.accumulated_seconds += int((now - t.last_started_at).total_seconds())
         t.status = "paused"
         t.last_started_at = None
@@ -856,9 +881,11 @@ class TimerService:
         await self._session.flush()
         return t
 
-    async def resume(self, timer_id: uuid.UUID, *, now: dt.datetime | None = None) -> AgentTimer:
+    async def resume(
+        self, timer_id: uuid.UUID, agent_login: str, *, now: dt.datetime | None = None
+    ) -> AgentTimer:
         now = now or _now()
-        t = await self._get(timer_id)
+        t = await self._get(timer_id, agent_login)
         if t.status == "stopped":
             raise TimerError("timer já encerrado")
         t.status = "running"
@@ -867,12 +894,23 @@ class TimerService:
         await self._session.flush()
         return t
 
-    async def stop(self, timer_id: uuid.UUID, *, now: dt.datetime | None = None,
-                   adjust_minutes: float | None = None, note: str | None = None) -> AgentTimer:
+    async def stop(
+        self,
+        timer_id: uuid.UUID,
+        agent_login: str,
+        *,
+        now: dt.datetime | None = None,
+        adjust_minutes: float | None = None,
+        note: str | None = None,
+    ) -> AgentTimer:
         now = now or _now()
-        t = await self._get(timer_id)
+        t = await self._get(timer_id, agent_login)
         if t.status == "stopped":
             raise TimerError("timer já encerrado")
+        if adjust_minutes is not None and (
+            adjust_minutes < 0 or adjust_minutes > MAX_ADJUST_MINUTES
+        ):
+            raise TimerError(f"adjust_minutes fora do limite (0..{MAX_ADJUST_MINUTES})")
         total = t.accumulated_seconds
         if t.status == "running" and t.last_started_at is not None:
             total += int((now - t.last_started_at).total_seconds())
@@ -881,8 +919,10 @@ class TimerService:
             minutes = 0.01  # nunca lança 0 (TimeAccountingAdd exige > 0)
         # Lança no Znuny PRIMEIRO; só marca stopped se o GI confirmar.
         await self._gi.time_accounting_add(
-            znuny_ticket_id=t.znuny_ticket_id, agent_login=t.agent_login,
-            time_unit=float(minutes), note=note,
+            znuny_ticket_id=t.znuny_ticket_id,
+            agent_login=t.agent_login,
+            time_unit=float(minutes),
+            note=note,
         )
         t.accumulated_seconds = total
         t.status = "stopped"
@@ -986,7 +1026,7 @@ from sqlalchemy import select
 
 from gerti_sidecar import db
 from gerti_sidecar.auth.admin_session import AdminSessionPayload, get_admin_session
-from gerti_sidecar.domain.timer_service import TimerError, TimerService
+from gerti_sidecar.domain.timer_service import TimerError, TimerNotFound, TimerService
 from gerti_sidecar.integrations import znuny_ticket
 from gerti_sidecar.integrations.znuny_customer_admin import ZnunyUnavailable, ZnunyWriteError
 from gerti_sidecar.models import AgentTimer, Contract, TicketContractLink
@@ -1025,10 +1065,14 @@ class TimerOut(BaseModel):
 
 def _out(t: AgentTimer) -> TimerOut:
     return TimerOut(
-        id=str(t.id), znuny_ticket_id=t.znuny_ticket_id, status=t.status,
+        id=str(t.id),
+        znuny_ticket_id=t.znuny_ticket_id,
+        status=t.status,
         accumulated_seconds=t.accumulated_seconds,
         last_started_at=t.last_started_at.isoformat() if t.last_started_at else None,
-        committed_time_unit=float(t.committed_time_unit) if t.committed_time_unit is not None else None,
+        committed_time_unit=(
+            float(t.committed_time_unit) if t.committed_time_unit is not None else None
+        ),
     )
 
 
@@ -1048,9 +1092,13 @@ async def pause_timer(body: TimerIdBody, admin: AdminSessionPayload = Depends(ge
     factory = _admin_factory()
     async with factory() as s:
         try:
-            t = await TimerService(s, znuny_ticket).pause(uuid.UUID(body.timer_id))
-        except TimerError as exc:
+            t = await TimerService(s, znuny_ticket).pause(
+                uuid.UUID(body.timer_id), admin["agent_login"]
+            )
+        except TimerNotFound as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except TimerError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         await s.commit()
         return _out(t)
 
@@ -1060,7 +1108,11 @@ async def resume_timer(body: TimerIdBody, admin: AdminSessionPayload = Depends(g
     factory = _admin_factory()
     async with factory() as s:
         try:
-            t = await TimerService(s, znuny_ticket).resume(uuid.UUID(body.timer_id))
+            t = await TimerService(s, znuny_ticket).resume(
+                uuid.UUID(body.timer_id), admin["agent_login"]
+            )
+        except TimerNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except TimerError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         await s.commit()
@@ -1073,8 +1125,13 @@ async def stop_timer(body: StopBody, admin: AdminSessionPayload = Depends(get_ad
     async with factory() as s:
         try:
             t = await TimerService(s, znuny_ticket).stop(
-                uuid.UUID(body.timer_id), adjust_minutes=body.adjust_minutes, note=body.note
+                uuid.UUID(body.timer_id),
+                admin["agent_login"],
+                adjust_minutes=body.adjust_minutes,
+                note=body.note,
             )
+        except TimerNotFound as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         except TimerError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ZnunyWriteError as exc:
