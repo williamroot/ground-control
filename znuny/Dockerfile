@@ -210,7 +210,8 @@ RUN chown -R otrs:www-data ${OTRS_HOME}/webservices ${OTRS_HOME}/scripts/ensure-
 RUN set -eux; \
     mkdir -p "${OTRS_HOME}/itsm-opm"; \
     for p in GeneralCatalog ITSMCore ITSMConfigurationManagement; do \
-      curl -fSL "https://addons.znuny.com/public/${p}-7.2.1.opm" \
+      curl -fSL --retry 4 --retry-delay 3 --retry-connrefused --connect-timeout 20 --max-time 240 \
+        "https://addons.znuny.com/public/${p}-7.2.1.opm" \
         -o "${OTRS_HOME}/itsm-opm/${p}-7.2.1.opm"; \
     done; \
     chown -R otrs:www-data ${OTRS_HOME}/itsm-opm
