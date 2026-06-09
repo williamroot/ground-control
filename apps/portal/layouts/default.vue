@@ -81,6 +81,13 @@ async function logout() {
             :class="isActive('/tickets') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
             :style="isActive('/tickets') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
           >Chamados</NuxtLink>
+          <NuxtLink
+            v-if="role === 'admin' || role === 'helpdesk'"
+            to="/ativos"
+            class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
+            :class="isActive('/ativos') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
+            :style="isActive('/ativos') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
+          >Ativos</NuxtLink>
         </nav>
 
         <div class="ml-auto flex items-center gap-3">
