@@ -25,6 +25,7 @@ from gerti_sidecar.integrations.znuny_customer_admin import (
 )
 
 __all__ = [
+    "AgentTicketSummary",
     "Attachment",
     "TicketCreated",
     "TicketDetail",
@@ -33,11 +34,14 @@ __all__ = [
     "TimeEntry",
     "ZnunyUnavailable",
     "ZnunyWriteError",
+    "agent_get",
+    "agent_search",
     "create_ticket",
     "form_meta",
     "get_ticket",
     "reply_ticket",
     "search_tickets",
+    "time_accounting_add",
     "time_accounting_since",
 ]
 
@@ -93,6 +97,17 @@ class TimeEntry:
 class TimeAccountingPage:
     entries: list[TimeEntry]
     max_id: int
+
+
+@dataclass(frozen=True)
+class AgentTicketSummary:
+    znuny_ticket_id: int
+    ticket_number: str
+    title: str
+    state: str
+    customer_id: str
+    owner: str
+    created: str
 
 
 async def time_accounting_since(*, since_id: int, limit: int = 500) -> TimeAccountingPage:
@@ -219,6 +234,48 @@ async def form_meta(*, customer_user: str) -> dict[str, list[dict[str, Any]]]:
     }
 
 
+async def time_accounting_add(
+    *, znuny_ticket_id: int, agent_login: str, time_unit: float, note: str | None = None
+) -> None:
+    payload: dict[str, Any] = {
+        "TicketID": znuny_ticket_id,
+        "AgentLogin": agent_login,
+        "TimeUnit": time_unit,
+    }
+    if note:
+        payload["Note"] = note
+    await _post_agent("/TimeAccounting/Add", payload)
+
+
+async def agent_search(
+    *, query: str | None, customer_id: str | None
+) -> list[AgentTicketSummary]:
+    body: dict[str, Any] = {}
+    if query:
+        body["Query"] = query
+    if customer_id:
+        body["CustomerID"] = customer_id
+    data = await _post_agent("/Agent/Ticket/Search", body)
+    rows = data.get("Tickets") or []
+    return [
+        AgentTicketSummary(
+            znuny_ticket_id=int(r["TicketID"]),
+            ticket_number=str(r.get("TicketNumber") or ""),
+            title=str(r.get("Title") or ""),
+            state=str(r.get("State") or ""),
+            customer_id=str(r.get("CustomerID") or ""),
+            owner=str(r.get("Owner") or ""),
+            created=str(r.get("Created") or ""),
+        )
+        for r in rows
+        if r.get("TicketID") is not None
+    ]
+
+
+async def agent_get(*, znuny_ticket_id: int) -> dict[str, Any]:
+    return await _post_agent("/Agent/Ticket/Get", {"TicketID": znuny_ticket_id})
+
+
 def _resolve_ticket_endpoint() -> tuple[str, str]:
     explicit = os.environ.get("ZNUNY_TICKET_WS_URL", "")
     if explicit:
@@ -232,6 +289,29 @@ def _resolve_ticket_endpoint() -> tuple[str, str]:
 async def _post(route: str, body: dict[str, Any]) -> dict[str, Any]:
     """POST failure-safe para uma Route do GertiTicket (espelha _post do admin)."""
     base, token = _resolve_ticket_endpoint()
+    url = base.rstrip("/") + route
+    payload = {"AccessToken": token, **body}
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(url, json=payload)
+    except httpx.HTTPError as exc:
+        raise ZnunyUnavailable(str(exc)) from exc
+    if resp.status_code >= 500:
+        raise ZnunyUnavailable(f"znuny http {resp.status_code}")
+    if resp.status_code >= 400:
+        raise ZnunyWriteError(_err(_safe_json(resp)) or f"znuny http {resp.status_code}")
+    data = _safe_json(resp)
+    if data is None:
+        raise ZnunyUnavailable("resposta não-JSON do Znuny")
+    if "Error" in data:
+        raise ZnunyWriteError(_err(data) or "znuny rejeitou a operação")
+    return data
+
+
+async def _post_agent(route: str, body: dict[str, Any]) -> dict[str, Any]:
+    """POST às ops de agente #1J — espelha _post mas usa ZNUNY_AGENT_WS_TOKEN."""
+    base, _ = _resolve_ticket_endpoint()
+    token = os.environ.get("ZNUNY_AGENT_WS_TOKEN", "")
     url = base.rstrip("/") + route
     payload = {"AccessToken": token, **body}
     try:
