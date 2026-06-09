@@ -60,6 +60,17 @@ function openStop() {
   if (timer.value) stopOpen.value = true
 }
 
+// IA (#1N): painel de resumo + rascunho de resposta. Opt-in: some quando off.
+const { data: aiEnabled } = await useAiEnabled()
+const { loading: aiLoading, error: aiError, result: aiResult, summarize, suggestReply } = useAi(id)
+
+// Rascunho de resposta editável — populado por "usar como rascunho" (nunca
+// auto-enviado; o agente edita e envia manualmente).
+const replyDraft = ref('')
+function useDraft(text: string) {
+  replyDraft.value = text
+}
+
 // Artigo do agente (atende) vs cliente. Znuny usa SenderType 'agent'/'customer'.
 function isAgent(a: Article): boolean {
   return a.SenderType?.toLowerCase() === 'agent'
@@ -135,6 +146,20 @@ function initials(name: string): string {
         />
       </div>
 
+      <!-- Painel de IA (#1N) — some quando a feature está off (opt-in) -->
+      <div v-if="aiEnabled" class="mb-8">
+        <AiPanel
+          :ticket-id="ticket.znuny_ticket_id"
+          :ai-enabled="aiEnabled"
+          :loading="aiLoading"
+          :error="aiError"
+          :result="aiResult"
+          @summarize="summarize"
+          @suggest="suggestReply()"
+          @use-draft="useDraft"
+        />
+      </div>
+
       <!-- Thread de artigos -->
       <section>
         <h2 class="mb-4 font-display text-base font-bold text-highlighted">
@@ -188,6 +213,24 @@ function initials(name: string): string {
             </div>
           </li>
         </ol>
+      </section>
+
+      <!-- Rascunho de resposta (#1N) — editável; populado pela IA via "usar como
+           rascunho". Nunca auto-enviado: o agente revisa e envia manualmente. -->
+      <section v-if="aiEnabled && replyDraft" class="mt-8">
+        <h2 class="mb-2 font-display text-base font-bold text-highlighted">
+          Rascunho de resposta
+        </h2>
+        <UTextarea
+          v-model="replyDraft"
+          :rows="6"
+          autoresize
+          class="w-full"
+          placeholder="Rascunho de resposta ao cliente…"
+        />
+        <p class="mt-1.5 text-xs text-dimmed">
+          Revise o texto antes de enviar. A IA não envia nada automaticamente.
+        </p>
       </section>
 
       <TimerStopDialog
