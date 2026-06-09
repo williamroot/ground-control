@@ -166,6 +166,38 @@ async def test_reply_ownership_404(engine, app_session_factory, session, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_video_attachment_allowed(engine, app_session_factory, session, monkeypatch):
+    monkeypatch.setenv("SESSION_SECRET", "test-secret-32-chars-minimum-xxxx")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    get_settings.cache_clear()
+    t = await _seed(session)
+
+    async def fake_create(**kw):
+        assert kw["attachments"] and kw["attachments"][0].filename.endswith(".mp4")
+        return znuny_ticket.TicketCreated(7, "N7")
+
+    monkeypatch.setattr(znuny_ticket, "create_ticket", fake_create)
+    monkeypatch.setattr(
+        db,
+        "AdminSessionLocal",
+        async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession),
+    )
+    monkeypatch.setattr(db, "SessionLocal", app_session_factory)
+    app = create_app()
+    st = get_settings()
+    h = {"host": "acme.suporte.gerti.com.br"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        c.cookies.set("gsid", encode_session(str(t.id), "joe", "helpdesk", st))
+        r = await c.post(
+            "/v1/tickets",
+            headers=h,
+            data={"title": "t", "body": "b"},
+            files={"files": ("clip.mp4", b"\x00\x00\x00\x18ftypmp42", "video/mp4")},
+        )
+        assert r.status_code == 201
+
+
+@pytest.mark.asyncio
 async def test_list_helpdesk_scope_own(engine, app_session_factory, session, monkeypatch):
     monkeypatch.setenv("SESSION_SECRET", "test-secret-32-chars-minimum-xxxx")
     monkeypatch.setenv("ENVIRONMENT", "test")
