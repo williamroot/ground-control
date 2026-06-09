@@ -742,10 +742,18 @@ se necessário, em ordem inversa: `Admin::Package::Uninstall` para
 `ITSMConfigurationManagement` → `ITSMCore` → `GeneralCatalog`).
 **NUNCA** `make reset` (destrói o DB Znuny compartilhado).
 
-> **Status (2026-06-09): gateado na branch `feature/spec-1k-cmdb-ativos`; deploy
-> é etapa separada.** Gates verdes: `perl -c` das 3 novas ops GI no build Znuny,
-> sidecar `ruff`+`mypy`+`pytest`, portal typecheck+vitest, e2e local. Referência:
-> `docs/superpowers/spikes/2026-06-09-r1k-znuny-itsm-cmdb.md` (R1K freeze doc).
+> **Status (2026-06-09): mergeado na `main` (`origin/main` em `671b1a9`); DEPLOYADO em staging
+> e verificado ao vivo.** Gates: `perl -c` das 3 ops GI + sidecar (159) + portal (75) + e2e local
+> verdes. **Staging:** `znuny-web` rebuildado (3 add-ons ITSM bakeados em `/opt/otrs/itsm-opm`
+> — NÃO `var/packages`, que é volume e seria sombreado; `ensure-itsm.sh` instala+`ReinstallAll`
+> idempotente no provisionamento), `GeneralCatalog`/`ITSMCore`/`ITSMConfigurationManagement`
+> instalados; `GertiTicket` atualizado (`--webservice-id 3`, ops ConfigItem); `sidecar`+`portal`
+> Healthy. **Prova e2e em staging (Aurora):** Config Item criado (Computer, CustomerID=AURORA) →
+> `GET /v1/assets` 200 escopado (TechNova `[]`) → detalhe com SerialNumber → cross-tenant **404**
+> → "abrir chamado a partir do ativo" cria ticket **linkado ao CI** (`link_relation` RelevantTo).
+> Throwaway limpo; serviços anteriores intactos (znuny/api-dev/gerti/aurora 200/302).
+> **Bug de deploy corrigido (staging revelou):** `.opm` em `var/packages` é sombreado pelo volume
+> `znuny-var` → movido p/ `/opt/otrs/itsm-opm`. Referência: `docs/superpowers/spikes/2026-06-09-r1k-znuny-itsm-cmdb.md`.
 
 ## Backup (a definir em prod)
 
