@@ -49,19 +49,32 @@ die "Nenhum customer user para CustomerID='$TENANT' — rode o seed principal pr
 my @logins = sort keys %cu_hash;
 printf "  customer users Aurora: %d (%s)\n\n", scalar @logins, join(', ', @logins);
 
-# ── 3. Atribui cada serviço a cada customer user ──────────────────────────────
+# ── 3. Atribui cada serviço a cada customer user (login + e-mail) ─────────────
+# O sidecar guarda o e-mail no JWT e passa-o diretamente a CustomerUserServiceMemberList
+# (via FormMeta.pm). Para a maioria dos usuários Aurora o `login` Znuny é o
+# nome-de-usuário curto (eduardo.salvi), não o e-mail. Atribuímos aos DOIS para
+# cobrir: (a) uso direto do login no Znuny UI e (b) sidecar que envia o e-mail.
 my $assigned = 0;
 for my $login (@logins) {
-    for my $sid ( sort { $a <=> $b } keys %services ) {
-        $ServiceObject->CustomerUserServiceMemberAdd(
-            CustomerUserLogin => $login,
-            ServiceID         => $sid,
-            Active            => 1,
-            UserID            => $ROOT,
-        );
-        $assigned++;
+    my %ud    = $CUObject->CustomerUserDataGet( User => $login );
+    my $email = lc( $ud{UserEmail} // '' );
+    # coletamos todos os identificadores que o Znuny ou o sidecar podem usar
+    my @ids = ($login);
+    push @ids, $email if $email && $email ne lc($login);
+
+    for my $id (@ids) {
+        for my $sid ( sort { $a <=> $b } keys %services ) {
+            $ServiceObject->CustomerUserServiceMemberAdd(
+                CustomerUserLogin => $id,
+                ServiceID         => $sid,
+                Active            => 1,
+                UserID            => $ROOT,
+            );
+            $assigned++;
+        }
     }
-    printf "  + %-40s  %d serviços atribuídos\n", $login, scalar keys %services;
+    my $ids_str = join( ' + ', @ids );
+    printf "  + %-60s  %d serviços atribuídos\n", $ids_str, scalar(@ids) * scalar(keys %services);
 }
 printf "\n  total de atribuições (re)aplicadas: %d\n\n", $assigned;
 
