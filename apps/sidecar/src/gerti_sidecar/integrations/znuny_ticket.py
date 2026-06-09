@@ -26,6 +26,8 @@ from gerti_sidecar.integrations.znuny_customer_admin import (
 
 __all__ = [
     "AgentTicketSummary",
+    "AssetDetail",
+    "AssetSummary",
     "Attachment",
     "TicketCreated",
     "TicketDetail",
@@ -36,6 +38,8 @@ __all__ = [
     "ZnunyWriteError",
     "agent_get",
     "agent_search",
+    "config_item_get",
+    "config_item_search",
     "create_ticket",
     "form_meta",
     "get_ticket",
@@ -110,6 +114,28 @@ class AgentTicketSummary:
     created: str
 
 
+@dataclass(frozen=True)
+class AssetSummary:
+    id: int
+    number: str
+    class_: str
+    name: str
+    deploy_state: str
+    inci_state: str
+
+
+@dataclass(frozen=True)
+class AssetDetail:
+    id: int
+    number: str
+    class_: str
+    name: str
+    deploy_state: str
+    inci_state: str
+    customer_id: str
+    attributes: dict[str, object]
+
+
 async def time_accounting_since(*, since_id: int, limit: int = 500) -> TimeAccountingPage:
     data = await _post("/TimeAccounting/Since", {"SinceId": since_id, "Limit": limit})
     rows = data.get("Entries") or []
@@ -140,6 +166,7 @@ async def create_ticket(
     priority: str | None,
     contract_id: str,
     attachments: list[Attachment] | None = None,
+    config_item_id: int | None = None,
 ) -> TicketCreated:
     payload: dict[str, Any] = {
         "CustomerUser": customer_user,
@@ -163,6 +190,8 @@ async def create_ticket(
             }
             for a in attachments
         ]
+    if config_item_id is not None:
+        payload["ConfigItemID"] = config_item_id
     data = await _post("/Ticket", payload)
     if data.get("TicketID") is None or data.get("TicketNumber") is None:
         raise ZnunyUnavailable("resposta inesperada do Znuny")
@@ -272,6 +301,49 @@ async def agent_search(*, query: str | None, customer_id: str | None) -> list[Ag
 
 async def agent_get(*, znuny_ticket_id: int) -> dict[str, Any]:
     return await _post_agent("/Agent/Ticket/Get", {"TicketID": znuny_ticket_id})
+
+
+async def config_item_search(*, customer_id: str) -> list[AssetSummary]:
+    """Busca Config Items (CMDB) escopados por CustomerCompany (tenant).
+
+    Usa o token de cliente (_post) — o portal lê ativos do próprio tenant.
+    """
+    data = await _post("/ConfigItem/Search", {"CustomerCompany": customer_id})
+    rows = data.get("ConfigItems") or []
+    return [
+        AssetSummary(
+            id=int(r["Id"]),
+            number=str(r.get("Number") or ""),
+            class_=str(r.get("Class") or ""),
+            name=str(r.get("Name") or ""),
+            deploy_state=str(r.get("DeplState") or ""),
+            inci_state=str(r.get("InciState") or ""),
+        )
+        for r in rows
+        if r.get("Id") is not None
+    ]
+
+
+async def config_item_get(*, config_item_id: int, customer_id: str) -> AssetDetail:
+    """Obtém detalhe de um Config Item (CMDB) com guarda de posse (anti-IDOR).
+
+    O GI valida que o CI pertence ao CustomerCompany; ZnunyWriteError se não
+    encontrado → router mapeia para 404.
+    """
+    data = await _post(
+        "/ConfigItem/Get",
+        {"ConfigItemID": config_item_id, "CustomerCompany": customer_id},
+    )
+    return AssetDetail(
+        id=int(data.get("Id") or config_item_id),
+        number=str(data.get("Number") or ""),
+        class_=str(data.get("Class") or ""),
+        name=str(data.get("Name") or ""),
+        deploy_state=str(data.get("DeplState") or ""),
+        inci_state=str(data.get("InciState") or ""),
+        customer_id=str(data.get("CustomerID") or ""),
+        attributes=dict(data.get("Attributes") or {}),
+    )
 
 
 def _resolve_ticket_endpoint() -> tuple[str, str]:
