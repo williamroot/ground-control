@@ -144,6 +144,8 @@ Estado atual (ponto de convergência — item aberto):
 | #1K: sidecar `GET /v1/assets` (lista CIs scoped por tenant) + `GET /v1/assets/{id}` (detalhe anti-IDOR 404) | **Pronto, gateado; deploy per runbook** |
 | #1K: `POST /v1/tickets` aceita `config_item_id` (opcional) | **Pronto, gateado; deploy per runbook** |
 | #1K: portal `/ativos` (lista read-only) + `/ativos/[id]` (detalhe) + "Abrir chamado sobre este ativo" → `/tickets/novo?ativo=<id>`; nav "Ativos"; proxies com guard de path-injection | **Pronto, gateado; deploy per runbook** |
+| #1L: anexos de **vídeo** no chamado (`.mp4/.mov/.webm/.mkv/.avi`, cap 100 MB/arquivo); GI `GertiTicket` `MaxLength` 200 MB (base64 de 100 MB) — ressalva Cloudflare free ~100 MB na borda | **Pronto + DEPLOYADO em staging (2026-06-09, e2e ao vivo)** |
+| #1L: classe Computer + `Disco`/`Memoria`/`CPU` via `ensure-cmdb-fields.pl` (idempotente, no provisionamento); `ConfigItemGet` mapeia **todos** os atributos da versão (genérico) + `Created`; portal `/ativos/[id]` com ficha rica (SO/CPU/Memória/Disco/data) | **Pronto + DEPLOYADO em staging (2026-06-09, e2e ao vivo)** |
 | Gestão avançada pela UI (editar contrato/fechar ciclo/glosa/reajuste) #1G-b | Pendente (deferred §9) |
 | OIDC / PKCE (#1D) | Pendente (deferred §9) |
 | Export CSV/PDF, filtros avançados, i18n | Pendente (deferred §9) |

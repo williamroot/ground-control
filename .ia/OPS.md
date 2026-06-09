@@ -755,6 +755,63 @@ se necessário, em ordem inversa: `Admin::Package::Uninstall` para
 > **Bug de deploy corrigido (staging revelou):** `.opm` em `var/packages` é sombreado pelo volume
 > `znuny-var` → movido p/ `/opt/otrs/itsm-opm`. Referência: `docs/superpowers/spikes/2026-06-09-r1k-znuny-itsm-cmdb.md`.
 
+### Deploy de anexos de vídeo + CMDB enriquecido (Spec #1L — profile `gerti` + rebuild Znuny)
+
+**O que muda.** (A) Anexos de **vídeo** no chamado: o sidecar passa a aceitar
+`.mp4/.mov/.webm/.mkv/.avi` (cap **100 MB/arquivo**, `_MAX_ATTACH_BYTES`); o GI
+`GertiTicket` sobe `MaxLength` 100 MB → **200 MB** (`200000000`) p/ caber o base64
+(100 MB ≈ 133 MB base64). (B) Classe **Computer** ganha `Disco`/`Memoria`/`CPU`
+(o ITSM já traz CPU+OperatingSystem nativos); o `ConfigItemGet` passa a mapear
+**todos** os atributos da versão (genérico) + `Created` (data de criação); portal
+`/ativos/[id]` renderiza a ficha rica (SO/CPU/Memória/Disco/data).
+
+```bash
+# 1) Pull + rebuild znuny-web (novo MaxLength no GertiTicket.yml + ensure-cmdb-fields.pl
+#    no provisionamento + ConfigItemGet genérico) e recria web+daemon.
+#    NB: o curl dos .opm ITSM agora tem --retry/--max-time (build flakou no
+#    addons.znuny.com — exit 28; endurecido em 1125a94).
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+git pull origin main
+$DC build znuny-web && $DC up -d znuny-web znuny-daemon
+
+# 2) Atualiza o webservice GertiTicket (id 3) p/ pegar MaxLength 200 MB.
+#    O console NÃO roda como root → su otrs. O yml vem bakeado em /opt/otrs/webservices/.
+docker compose exec -T znuny-web su -c \
+  "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::Update \
+     --webservice-id 3 --source-path /opt/otrs/webservices/GertiTicket.yml" -s /bin/bash otrs
+
+# 3) Campos CMDB: ensure-cmdb-fields.pl é idempotente e JÁ roda no entrypoint
+#    (após ensure-itsm.sh). Conferir: deve dizer "skip (já tem Disco/Memoria)".
+docker compose exec -T znuny-web su -c "perl /opt/otrs/scripts/ensure-cmdb-fields.pl" -s /bin/bash otrs
+
+# 4) Rebuild sidecar + portal (allowlist de vídeo, AssetDetail.created, ficha rica).
+$DC build sidecar portal && $DC up -d sidecar portal
+
+# 5) Re-seed dos ativos da Aurora (enriquece AUR-NB-001/AUR-PC-014 via VersionAdd).
+#    ATENÇÃO: seed-cmdb.pl vive em /opt/otrs/var/ (volume znuny-var) e é SOMBREADO
+#    pela cópia antiga — copiar a versão nova do repo do host antes de rodar:
+docker compose cp scripts/seed-cmdb.pl znuny-web:/opt/otrs/var/seed-cmdb.pl
+docker compose exec -T znuny-web bash -lc "chown otrs:www-data /opt/otrs/var/seed-cmdb.pl"
+docker compose exec -T znuny-web su -c "perl /opt/otrs/var/seed-cmdb.pl" -s /bin/bash otrs
+```
+
+> **Ressalva Cloudflare (A3).** O plano free do Cloudflare limita o corpo da
+> requisição a **~100 MB na borda** — um vídeo perto do teto pode ser rejeitado
+> *antes* de chegar ao Znuny no acesso público via tunnel. O caminho interno
+> (sidecar→Znuny) aceita até o `MaxLength` (200 MB base64). Para vídeos grandes,
+> orientar o cliente a comprimir ou usar link externo.
+
+> **Status (2026-06-09): mergeado na `main` (`origin/main` em `1125a94`); DEPLOYADO em
+> staging e verificado ao vivo.** Gates: `perl -c` do `ConfigItemGet` + ruff/testes do
+> sidecar + portal + e2e local verdes. **Staging:** `znuny-web` rebuildado (MaxLength 200 MB,
+> `ensure-cmdb-fields` DefinitionID 6, ConfigItemGet genérico), `GertiTicket` atualizado,
+> `sidecar`+`portal` Healthy, AUR-NB-001/AUR-PC-014 enriquecidos (VersionAdd #7/#8).
+> **Prova e2e em staging (Aurora):** `ConfigItem/Get` do CI #2 retorna `Attributes`
+> {OperatingSystem=Windows 11 Pro, CPU=i5-1135G7, Memoria=16 GB, Disco=512 GB SSD,
+> Vendor/Model/SerialNumber} + `Created=2026-06-09 18:38:31`; CI #3 idem (Ubuntu 22.04 /
+> Ryzen 5 / 32 GB / 1 TB); **IDOR**: CI da Aurora pedido como TECHNOVA → `NotFound`;
+> allowlist de vídeo (`.mp4/.mov/.webm/.mkv/.avi`) + cap 100 MB live no sidecar.
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)
