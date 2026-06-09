@@ -15,6 +15,7 @@ from gerti_sidecar import __version__
 from gerti_sidecar.config import get_settings
 from gerti_sidecar.db import dispose_db, init_db
 from gerti_sidecar.routers import (
+    admin_ai,
     admin_auth,
     admin_contracts,
     admin_tenants,
@@ -74,6 +75,8 @@ def create_app() -> FastAPI:
     app.include_router(admin_contracts.router, prefix=settings.api_v1_prefix)
     # Time tracker do agente (Spec #1J).
     app.include_router(admin_timer.router, prefix=settings.api_v1_prefix)
+    # IA: sumarização + resposta sugerida (Spec #1N) — opt-in.
+    app.include_router(admin_ai.router, prefix=settings.api_v1_prefix)
     app.add_middleware(TenantMiddleware)
 
     return app
