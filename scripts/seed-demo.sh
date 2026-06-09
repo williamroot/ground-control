@@ -27,6 +27,8 @@ AUTH_LOCAL="scripts/seed-authcheck.pl"
 AUTH_IN_CT="/opt/otrs/var/seed-authcheck.pl"
 HD_LOCAL="scripts/seed-helpdesk.pl"
 HD_IN_CT="/opt/otrs/var/seed-helpdesk.pl"
+CMDB_LOCAL="scripts/seed-cmdb.pl"
+CMDB_IN_CT="/opt/otrs/var/seed-cmdb.pl"
 PGUSER="$(grep -E '^POSTGRES_USER=' .env 2>/dev/null | cut -d= -f2)"; PGUSER="${PGUSER:-znuny}"
 PGDB="$(grep -E '^POSTGRES_DB=' .env 2>/dev/null | cut -d= -f2)";   PGDB="${PGDB:-znuny}"
 
@@ -73,6 +75,16 @@ if [[ "${1:-}" != "--verify" ]]; then
   $DC cp "$HD_LOCAL" "$WEB:$HD_IN_CT"
   $DC exec -T "$WEB" chown otrs:otrs "$HD_IN_CT"
   c_otrs "perl $HD_IN_CT"
+
+  # Ativos CMDB da Aurora (Spec #1K) — só se o pacote ITSM CMDB estiver instalado.
+  if c_otrs "$CONSOLE Admin::Package::List" 2>/dev/null | grep -qi 'ITSMConfigurationManagement'; then
+    hdr "Ativos CMDB da Aurora (Spec #1K — Config Items, idempotente)"
+    $DC cp "$CMDB_LOCAL" "$WEB:$CMDB_IN_CT"
+    $DC exec -T "$WEB" chown otrs:otrs "$CMDB_IN_CT"
+    c_otrs "perl $CMDB_IN_CT"
+  else
+    hdr "Ativos CMDB da Aurora — PULADO (pacote ITSMConfigurationManagement não instalado)"
+  fi
 fi
 
 # garante helper de auth no container (também no modo --verify isolado)
