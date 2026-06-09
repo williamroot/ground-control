@@ -282,7 +282,7 @@ async function submit() {
         </UFormField>
 
         <!-- Anexos -->
-        <UFormField label="Anexos" name="files" help="Opcional. PNG, JPG, PDF, TXT, LOG, CSV, ZIP, DOC · até 10 MB cada.">
+        <UFormField label="Anexos" name="files" help="Opcional. Imagens, PDF, docs e vídeos (mp4/mov/webm) · até 100 MB cada.">
           <label
             class="flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-default px-4 py-5 text-sm text-muted transition hover:border-highlighted hover:text-highlighted"
           >
@@ -292,7 +292,7 @@ async function submit() {
               type="file"
               multiple
               class="sr-only"
-              accept=".png,.jpg,.jpeg,.pdf,.txt,.log,.csv,.zip,.doc,.docx"
+              accept=".png,.jpg,.jpeg,.pdf,.txt,.log,.csv,.zip,.doc,.docx,.mp4,.mov,.webm,.mkv,.avi"
               @change="onFilesChange"
             >
           </label>
