@@ -867,6 +867,39 @@ de tamanho, teste de regressão). Ver roadmap §E e `docs/superpowers/plans/2026
 > (rascunho profissional com a instrução do agente) → `ai_generation_log` com 2 linhas (summary
 > 3306ms / reply 3542ms, ok=t, gpt-oss:120b, sem conteúdo).
 
+### Deploy dos Dashboards (Spec #1O — profile `gerti` + rebuild Znuny)
+
+**O que muda.** KPIs por tenant: volume/estado/prioridade/dia, SLA estourado/risco,
+CSAT médio (#1M), horas (#1B), saldo. Charts SVG próprios no portal (admin do tenant) e
+console (`/analytics`, seletor de tenant + "Todos"). Nova GI op **`TicketStats`** (anti-IDOR
+por `CustomerID`). OpenSearch Dashboards só para exploração **ad-hoc interna** (não exposto).
+Sem migration (só agrega).
+
+```bash
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+git pull origin main
+$DC build znuny-web && $DC up -d znuny-web znuny-daemon     # bakeia TicketStats.pm (perl -c no build)
+docker compose exec -T znuny-web su -c "cd /opt/otrs && bin/otrs.Console.pl \
+  Admin::WebService::Update --webservice-id 3 --source-path /opt/otrs/webservices/GertiTicket.yml" -s /bin/bash otrs
+$DC build sidecar portal admin && $DC up -d sidecar sidecar-worker portal admin
+```
+
+> **Bug de deploy corrigido (staging revelou):** o overlay GertiTicket copia **cada `.pm`
+> individualmente** no `znuny/Dockerfile` (não por wildcard) + um loop `perl -c` por nome.
+> Op nova exige **adicionar a linha `COPY` E o nome no loop** — sem isso o GI responde
+> `Can't load operation backend module ...TicketStats`. Corrigido em `dd11529`. **Checklist
+> p/ futuras ops GI:** (1) criar `.pm` em `Custom/...`; (2) registrar no `GertiTicket.yml`
+> (op + rota); (3) **COPY no Dockerfile** + nome no loop `perl -c`; (4) rebuild znuny-web +
+> `Update --webservice-id 3`.
+
+> **Status (2026-06-09): DEPLOYADO em staging + e2e ao vivo.** sidecar (212) + portal (94) +
+> admin (50) verdes. **e2e (Aurora):** `TicketStats` GI → `Total 17, SlaBreached 9`, ByState/
+> ByPriority/ByDay; **anti-IDOR**: TECHNOVA → Total 0 (sem vazar os 17 da Aurora). Portal admin
+> `eduardo.salvi` → `/dashboard/metrics` com `csat.avg=5.0 {5:1}` (do #1M), `hours 1.25h`, saldos,
+> `tickets.total=17`. Console `william` → `/admin/analytics?tenant_id=aurora` idem.
+> OpenSearch Dashboards ad-hoc interno: ferramenta de operação (dados crus do Znuny), **sem**
+> Public Hostname no tunnel — subir sob demanda no profile interno.
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)
