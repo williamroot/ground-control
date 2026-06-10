@@ -51,6 +51,29 @@ export function statusColor(s: string): StatusColor {
   return (STATUS_META[s] ?? { color: 'neutral' as const }).color
 }
 
+// Faturas internas (#1P) — cores SEMÂNTICAS (H8): overdue=error, paid=success,
+// open=info, void/draft=neutral. `info` é semântico do Nuxt UI, nunca a marca.
+export type InvoiceBadgeColor = 'success' | 'warning' | 'neutral' | 'error' | 'info'
+
+const INVOICE_STATUS_META: Record<string, { label: string, color: InvoiceBadgeColor }> = {
+  draft: { label: 'Rascunho', color: 'neutral' },
+  open: { label: 'Em aberto', color: 'info' },
+  paid: { label: 'Paga', color: 'success' },
+  overdue: { label: 'Vencida', color: 'error' },
+  void: { label: 'Cancelada', color: 'neutral' },
+}
+
+export function invoiceStatusLabel(s: string): string {
+  return (INVOICE_STATUS_META[s] ?? { label: s }).label
+}
+export function invoiceStatusColor(s: string): InvoiceBadgeColor {
+  return (INVOICE_STATUS_META[s] ?? { color: 'neutral' as const }).color
+}
+
+export function moneyBRLFromCents(cents: number): string {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cents / 100)
+}
+
 // Campo numérico inicial que cada tipo de contrato exige. O formulário de
 // "novo contrato" mostra/exige SOMENTE este campo conforme o tipo escolhido:
 //   hour_bank      → initial_hours (horas)

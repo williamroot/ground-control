@@ -88,6 +88,13 @@ async function logout() {
             :class="isActive('/ativos') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
             :style="isActive('/ativos') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
           >Ativos</NuxtLink>
+          <NuxtLink
+            v-if="role === 'admin'"
+            to="/faturas"
+            class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
+            :class="isActive('/faturas') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
+            :style="isActive('/faturas') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
+          >Faturas</NuxtLink>
         </nav>
 
         <div class="ml-auto flex items-center gap-3">

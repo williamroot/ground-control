@@ -52,3 +52,28 @@ export async function sidecarFetch<T>(
   }
   return { status: res.status, data, setCookie }
 }
+
+// Raw GET passthrough (e.g. baixar o PDF de uma fatura): repassa os mesmos
+// headers de tenant/cookie e devolve os bytes + content-type AS-IS, sem tentar
+// parsear JSON. Usado pelo proxy de PDF (resposta binária do sidecar).
+export async function sidecarFetchRaw(
+  event: H3Event,
+  path: string,
+): Promise<{ status: number, body: ArrayBuffer, contentType: string }> {
+  const cfg = useRuntimeConfig()
+  const fwdHost
+    = getRequestHeader(event, 'x-forwarded-host')
+      || getRequestHeader(event, 'host')
+      || ''
+  const cookie = getRequestHeader(event, 'cookie') || ''
+  const res = await fetch(`${cfg.sidecarUrl}${path}`, {
+    method: 'GET',
+    headers: { 'x-forwarded-host': fwdHost, 'cookie': cookie },
+  })
+  const body = await res.arrayBuffer()
+  return {
+    status: res.status,
+    body,
+    contentType: res.headers.get('content-type') || 'application/octet-stream',
+  }
+}

@@ -69,13 +69,23 @@ const roleLabel = (r: string) =>
             {{ tenant.legal_name }} · {{ tenant.subdomain }}
           </p>
         </div>
-        <UButton
-          :to="`/clientes/${tenant.id}/contratos/novo`"
-          color="primary"
-          icon="i-lucide-plus"
-        >
-          Novo contrato
-        </UButton>
+        <div class="flex items-center gap-2">
+          <UButton
+            :to="`/clientes/${tenant.id}/faturas`"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-receipt"
+          >
+            Faturas
+          </UButton>
+          <UButton
+            :to="`/clientes/${tenant.id}/contratos/novo`"
+            color="primary"
+            icon="i-lucide-plus"
+          >
+            Novo contrato
+          </UButton>
+        </div>
       </header>
 
       <div class="grid gap-6 lg:grid-cols-2">
