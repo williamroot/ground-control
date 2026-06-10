@@ -9,6 +9,10 @@ ENV PYTHONUNBUFFERED=1 \
     UV_PROJECT_ENVIRONMENT=/app/.venv
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates \
+        # Libs nativas do WeasyPrint (#1P): HTML→PDF branded de faturas.
+        libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 \
+        libcairo2 libcairo-gobject2 libffi8 \
+        fonts-dejavu fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=ghcr.io/astral-sh/uv:0.5.9 /uv /usr/local/bin/uv
 WORKDIR /app

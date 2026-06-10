@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<style>
+  @page {
+    size: A4;
+    margin: 18mm 16mm 22mm 16mm;
+    @bottom-center {
+      content: "Documento interno — não é nota fiscal";
+      font-size: 8pt;
+      color: #888;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "DejaVu Sans", "Helvetica", sans-serif;
+    font-size: 10pt;
+    color: #1f2937;
+    margin: 0;
+  }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 3px solid {{ primary_color }};
+    padding-bottom: 12px;
+    margin-bottom: 20px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand img { max-height: 48px; max-width: 180px; }
+  .brand .name {
+    font-size: 18pt;
+    font-weight: 700;
+    color: {{ primary_color }};
+  }
+  .doc-meta { text-align: right; font-size: 9pt; color: #4b5563; }
+  .doc-meta .title {
+    font-size: 13pt;
+    font-weight: 700;
+    color: #111827;
+    margin-bottom: 4px;
+  }
+  .status {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 8pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    background: #f3f4f6;
+    color: #374151;
+  }
+  .meta-grid {
+    display: flex;
+    gap: 32px;
+    margin-bottom: 18px;
+    font-size: 9pt;
+  }
+  .meta-grid .label { color: #6b7280; font-size: 8pt; text-transform: uppercase; }
+  .meta-grid .value { font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  thead th {
+    background: {{ primary_color }};
+    color: #ffffff;
+    text-align: left;
+    padding: 8px 10px;
+    font-size: 9pt;
+  }
+  thead th.num, tbody td.num { text-align: right; }
+  tbody td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #e5e7eb;
+    font-size: 9pt;
+  }
+  tfoot td {
+    padding: 10px;
+    font-weight: 700;
+    font-size: 11pt;
+  }
+  tfoot td.total-label { text-align: right; }
+  tfoot .total { color: {{ primary_color }}; text-align: right; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      {% if logo_url %}<img src="{{ logo_url }}" alt="{{ display_name }}" />{% endif %}
+      <span class="name">{{ display_name }}</span>
+    </div>
+    <div class="doc-meta">
+      <div class="title">Fatura #{{ "%04d"|format(invoice.number) }}</div>
+      <div>Emissão: {{ issued }}</div>
+      <div>Vencimento: {{ due }}</div>
+      <div><span class="status">{{ status_label }}</span></div>
+    </div>
+  </div>
+
+  <div class="meta-grid">
+    <div>
+      <div class="label">Período de referência</div>
+      <div class="value">{{ period_start }} a {{ period_end }}</div>
+    </div>
+    <div>
+      <div class="label">Moeda</div>
+      <div class="value">{{ invoice.currency }}</div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Descrição</th>
+        <th class="num">Qtd.</th>
+        <th>Un.</th>
+        <th class="num">Valor unit.</th>
+        <th class="num">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for line in lines %}
+      <tr>
+        <td>{{ line.description }}</td>
+        <td class="num">{{ line.quantity }}</td>
+        <td>{{ line.unit }}</td>
+        <td class="num">{{ money(line.unit_price_cents) }}</td>
+        <td class="num">{{ money(line.amount_cents) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr>
+        <td colspan="4" class="total-label">Total</td>
+        <td class="total">{{ money(invoice.total_cents) }}</td>
+      </tr>
+    </tfoot>
+  </table>
+</body>
+</html>
