@@ -71,6 +71,14 @@ const roleLabel = (r: string) =>
         </div>
         <div class="flex items-center gap-2">
           <UButton
+            :to="`/clientes/${tenant.id}/agentes`"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-monitor-smartphone"
+          >
+            Agentes
+          </UButton>
+          <UButton
             :to="`/clientes/${tenant.id}/faturas`"
             color="neutral"
             variant="soft"
