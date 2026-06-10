@@ -1,0 +1,4 @@
+# Binários do agente (#1R-b) são artefatos de build — não commitar.
+*
+!.gitkeep
+!.gitignore

@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     # heartbeat; usada para montar o comando de instalação no console.
     agent_server_url: str = "https://api-dev.was.dev.br"
 
+    # distribuição do binário do agente (#1R-b) — diretório (bakeado na imagem)
+    # de onde GET /v1/agent/download/{os_arch} serve os binários cross-compilados.
+    agent_dist_dir: str = "/app/agent-dist"
+
     # logging ----------------------------------------------------------
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 

@@ -28,6 +28,9 @@ RUN uv sync --frozen --all-extras --no-install-project
 COPY src ./src
 COPY alembic ./alembic
 COPY alembic.ini ./
+# Binários cross-compilados do agente (#1R-b), servidos por /v1/agent/download/.
+# Depositados em apps/sidecar/agent-dist/ antes do build (vazio no git → 404 em dev).
+COPY agent-dist /app/agent-dist
 EXPOSE 8001
 HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=5 \
   CMD curl -fsS http://localhost:8001/v1/health || exit 1
@@ -38,6 +41,9 @@ FROM deps AS prod
 COPY src ./src
 COPY alembic ./alembic
 COPY alembic.ini ./
+# Binários cross-compilados do agente (#1R-b), servidos por /v1/agent/download/.
+# Depositados em apps/sidecar/agent-dist/ antes do build (vazio no git → 404 em dev).
+COPY agent-dist /app/agent-dist
 # Instala o PRÓPRIO projeto no venv no BUILD (rede disponível). Sem
 # isto, `uv run` em runtime tentava buildar `gerti-sidecar` e resolver
 # `hatchling` no pypi — mas a rede `data` é internal:true (sem internet)

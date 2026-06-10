@@ -1,0 +1,9 @@
+Binários cross-compilados do agente (#1R-b) são depositados AQUI antes do build
+da imagem do sidecar (bakeados em /app/agent-dist e servidos por
+GET /v1/agent/download/{os_arch}).
+
+Gere-os com:  (no repo root)  apps/agent/build.sh  apps/sidecar/agent-dist
+ou:           cd apps/agent && make dist && cp dist/* ../sidecar/agent-dist/
+
+Nomes esperados: linux-amd64, windows-amd64.exe, darwin-arm64.
+Este diretório fica vazio no git (.gitkeep); os binários NÃO são commitados.

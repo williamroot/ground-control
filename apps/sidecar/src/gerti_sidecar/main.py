@@ -25,6 +25,7 @@ from gerti_sidecar.routers import (
     admin_tenants,
     admin_timer,
     agent,
+    agent_dist,
     assets,
     auth,
     branding,
@@ -98,6 +99,8 @@ def create_app() -> FastAPI:
     app.include_router(hooks.router, prefix=settings.api_v1_prefix)
     # Agente de inventário (Spec #1R-a) — Bearer token/secret; tenant vem do token.
     app.include_router(agent.router, prefix=settings.api_v1_prefix)
+    # Distribuição do binário/install.sh do agente (Spec #1R-b) — público, sem auth.
+    app.include_router(agent_dist.router, prefix=settings.api_v1_prefix)
     app.add_middleware(TenantMiddleware)
 
     return app

@@ -1,0 +1,141 @@
+#!/bin/sh
+# install.sh — instalador do agente de inventário do Ground Control (#1R-b).
+#
+# Idempotente. Baixa o binário do servidor, instala em /usr/local/bin/gc-agent,
+# faz enroll (troca o enroll token por uma credencial própria) e instala+habilita
+# o serviço systemd que roda `gc-agent run`.
+#
+# Uso (a partir do console, por tenant):
+#   curl -fsSL "https://api-dev.was.dev.br/v1/agent/install.sh?server=https://api-dev.was.dev.br" \
+#     | sh -s -- --enroll-token=<TOKEN> --server=https://api-dev.was.dev.br
+#
+# Flags (aceita tanto "--flag valor" quanto "--flag=valor"):
+#   --server        base URL do sidecar (obrigatório)
+#   --enroll-token  token de enrollment do tenant (obrigatório; NÃO é persistido)
+#   --bin-dir       diretório de instalação do binário (default /usr/local/bin)
+#   --config        caminho do agent.conf (default /etc/gc-agent/agent.conf)
+
+set -eu
+
+# Server default renderizado pelo sidecar (pode ser sobreposto por --server).
+# Comando recomendado: curl … | sh -s -- --enroll-token=<TOKEN> --server=__GC_DEFAULT_SERVER__
+SERVER="__GC_DEFAULT_SERVER__"
+ENROLL_TOKEN=""
+BIN_DIR="/usr/local/bin"
+CONFIG="/etc/gc-agent/agent.conf"
+
+# --- parse de flags (suporta --k=v e --k v) ---------------------------------
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --server=*)        SERVER="${1#*=}" ;;
+    --server)          shift; SERVER="${1:-}" ;;
+    --enroll-token=*)  ENROLL_TOKEN="${1#*=}" ;;
+    --enroll-token)    shift; ENROLL_TOKEN="${1:-}" ;;
+    --bin-dir=*)       BIN_DIR="${1#*=}" ;;
+    --bin-dir)         shift; BIN_DIR="${1:-}" ;;
+    --config=*)        CONFIG="${1#*=}" ;;
+    --config)          shift; CONFIG="${1:-}" ;;
+    -h|--help)
+      sed -n '2,20p' "$0" 2>/dev/null || true
+      exit 0 ;;
+    *)
+      echo "install.sh: flag desconhecida: $1" >&2
+      exit 2 ;;
+  esac
+  shift
+done
+
+if [ -z "$SERVER" ]; then
+  echo "install.sh: --server é obrigatório" >&2
+  exit 2
+fi
+if [ -z "$ENROLL_TOKEN" ]; then
+  echo "install.sh: --enroll-token é obrigatório" >&2
+  exit 2
+fi
+
+# --- requer root (instala em /usr/local/bin, /etc e systemd) -----------------
+if [ "$(id -u)" -ne 0 ]; then
+  echo "install.sh: precisa rodar como root (use sudo)" >&2
+  exit 1
+fi
+
+# --- detecta SO/arquitetura --------------------------------------------------
+OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+case "$OS" in
+  linux)  OS="linux" ;;
+  darwin) OS="darwin" ;;
+  *) echo "install.sh: SO não suportado: $OS" >&2; exit 1 ;;
+esac
+
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64|amd64) ARCH="amd64" ;;
+  aarch64|arm64) ARCH="arm64" ;;
+  *) echo "install.sh: arquitetura não suportada: $ARCH" >&2; exit 1 ;;
+esac
+
+OS_ARCH="${OS}-${ARCH}"
+SERVER="${SERVER%/}"  # remove barra final
+
+echo "install.sh: instalando gc-agent para ${OS_ARCH} a partir de ${SERVER}"
+
+# --- baixa o binário (idempotente: sempre baixa a versão atual do servidor) --
+TMP="$(mktemp)"
+trap 'rm -f "$TMP"' EXIT
+
+DOWNLOAD_URL="${SERVER}/v1/agent/download/${OS_ARCH}"
+if command -v curl >/dev/null 2>&1; then
+  curl -fsSL "$DOWNLOAD_URL" -o "$TMP"
+elif command -v wget >/dev/null 2>&1; then
+  wget -qO "$TMP" "$DOWNLOAD_URL"
+else
+  echo "install.sh: precisa de curl ou wget" >&2
+  exit 1
+fi
+
+mkdir -p "$BIN_DIR"
+BIN_PATH="${BIN_DIR}/gc-agent"
+install -m 0755 "$TMP" "$BIN_PATH"
+echo "install.sh: binário instalado em ${BIN_PATH}"
+
+# --- enroll (idempotente: o próprio agente pula se já tiver credencial) ------
+mkdir -p "$(dirname "$CONFIG")"
+chmod 0700 "$(dirname "$CONFIG")" 2>/dev/null || true
+
+# O enroll token é passado por flag e descartado pelo agente após a troca;
+# nunca é gravado no agent.conf.
+"$BIN_PATH" enroll --server "$SERVER" --enroll-token "$ENROLL_TOKEN" --config "$CONFIG"
+
+# --- instala o serviço (systemd no Linux) ------------------------------------
+if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
+  UNIT="/etc/systemd/system/gc-agent.service"
+  cat > "$UNIT" <<EOF
+[Unit]
+Description=Ground Control inventory agent (gc-agent)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${BIN_PATH} run --config ${CONFIG}
+Restart=on-failure
+RestartSec=15
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=$(dirname "$CONFIG")
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  systemctl enable gc-agent.service >/dev/null 2>&1 || true
+  systemctl restart gc-agent.service
+  echo "install.sh: serviço systemd gc-agent habilitado e iniciado"
+else
+  echo "install.sh: systemd não detectado — rode manualmente: ${BIN_PATH} run --config ${CONFIG}" >&2
+fi
+
+echo "install.sh: concluído."
