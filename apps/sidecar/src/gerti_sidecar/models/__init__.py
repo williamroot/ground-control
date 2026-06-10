@@ -1,5 +1,6 @@
 """Modelos SQLAlchemy do sidecar (schema gerti)."""
 
+from gerti_sidecar.models.agent_inventory import AgentEnrollToken, DeviceAgent
 from gerti_sidecar.models.agent_timer import AgentTimer
 from gerti_sidecar.models.ai_generation_log import AiGenerationLog
 from gerti_sidecar.models.automation import AutomationRule, AutomationRun
@@ -23,6 +24,7 @@ from gerti_sidecar.models.ticket_link import TicketContractLink
 from gerti_sidecar.models.znuny_instance import ZnunyInstance
 
 __all__ = [
+    "AgentEnrollToken",
     "AgentTimer",
     "AiGenerationLog",
     "AutomationRule",
@@ -38,6 +40,7 @@ __all__ = [
     "ContractScopeCi",
     "ContractScopeService",
     "CsatResponse",
+    "DeviceAgent",
     "Glosa",
     "Invoice",
     "InvoiceLine",
