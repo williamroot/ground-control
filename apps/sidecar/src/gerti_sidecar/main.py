@@ -23,6 +23,7 @@ from gerti_sidecar.routers import (
     admin_invoices,
     admin_tenants,
     admin_timer,
+    agent,
     assets,
     auth,
     branding,
@@ -92,6 +93,8 @@ def create_app() -> FastAPI:
     app.include_router(admin_automation.router, prefix=settings.api_v1_prefix)
     # Webhooks Znuny→sidecar (Spec #1Q) — tenant vem do customer_id assinado (HMAC).
     app.include_router(hooks.router, prefix=settings.api_v1_prefix)
+    # Agente de inventário (Spec #1R-a) — Bearer token/secret; tenant vem do token.
+    app.include_router(agent.router, prefix=settings.api_v1_prefix)
     app.add_middleware(TenantMiddleware)
 
     return app

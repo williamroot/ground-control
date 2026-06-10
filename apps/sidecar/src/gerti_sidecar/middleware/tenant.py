@@ -87,6 +87,12 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith("/v1/hooks"):
             return await call_next(request)
 
+        # Agente de inventário (Spec #1R-a) NÃO usa subdomínio: o tenant é
+        # resolvido pelo enroll token / agent_secret (Bearer), server-side. Pular
+        # a resolução por host (o agente bate em api-dev.was.dev.br, sem tenant).
+        if request.url.path.startswith("/v1/agent"):
+            return await call_next(request)
+
         # X-Forwarded-Host tem precedência sobre Host (H9): o portal Nuxt
         # encaminha o host do tenant via XFH porque o undici/Node fetch
         # PROÍBE override do Host (reescreve p/ a autoridade `sidecar:8001`).
