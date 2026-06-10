@@ -1,0 +1,20 @@
+[Unit]
+Description=Ground Control inventory agent (gc-agent)
+Documentation=https://groundcontrol.was.dev.br
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/gc-agent run --config /etc/gc-agent/agent.conf
+Restart=on-failure
+RestartSec=15
+# A credencial vive em /etc/gc-agent/agent.conf (0600). Endurecimento básico:
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/gc-agent
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
