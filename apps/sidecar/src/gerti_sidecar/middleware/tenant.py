@@ -81,6 +81,12 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith("/v1/admin"):
             return await call_next(request)
 
+        # Webhooks Znuny→sidecar (Spec #1Q) NÃO usam subdomínio: o tenant é
+        # resolvido pelo `customer_id` da payload ASSINADA (HMAC). Pular a
+        # resolução por host evita um 404 falso antes de chegar na rota.
+        if request.url.path.startswith("/v1/hooks"):
+            return await call_next(request)
+
         # X-Forwarded-Host tem precedência sobre Host (H9): o portal Nuxt
         # encaminha o host do tenant via XFH porque o undici/Node fetch
         # PROÍBE override do Host (reescreve p/ a autoridade `sidecar:8001`).
