@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Branding } from '#shared/branding'
 import { DEFAULT_BRANDING } from '#shared/branding'
+import { applyAssistResult, shouldShowAssistButton } from '~/components/ticket/assist'
 
 // #1E fase 3 — Abertura de chamado (form A, página única). Guarda por sessão
 // (qualquer papel logado pode abrir). O seletor de contrato é CONDICIONAL
@@ -19,6 +20,12 @@ interface FormMeta {
   services: MetaItem[]
   priorities: MetaItem[]
   types: MetaItem[]
+  // #1S: a UI mostra/oculta o botão "Melhorar com IA" por esta flag.
+  ai_assist_enabled?: boolean
+}
+interface AssistResult {
+  title: string
+  body: string
 }
 interface OpenedTicket {
   znuny_ticket_id: number
@@ -47,7 +54,7 @@ const { data: contracts } = await useAsyncData('ticketing-contracts', () =>
     .catch(() => [] as SelectableContract[]))
 const { data: meta } = await useAsyncData('ticketing-form-meta', () =>
   $fetch<FormMeta>('/api/portal/ticketing/form-meta', { headers })
-    .catch(() => ({ services: [], priorities: [], types: [] } as FormMeta)))
+    .catch(() => ({ services: [], priorities: [], types: [], ai_assist_enabled: false } as FormMeta)))
 
 const selectableContracts = computed(() => contracts.value ?? [])
 // D-1E-2: seletor só quando há ambiguidade (>= 2 contratos ativos).
@@ -86,6 +93,54 @@ const files = ref<File[]>([])
 const submitting = ref(false)
 const contractError = ref('') // erro específico do seletor (422)
 const formError = ref('') // erro geral (UAlert)
+
+// #1S — assistente de escrita por IA. O botão só aparece quando a feature está
+// ligada E há descrição. A saída é um RASCUNHO: popula title+body (o cliente
+// edita e envia manualmente — nunca auto-submete). Renderização escapada (sem v-html).
+const assisting = ref(false)
+const showAssistButton = computed(() =>
+  shouldShowAssistButton(meta.value?.ai_assist_enabled, form.body))
+
+async function improveWithAi() {
+  if (assisting.value || !form.body.trim()) return
+  assisting.value = true
+  try {
+    const result = await $fetch<AssistResult>('/api/portal/ticketing/assist', {
+      method: 'POST',
+      body: { title: form.title, body: form.body },
+    })
+    applyAssistResult(form, result)
+    toast.add({
+      title: 'Texto melhorado',
+      description: 'Revise o rascunho e ajuste o que precisar antes de enviar.',
+      color: 'success',
+      icon: 'i-lucide-sparkles',
+    })
+  }
+  catch (err: unknown) {
+    const e = err as { status?: number, statusCode?: number }
+    const status = e.status ?? e.statusCode
+    if (status === 429) {
+      toast.add({
+        title: 'Aguarde um momento',
+        description: 'Muitas tentativas em pouco tempo. Tente novamente em instantes.',
+        color: 'warning',
+        icon: 'i-lucide-clock',
+      })
+    }
+    else {
+      toast.add({
+        title: 'IA indisponível',
+        description: 'Não foi possível melhorar o texto agora. Você pode enviar o chamado normalmente.',
+        color: 'error',
+        icon: 'i-lucide-alert-circle',
+      })
+    }
+  }
+  finally {
+    assisting.value = false
+  }
+}
 
 function onFilesChange(e: Event) {
   const input = e.target as HTMLInputElement
@@ -279,6 +334,22 @@ async function submit() {
             size="lg"
             class="w-full"
           />
+          <!-- #1S: assistente de escrita por IA. Cor NEUTRA (não a marca — H8);
+               só aparece com a feature ligada e descrição preenchida. A saída é
+               um rascunho editável (popula os campos; nunca envia sozinho). -->
+          <div v-if="showAssistButton" class="mt-2 flex justify-end">
+            <UButton
+              type="button"
+              color="neutral"
+              variant="outline"
+              size="sm"
+              icon="i-lucide-sparkles"
+              :loading="assisting"
+              :disabled="assisting"
+              label="Melhorar com IA"
+              @click="improveWithAi"
+            />
+          </div>
         </UFormField>
 
         <!-- Anexos -->
