@@ -204,18 +204,20 @@ COPY scripts/ensure-gerti-dynamicfield.pl ${OTRS_HOME}/scripts/ensure-gerti-dyna
 RUN chown -R otrs:www-data ${OTRS_HOME}/webservices ${OTRS_HOME}/scripts/ensure-gerti-dynamicfield.pl
 
 # ── Motor de automação (#1Q): Event module Perl + XML SysConfig + ensure script.
-#    O Event module GertiAutomation.pm assina HMAC e posta os eventos de ticket
-#    ao sidecar; o XML registra a Setting Ticket::EventModulePost. Overlay Custom/
-#    (upgrade-safe). perl -c é gate de build (lição #1O — todo .pm novo aqui).
+#    O Event module GertiAutomation.pm (overlay Custom/, no @INC) assina HMAC e
+#    posta os eventos de ticket ao sidecar. O XML que registra a Setting
+#    Ticket::EventModulePost DEVE ir no path REAL Kernel/Config/Files/XML/ — o
+#    SysConfig escaneia esse dir, NÃO o overlay Custom/ (staging revelou: em Custom/
+#    o setting fica "invalid" e o event module nunca dispara). perl -c é gate (#1O).
 COPY Custom/Kernel/System/Ticket/Event/GertiAutomation.pm \
      ${OTRS_HOME}/Custom/Kernel/System/Ticket/Event/GertiAutomation.pm
 COPY Custom/Kernel/Config/Files/XML/GertiAutomation.xml \
-     ${OTRS_HOME}/Custom/Kernel/Config/Files/XML/GertiAutomation.xml
+     ${OTRS_HOME}/Kernel/Config/Files/XML/GertiAutomation.xml
 COPY scripts/ensure-automation-invoker.pl ${OTRS_HOME}/scripts/ensure-automation-invoker.pl
 RUN set -eux; \
     chown -R otrs:www-data \
         ${OTRS_HOME}/Custom/Kernel/System/Ticket/Event/GertiAutomation.pm \
-        ${OTRS_HOME}/Custom/Kernel/Config/Files/XML/GertiAutomation.xml \
+        ${OTRS_HOME}/Kernel/Config/Files/XML/GertiAutomation.xml \
         ${OTRS_HOME}/scripts/ensure-automation-invoker.pl; \
     perl -I${OTRS_HOME} -I${OTRS_HOME}/Kernel/cpan-lib -I${OTRS_HOME}/Custom \
          -c ${OTRS_HOME}/Custom/Kernel/System/Ticket/Event/GertiAutomation.pm

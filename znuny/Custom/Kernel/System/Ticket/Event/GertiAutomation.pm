@@ -17,12 +17,16 @@ use strict;
 use warnings;
 
 use Digest::SHA qw(hmac_sha256_hex);
+use Encode qw(encode);
+use LWP::UserAgent ();
+use HTTP::Request ();
 
+# WebUserAgent só faz POST form-encoded (Data precisa ser hash/arrayref); para
+# assinar HMAC sobre o corpo EXATO (JSON), usamos LWP direto (libwww já instalado).
 our @ObjectDependencies = (
     'Kernel::Config',
     'Kernel::System::Ticket',
     'Kernel::System::JSON',
-    'Kernel::System::WebUserAgent',
     'Kernel::System::Log',
 );
 
@@ -93,20 +97,17 @@ sub Run {
         my $JSONObject = $Kernel::OM->Get('Kernel::System::JSON');
         my $Body       = $JSONObject->Encode( Data => \%Payload );
 
-        # Assina o corpo EXATO que será enviado (mesmo $Body literal).
-        my $Sig = hmac_sha256_hex( $Body, $Secret );
+        # Bytes UTF-8 EXATOS que vão no corpo — assina e envia o MESMO octeto
+        # (o sidecar verifica HMAC sobre o corpo bruto recebido).
+        my $Octets = encode( 'UTF-8', $Body );
+        my $Sig    = hmac_sha256_hex( $Octets, $Secret );
 
-        my $UA = $Kernel::OM->Get('Kernel::System::WebUserAgent');
-        $UA->{Timeout} = 5;
-        $UA->Request(
-            Type => 'POST',
-            URL  => $Url,
-            Data => $Body,
-            Header => {
-                'Content-Type'      => 'application/json',
-                'X-Gerti-Signature' => "sha256=$Sig",
-            },
-        );
+        my $UA  = LWP::UserAgent->new( timeout => 5 );
+        my $Req = HTTP::Request->new( 'POST', $Url );
+        $Req->header( 'Content-Type'      => 'application/json' );
+        $Req->header( 'X-Gerti-Signature' => "sha256=$Sig" );
+        $Req->content($Octets);
+        $UA->request($Req);
         1;
     } or do {
         my $Err = $@ || 'unknown';
