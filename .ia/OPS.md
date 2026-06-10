@@ -926,6 +926,48 @@ docker compose exec -T sidecar uv run python -c "import weasyprint; print(weasyp
 > **409** (idempotente) → portal admin lista → `GET /v1/invoices/1/pdf` **200 application/pdf**
 > (13.7 KB) → marcar paga **paid** → 2ª fatura com `due_at` vencido + restart do worker → **overdue**.
 
+### Deploy do Motor de Automação (Spec #1Q — profile `gerti` + rebuild Znuny)
+
+**O que muda.** Regras no-code (gatilho de evento + condições + ações) no console; o Znuny
+dispara um **Event module** (`GertiAutomation.pm`) que assina HMAC e posta os eventos de
+ticket ao sidecar (`/v1/hooks/znuny/ticket-event`); o `AutomationEngine` avalia as regras do
+tenant (DSL pura, allowlist) e executa ações via GI **`AgentTicketUpdate`** (nova op). Tabelas
+`automation_rule`/`automation_run` (RLS). Segredo HMAC compartilhado nos 2 lados.
+
+```bash
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+git pull origin main
+# 1) Segredo HMAC (uma vez): mesmo valor nos dois lados.
+SEC=$(openssl rand -hex 32)
+#    a) .env.prod (gitignored, NUNCA commitar): GERTI_WEBHOOK_SIGNING_SECRET=$SEC
+#    b) DB (sidecar lê daqui): UPDATE gerti.znuny_instance SET webhook_signing_secret_ref='$SEC';
+# 2) Znuny: rebuild (bakeia GertiAutomation.pm + AgentTicketUpdate.pm + a XML no path REAL) + recreate.
+$DC build znuny-web && $DC up -d --force-recreate znuny-web znuny-daemon
+#    (entrypoint roda Maint::Config::Rebuild → carrega a Setting do Event module; ensure-automation deploya)
+docker compose exec -T znuny-web su -c "cd /opt/otrs && bin/otrs.Console.pl \
+  Admin::WebService::Update --webservice-id 3 --source-path /opt/otrs/webservices/GertiTicket.yml" -s /bin/bash otrs
+# 3) Sidecar: migration 0018 + rebuild.
+$DC build sidecar admin && $DC run --rm sidecar-migrate && $DC up -d sidecar sidecar-worker admin
+```
+
+> **Três bugs que a staging revelou no e2e do motor (corrigidos — `c91d18f`/`d953e91`):**
+> 1. **XML no path errado:** o SysConfig escaneia `Kernel/Config/Files/XML/`, **NÃO** o overlay
+>    `Custom/`. A Setting `Ticket::EventModulePost###9700-GertiAutomation` ficava `invalid` e o
+>    event module nunca disparava. → COPY da XML no path REAL (a `.pm` continua em `Custom/`).
+> 2. **`WebUserAgent->Request` não envia corpo bruto** (exige `Data` hashref/arrayref, form-encoded)
+>    → o POST assinado nunca saía. Trocado por **`LWP::UserAgent`+`HTTP::Request`** assinando/enviando
+>    os bytes UTF-8 exatos (casa o HMAC do sidecar sobre o corpo bruto).
+> 3. **Loop de feedback:** `add_note` cria artigo → `ArticleCreate` → regra casa → `add_note` → … (137
+>    runs num ticket). → guarda anti-loop: só reage a `ArticleCreate` de **`SenderType=customer`**.
+
+> **Status (2026-06-09): DEPLOYADO em staging + e2e ao vivo.** sidecar (253) + admin (58) verdes.
+> **e2e (Aurora):** regra `article_create` + `title contains "urgente"` → `set_priority "5 very high"`
+> + `add_note`. Ticket "URGENTE…" → webhook **200** → `automation_run matched=t` (**1 execução**, sem
+> loop) → prioridade **5 very high** + nota; ticket não-urgente → `matched=f`, prioridade normal;
+> assinatura inválida → **401**; validação de regra (campo fora da allowlist) → **422**. **Checklist
+> de op:** após qualquer rebuild do `znuny-web`, o `--force-recreate` faz o entrypoint rodar
+> `Maint::Config::Rebuild` (carrega XML→DB); sem recreate, settings novas de XML não entram.
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)
