@@ -13,6 +13,7 @@ const isAuthedView = computed(() => route.path !== '/login')
 const navLinks = [
   { to: '/', label: 'Clientes' },
   { to: '/atendimento', label: 'Atendimento' },
+  { to: '/analytics', label: 'Analytics' },
 ]
 </script>
 

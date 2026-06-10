@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { Branding } from '#shared/branding'
 import { DEFAULT_BRANDING } from '#shared/branding'
+import type { DashboardMetrics } from '#shared/metrics'
+import { csatBars, ticketStateSegments, ticketVolumePoints } from '#shared/metrics'
 import { statusColor, statusLabel, typeLabel } from '~/components/contract/labels'
 
 definePageMeta({ middleware: 'auth' }) // #1H: sessão + papel admin
@@ -28,11 +30,21 @@ const { data: contracts } = await useAsyncData('contracts', () =>
   $fetch<ContractItem[]>('/api/portal/contracts', { headers })
     .catch(() => [] as ContractItem[]))
 
+// Indicadores (#1O): CSAT médio, volume/dia, estados (semântico), SLA. Failure-soft.
+const { data: metrics } = await useAsyncData('dashboard-metrics', () =>
+  $fetch<DashboardMetrics>('/api/portal/dashboard/metrics', { headers }).catch(() => null))
+
+const stateSegments = computed(() => ticketStateSegments(metrics.value?.tickets ?? null))
+const volumePoints = computed(() => ticketVolumePoints(metrics.value?.tickets ?? null))
+const csatDist = computed(() => csatBars(metrics.value?.csat ?? { avg: null, count: 0, distribution: {} }))
+
 const branding = useState<Branding>('branding', () => DEFAULT_BRANDING)
 const tenantName = computed(() => branding.value?.display_name ?? 'Portal')
 
 const brl = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 const num = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 })
+const num2 = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 })
+const int = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 })
 function saldoBig(c: ContractItem): string {
   const r = c.saldo?.remaining; const kind = c.saldo?.kind
   if (r == null) return '—'
@@ -65,6 +77,68 @@ function fmtDate(iso: string): string {
     </header>
 
     <LowBalanceAlerts :alerts="dashboard?.low_balance_alerts ?? []" />
+
+    <!-- Indicadores (#1O) — admin-only (a página inteira já é admin-only). -->
+    <section v-if="metrics" class="mb-10">
+      <h2 class="mb-4 font-display text-lg font-bold tracking-tight text-highlighted">Indicadores</h2>
+
+      <!-- KPIs numéricos -->
+      <div class="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <UCard :ui="{ body: 'space-y-1' }">
+          <p class="text-xs uppercase tracking-wide text-dimmed">CSAT médio</p>
+          <p class="font-display text-3xl font-extrabold tracking-tight text-highlighted">
+            {{ metrics.csat.avg != null ? num2.format(metrics.csat.avg) : '—' }}
+          </p>
+          <p class="text-xs text-muted">{{ metrics.csat.count }} avaliações</p>
+        </UCard>
+        <UCard :ui="{ body: 'space-y-1' }">
+          <p class="text-xs uppercase tracking-wide text-dimmed">SLA estourado</p>
+          <p
+            class="font-display text-3xl font-extrabold tracking-tight"
+            :class="(metrics.tickets?.sla_breached ?? 0) > 0 ? 'text-error' : 'text-highlighted'"
+          >
+            {{ metrics.tickets ? int.format(metrics.tickets.sla_breached) : '—' }}
+          </p>
+          <p class="text-xs text-muted">
+            {{ metrics.tickets ? `${int.format(metrics.tickets.sla_at_risk)} em risco` : 'indisponível' }}
+          </p>
+        </UCard>
+        <UCard :ui="{ body: 'space-y-1' }">
+          <p class="text-xs uppercase tracking-wide text-dimmed">Chamados no período</p>
+          <p class="font-display text-3xl font-extrabold tracking-tight text-highlighted">
+            {{ metrics.tickets ? int.format(metrics.tickets.total) : '—' }}
+          </p>
+          <p class="text-xs text-muted">últimos {{ metrics.period_days }} dias</p>
+        </UCard>
+        <UCard :ui="{ body: 'space-y-1' }">
+          <p class="text-xs uppercase tracking-wide text-dimmed">Horas lançadas</p>
+          <p class="font-display text-3xl font-extrabold tracking-tight text-highlighted">
+            {{ num.format(metrics.hours.total_hours) }} h
+          </p>
+          <p class="text-xs text-muted">últimos {{ metrics.period_days }} dias</p>
+        </UCard>
+      </div>
+
+      <!-- Charts -->
+      <div class="grid gap-4 lg:grid-cols-3">
+        <UCard class="lg:col-span-2">
+          <p class="mb-3 text-xs uppercase tracking-wide text-dimmed">Volume de chamados por dia</p>
+          <AreaChart :points="volumePoints" />
+        </UCard>
+        <UCard>
+          <p class="mb-3 text-xs uppercase tracking-wide text-dimmed">Chamados por estado</p>
+          <div class="flex items-center justify-center">
+            <DonutChart :segments="stateSegments" palette="semantic" />
+          </div>
+        </UCard>
+        <UCard class="lg:col-span-3">
+          <p class="mb-3 text-xs uppercase tracking-wide text-dimmed">Distribuição de CSAT (1–5)</p>
+          <BarChart :bars="csatDist" />
+        </UCard>
+      </div>
+    </section>
+
+    <h2 class="mb-4 font-display text-lg font-bold tracking-tight text-highlighted">Seus contratos</h2>
 
     <UCard v-if="!contracts || contracts.length === 0" class="text-center">
       <div class="flex flex-col items-center gap-3 py-10">
