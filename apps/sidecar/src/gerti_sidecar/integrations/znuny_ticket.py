@@ -45,6 +45,7 @@ __all__ = [
     "agent_ticket_update",
     "config_item_get",
     "config_item_search",
+    "config_item_upsert",
     "create_ticket",
     "form_meta",
     "get_ticket",
@@ -447,6 +448,45 @@ async def config_item_get(*, config_item_id: int, customer_id: str) -> AssetDeta
         created=str(data.get("Created") or ""),
         attributes=dict(data.get("Attributes") or {}),
     )
+
+
+async def config_item_upsert(
+    *,
+    customer_id: str,
+    name: str,
+    fingerprint: str,
+    attributes: dict[str, object],
+    depl_state: str = "Production",
+    inci_state: str = "Operational",
+    config_item_class: str = "Computer",
+    config_item_id: int | None = None,
+) -> tuple[int, str]:
+    """Cria/atualiza um Config Item no CMDB via GI (escrita, Spec #1R-a).
+
+    `customer_id` é o `znuny_customer_id` do tenant DONO do token (resolvido
+    server-side no AgentEnrollService) — NUNCA input do agente. O GI Perl valida
+    anti-IDOR no modo update (CustomerID atual do CI == CustomerCompany pedido →
+    senão NotFound). Sem `config_item_id` = create; com = update (nova versão).
+
+    Usa o token de admin (_post). Retorna (config_item_id, action) onde action é
+    'created' ou 'updated'.
+    """
+    payload: dict[str, Any] = {
+        "CustomerCompany": customer_id,
+        "ConfigItemClass": config_item_class,
+        "Name": name,
+        "DeplState": depl_state,
+        "InciState": inci_state,
+        "Fingerprint": fingerprint,
+        "Attributes": dict(attributes),
+    }
+    if config_item_id is not None:
+        payload["ConfigItemID"] = config_item_id
+    data = await _post("/ConfigItem/Upsert", payload)
+    cid = data.get("ConfigItemID")
+    if cid is None:
+        raise ZnunyUnavailable("resposta inesperada do Znuny (sem ConfigItemID)")
+    return int(cid), str(data.get("Action") or "")
 
 
 async def ticket_stats(*, customer_id: str, since: str, until: str) -> TicketStats:

@@ -1,6 +1,7 @@
 # znuny/scripts/ensure-cmdb-fields.pl
-# Garante (idempotente) os campos PT-BR `Disco` e `Memoria` na definição da
-# classe ITSM Computer, para a ficha de ativos do portal (#1L, R1L).
+# Garante (idempotente) os campos PT-BR `Disco`/`Memoria` (#1L, R1L) E o campo
+# `Fingerprint` (#1R-a) na definição da classe ITSM Computer. O Fingerprint é a
+# chave estável usada pelo agente de inventário para dedupe (re-enroll = atualiza).
 #
 # Mecânica (congelada no spike R1L — docs/.../2026-06-09-r1l-itsm-class-definition.md):
 #  - ClassID resolvido por NOME ('Computer') via GeneralCatalog (id é por-instância).
@@ -39,11 +40,12 @@ my $Def = $D->{Definition};
 
 # ── Detecção idempotente (cada campo checado independentemente).
 #    O bloco do campo abre com `- Key: <Nome>` em item de lista top-level.
-my $has_memoria = $Def =~ /^- Key:\s*Memoria\b/m ? 1 : 0;
-my $has_disco   = $Def =~ /^- Key:\s*Disco\b/m   ? 1 : 0;
+my $has_memoria     = $Def =~ /^- Key:\s*Memoria\b/m     ? 1 : 0;
+my $has_disco       = $Def =~ /^- Key:\s*Disco\b/m       ? 1 : 0;
+my $has_fingerprint = $Def =~ /^- Key:\s*Fingerprint\b/m ? 1 : 0;
 
-if ( $has_memoria && $has_disco ) {
-    print "skip (já tem Disco/Memoria) — DefinitionID atual: $D->{DefinitionID}\n";
+if ( $has_memoria && $has_disco && $has_fingerprint ) {
+    print "skip (já tem Disco/Memoria/Fingerprint) — DefinitionID atual: $D->{DefinitionID}\n";
     exit 0;
 }
 
@@ -69,9 +71,22 @@ my $DiscoBlock = <<'YAMLBLOCK';
     MaxLength: 100
 YAMLBLOCK
 
+# Fingerprint (#1R-a): chave estável de hardware do agente de inventário. Text;
+# usada server-side pelo dedupe — não precisa ser obrigatória na UI nativa.
+my $FingerprintBlock = <<'YAMLBLOCK';
+
+- Key: Fingerprint
+  Name: Fingerprint
+  Input:
+    Type: Text
+    Size: 50
+    MaxLength: 200
+YAMLBLOCK
+
 my $NewDef = $Def;
-$NewDef .= $MemoriaBlock if !$has_memoria;
-$NewDef .= $DiscoBlock   if !$has_disco;
+$NewDef .= $MemoriaBlock     if !$has_memoria;
+$NewDef .= $DiscoBlock       if !$has_disco;
+$NewDef .= $FingerprintBlock if !$has_fingerprint;
 
 # ── Gravar a nova definição (versionada). Em sucesso retorna o novo DefinitionID.
 my $DefID = $CI->DefinitionAdd(
@@ -87,7 +102,8 @@ if ( !$DefID ) {
 }
 
 my @added;
-push @added, 'Memoria' if !$has_memoria;
-push @added, 'Disco'   if !$has_disco;
+push @added, 'Memoria'     if !$has_memoria;
+push @added, 'Disco'       if !$has_disco;
+push @added, 'Fingerprint' if !$has_fingerprint;
 print "added (" . join( '+', @added ) . ") — nova DefinitionID: $DefID\n";
 exit 0;

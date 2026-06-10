@@ -43,6 +43,9 @@ Provider:
     ConfigItemGet:
       Description: ITSM Config Item detail (ownership-guarded, Spec #1K)
       Type: GertiTicket::ConfigItemGet
+    ConfigItemUpsert:
+      Description: Create/update a Config Item from the inventory agent (write, anti-IDOR, Spec #1R-a)
+      Type: GertiTicket::ConfigItemUpsert
     TicketStats:
       Description: Aggregated ticket counts scoped by CustomerID (Spec #1O)
       Type: GertiTicket::TicketStats
@@ -99,6 +102,10 @@ Provider:
           RequestMethod:
           - POST
           Route: /ConfigItem/Get
+        ConfigItemUpsert:
+          RequestMethod:
+          - POST
+          Route: /ConfigItem/Upsert
         TicketStats:
           RequestMethod:
           - POST
