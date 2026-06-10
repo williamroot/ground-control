@@ -13,7 +13,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -37,25 +37,11 @@ class InvoiceBranding:
     primary_color: str
 
 
-class _InvoiceLike(Protocol):
-    number: int
-    status: Any
-    issued_at: dt.datetime
-    due_at: dt.datetime
-    period_start: dt.date
-    period_end: dt.date
-    currency: str
-    subtotal_cents: int
-    total_cents: int
-
-
-class _LineLike(Protocol):
-    description: str
-    quantity: Any
-    unit: str
-    unit_price_cents: int
-    amount_cents: int
-    position: int
+# Os objetos de fatura/linha são ORM (SQLAlchemy `Mapped[...]`) ou duck-types
+# nos testes; tratamos como Any nesta fronteira de apresentação (sem Protocol,
+# que conflita com os descritores Mapped no mypy strict).
+InvoiceLike = Any
+LineLike = Any
 
 
 def _money_brl(cents: int) -> str:
@@ -74,7 +60,7 @@ def _status_value(status: Any) -> str:
     return getattr(status, "value", str(status))
 
 
-def _render_html(invoice: _InvoiceLike, lines: list[_LineLike], branding: InvoiceBranding) -> str:
+def _render_html(invoice: InvoiceLike, lines: list[LineLike], branding: InvoiceBranding) -> str:
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
         autoescape=select_autoescape(["html", "xml"]),
@@ -97,13 +83,14 @@ def _render_html(invoice: _InvoiceLike, lines: list[_LineLike], branding: Invoic
 
 
 def _render_weasyprint(html: str) -> bytes:
-    from weasyprint import HTML  # import tardio: lib nativa só carrega se usada
+    # import tardio: lib nativa (cairo/pango) só carrega se usada. Sem stubs.
+    from weasyprint import HTML  # type: ignore[import-untyped]
 
     return HTML(string=html).write_pdf()  # type: ignore[no-any-return]
 
 
 def _render_reportlab(
-    invoice: _InvoiceLike, lines: list[_LineLike], branding: InvoiceBranding
+    invoice: InvoiceLike, lines: list[LineLike], branding: InvoiceBranding
 ) -> bytes:
     """Fallback simples (sem HTML/CSS) quando WeasyPrint não está disponível.
 
@@ -112,10 +99,10 @@ def _render_reportlab(
     """
     import io
 
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.units import mm
-    from reportlab.pdfgen import canvas
+    from reportlab.lib import colors  # type: ignore[import-not-found]
+    from reportlab.lib.pagesizes import A4  # type: ignore[import-not-found]
+    from reportlab.lib.units import mm  # type: ignore[import-not-found]
+    from reportlab.pdfgen import canvas  # type: ignore[import-not-found]
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
@@ -173,7 +160,7 @@ def _render_reportlab(
 
 
 def render_invoice_pdf(
-    invoice: _InvoiceLike, lines: list[_LineLike], branding: InvoiceBranding
+    invoice: InvoiceLike, lines: list[LineLike], branding: InvoiceBranding
 ) -> bytes:
     """Renderiza a fatura para PDF (WeasyPrint primário; ReportLab no fallback)."""
     html = _render_html(invoice, lines, branding)

@@ -15,8 +15,9 @@ import datetime as dt
 import uuid
 from collections import OrderedDict
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Any, cast
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import CursorResult, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -217,4 +218,5 @@ class InvoiceService:
             .values(status=InvoiceStatus.overdue)
         )
         await self.session.flush()
-        return int(result.rowcount or 0)
+        # rowcount existe no CursorResult de um UPDATE; cast p/ o mypy strict.
+        return int(cast("CursorResult[Any]", result).rowcount or 0)
