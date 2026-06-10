@@ -109,6 +109,10 @@ services:
       # GertiAgent webservice AccessToken (#1J): token SEPARADO p/ as 3 ops
       # de agente (mais poderosas). Vazio → fail-closed. Nunca :? (D13).
       GERTI_AGENT_WS_TOKEN: ${ZNUNY_AGENT_WS_TOKEN:-}
+      # Segredo HMAC do webhook de automação (#1Q): o Event module GertiAutomation
+      # assina o corpo com ele; DEVE bater com gerti.znuny_instance.webhook_signing_secret_ref
+      # (o sidecar verifica). SEGREDO — só em .env.prod (gitignored). Vazio → não posta.
+      GERTI_WEBHOOK_SIGNING_SECRET: ${GERTI_WEBHOOK_SIGNING_SECRET:-}
     volumes:
       - znuny-var:/opt/otrs/var
     ports:
@@ -150,6 +154,10 @@ services:
       # GertiAgent webservice AccessToken (#1J): token SEPARADO p/ as 3 ops
       # de agente (mais poderosas). Vazio → fail-closed. Nunca :? (D13).
       GERTI_AGENT_WS_TOKEN: ${ZNUNY_AGENT_WS_TOKEN:-}
+      # Segredo HMAC do webhook de automação (#1Q): o Event module GertiAutomation
+      # assina o corpo com ele; DEVE bater com gerti.znuny_instance.webhook_signing_secret_ref
+      # (o sidecar verifica). SEGREDO — só em .env.prod (gitignored). Vazio → não posta.
+      GERTI_WEBHOOK_SIGNING_SECRET: ${GERTI_WEBHOOK_SIGNING_SECRET:-}
     volumes:
       - znuny-var:/opt/otrs/var
     networks: [app, data]
