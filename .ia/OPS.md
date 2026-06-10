@@ -1038,6 +1038,25 @@ ssh gc 'cd ~/ground-control && DC="docker compose --env-file .env --env-file .en
 > máquina de cliente. Resta apenas o e2e do `install.sh`+systemd numa **VM real** (o teste em
 > container rodou o binário direto, não o serviço systemd).
 
+### Deploy do assistente de escrita por IA (Spec #1S — profile `gerti`)
+
+**O que muda.** Botão **"✨ Melhorar com IA"** no `/tickets/novo` do portal: o cliente escreve o
+problema, a IA (Ollama #1N) devolve título + descrição estruturados (rascunho editável). Endpoint
+`POST /v1/ticketing/assist` (cliente, opt-in `AI_FEATURES_ENABLED`, rate-limit 20/h, anti-injeção).
+Sem mudança no Znuny.
+
+```bash
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+git pull origin main
+$DC build sidecar portal && $DC run --rm sidecar-migrate && $DC up -d sidecar sidecar-worker portal   # -> 0020_ai_assist_kind
+```
+
+> **Status (2026-06-10): DEPLOYADO em staging + e2e ao vivo.** sidecar (314) + portal (111) verdes;
+> migration `0020`. **e2e (Aurora):** `form-meta.ai_assist_enabled=true`; `POST /v1/ticketing/assist`
+> "Nao imprime"/"resolva" → **200** com `{title:"Não imprime", body:"Problema:… Início: Não
+> informado…"}` (estruturou sem inventar fatos); body vazio → **400**; auditoria em `ai_generation_log`
+> (kind=`assist`, customer_login, gpt-oss:120b). Kill-switch `AI_FEATURES_ENABLED` off → botão some + 404.
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)
