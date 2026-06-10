@@ -1020,11 +1020,10 @@ ssh gc 'cd ~/ground-control && DC="docker compose --env-file .env --env-file .en
 > Por isso os binários são pré-buildados em `apps/sidecar/agent-dist/` (gitignored) antes do `docker build`.
 > Alternativa futura: mudar o context p/ a raiz + multi-stage Go no Dockerfile.
 
-> **⚠️ Exposição pública (necessária p/ máquinas reais do cliente):** os endpoints `/v1/agent/*`
-> (enroll/heartbeat/install.sh/download) precisam estar acessíveis da internet. Adicionar um
-> **Public Hostname no Cloudflare Tunnel → `sidecar:8001`** (ex.: `api-dev.was.dev.br`, o mesmo de
-> `AGENT_SERVER_URL`). Os paths `/v1/agent/*` estão na allowlist do `TenantMiddleware` (resolvem sem
-> subdomínio de tenant; o tenant vem do token). Sem auth de sessão por design (a credencial é o Bearer).
+> **Exposição pública (FEITO em staging):** os endpoints `/v1/agent/*` (enroll/heartbeat/install.sh/
+> download) estão atrás do **Public Hostname Cloudflare `api-dev.was.dev.br` → `sidecar:8001`**
+> (= `AGENT_SERVER_URL`). Os paths `/v1/agent/*` estão na allowlist do `TenantMiddleware` (resolvem sem
+> subdomínio; o tenant vem do token). Sem auth de sessão por design (a credencial é o Bearer).
 
 > **Status (2026-06-10): VALIDADO em staging (agente real).** `go test`/`go vet` verdes;
 > cross-compile dos 3 alvos OK; router de distribuição (8 testes). **e2e (container Debian limpo na
@@ -1032,9 +1031,12 @@ ssh gc 'cd ~/ground-control && DC="docker compose --env-file .env --env-file .en
 > http://sidecar:8001 --enroll-token <token do console>` → **status active**, `agent.conf` (0600)
 > gravado com `agent_id`+`agent_secret` e **sem o enroll_token** (descartado) → `gc-agent run` inicia
 > o heartbeat → no servidor o `device_agent` fica `active` (last_seen setado) e o ativo
-> (`fd5a8d5098f9`, OS Debian 12 coletado pelo agente) aparece no **CMDB da Aurora**. Falta só o
-> Public Hostname no Cloudflare p/ deploy em máquinas reais fora da rede + e2e do `install.sh`+systemd
-> numa VM real.
+> (`fd5a8d5098f9`, OS Debian 12 coletado pelo agente) aparece no **CMDB da Aurora**.
+> **e2e PÚBLICO (via Cloudflare, 2026-06-10):** container Debian limpo baixou o binário de
+> `https://api-dev.was.dev.br/v1/agent/download/linux-amd64` e fez enroll+heartbeat por
+> `https://api-dev.was.dev.br` → device `active`, ativo no CMDB da Aurora — o caminho real de uma
+> máquina de cliente. Resta apenas o e2e do `install.sh`+systemd numa **VM real** (o teste em
+> container rodou o binário direto, não o serviço systemd).
 
 ## Backup (a definir em prod)
 
