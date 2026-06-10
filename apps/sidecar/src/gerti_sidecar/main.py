@@ -19,6 +19,7 @@ from gerti_sidecar.routers import (
     admin_analytics,
     admin_auth,
     admin_contracts,
+    admin_invoices,
     admin_tenants,
     admin_timer,
     assets,
@@ -27,6 +28,7 @@ from gerti_sidecar.routers import (
     contracts,
     dashboard,
     health,
+    invoices,
     me,
     ticketing_meta,
     tickets,
@@ -70,10 +72,14 @@ def create_app() -> FastAPI:
     app.include_router(ticketing_meta.router, prefix=settings.api_v1_prefix)
     app.include_router(tickets.router, prefix=settings.api_v1_prefix)
     app.include_router(assets.router, prefix=settings.api_v1_prefix)
+    # Faturas internas (Spec #1P) — portal admin do tenant: lista/baixa PDF.
+    app.include_router(invoices.router, prefix=settings.api_v1_prefix)
     # Console de Administração (Spec #1G-a) — cross-tenant, sessão gsid_adm.
     app.include_router(admin_auth.router, prefix=settings.api_v1_prefix)
     app.include_router(admin_tenants.router, prefix=settings.api_v1_prefix)
     app.include_router(admin_contracts.router, prefix=settings.api_v1_prefix)
+    # Faturas internas — console gera/gerencia (Spec #1P).
+    app.include_router(admin_invoices.router, prefix=settings.api_v1_prefix)
     # Time tracker do agente (Spec #1J).
     app.include_router(admin_timer.router, prefix=settings.api_v1_prefix)
     # IA: sumarização + resposta sugerida (Spec #1N) — opt-in.
