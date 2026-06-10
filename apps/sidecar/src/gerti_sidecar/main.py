@@ -15,6 +15,7 @@ from gerti_sidecar import __version__
 from gerti_sidecar.config import get_settings
 from gerti_sidecar.db import dispose_db, init_db
 from gerti_sidecar.routers import (
+    admin_agents,
     admin_ai,
     admin_analytics,
     admin_auth,
@@ -91,6 +92,8 @@ def create_app() -> FastAPI:
     app.include_router(admin_analytics.router, prefix=settings.api_v1_prefix)
     # CRUD de regras de automação (Spec #1Q) — console, validação server-side.
     app.include_router(admin_automation.router, prefix=settings.api_v1_prefix)
+    # Console de tokens/dispositivos do agente de inventário (Spec #1R-a).
+    app.include_router(admin_agents.router, prefix=settings.api_v1_prefix)
     # Webhooks Znuny→sidecar (Spec #1Q) — tenant vem do customer_id assinado (HMAC).
     app.include_router(hooks.router, prefix=settings.api_v1_prefix)
     # Agente de inventário (Spec #1R-a) — Bearer token/secret; tenant vem do token.

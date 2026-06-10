@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # SessionLocal normal (dev/test ligam SessionLocal ao admin engine).
     database_admin_url: PostgresDsn | None = None
 
+    # agente de inventário (#1R-a) — base pública onde o agente bate enroll/
+    # heartbeat; usada para montar o comando de instalação no console.
+    agent_server_url: str = "https://api-dev.was.dev.br"
+
     # logging ----------------------------------------------------------
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
