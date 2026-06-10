@@ -968,6 +968,38 @@ $DC build sidecar admin && $DC run --rm sidecar-migrate && $DC up -d sidecar sid
 > de op:** após qualquer rebuild do `znuny-web`, o `--force-recreate` faz o entrypoint rodar
 > `Maint::Config::Rebuild` (carrega XML→DB); sem recreate, settings novas de XML não entram.
 
+### Deploy do servidor do agente de inventário (Spec #1R-a — profile `gerti` + rebuild Znuny)
+
+**O que muda.** Equipamentos se auto-registram no CMDB do cliente via um agente: tokens de
+enrollment **por tenant** (`token → tenant → CustomerID` server-trusted = cliente certo
+garantido), endpoints `POST /v1/agent/enroll` + `/heartbeat` (Bearer hasheado), GI **`ConfigItemUpsert`**
+(escrita anti-IDOR), e UI no console (`clientes/{id}/agentes`) para o operador gerar o comando de
+instalação, listar/aprovar/revogar dispositivos. Híbrido: `max_registrations`/expiração → device
+`pending` (fora do CMDB) até aprovação. Credenciais só como sha256. Nova GI op → rebuild Znuny.
+
+```bash
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+git pull origin main
+$DC build znuny-web && $DC up -d --force-recreate znuny-web znuny-daemon   # bakeia ConfigItemUpsert.pm; ensure-cmdb-fields adiciona campo Fingerprint
+docker compose exec -T znuny-web su -c "cd /opt/otrs && bin/otrs.Console.pl \
+  Admin::WebService::Update --webservice-id 3 --source-path /opt/otrs/webservices/GertiTicket.yml" -s /bin/bash otrs
+$DC build sidecar admin && $DC run --rm sidecar-migrate && $DC up -d sidecar sidecar-worker admin   # -> 0019_agent_inventory
+```
+
+> **Env var nova:** `AGENT_SERVER_URL` (base pública onde o agente bate enroll/heartbeat; default
+> `https://api-dev.was.dev.br`) — usada para montar o `install_command` no console. Para o agente
+> Go (#1R-b) funcionar de fora, é preciso um **Public Hostname no Cloudflare → sidecar:8001**
+> (os paths `/v1/agent/*` estão na allowlist do `TenantMiddleware`, resolvem sem subdomínio).
+
+> **Status (2026-06-10): DEPLOYADO em staging + e2e ao vivo.** sidecar (288) + admin (69) verdes;
+> `ConfigItemUpsert` `syntax OK` no build; campo `Fingerprint` (DefinitionID 7); migration `0019`.
+> **e2e (Aurora, curl simulando o agente):** gerar token → `enroll` FP1 **201 active** → ativo
+> aparece em `/v1/assets` **só** da Aurora → re-enroll FP1 **idempotente** (não duplica) →
+> `heartbeat` (secret fresco) **200** → token inválido **401** → `max_registrations=1` + FP2 →
+> **`pending` (202, fora do CMDB)** → aprovar no console → entra no CMDB (`config_item_id`) →
+> revogar → heartbeat **401** → desabilitar token → enroll **401**. (Nota: re-enroll rotaciona o
+> `agent_secret` — o agente real enrolla 1× e guarda o secret.)
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)
