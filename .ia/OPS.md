@@ -1000,6 +1000,42 @@ $DC build sidecar admin && $DC run --rm sidecar-migrate && $DC up -d sidecar sid
 > revogar → heartbeat **401** → desabilitar token → enroll **401**. (Nota: re-enroll rotaciona o
 > `agent_secret` — o agente real enrolla 1× e guarda o secret.)
 
+### Deploy do agente Go + distribuição (Spec #1R-b — profile `gerti`)
+
+**O que muda.** O binário Go (`apps/agent/`) que roda na máquina do cliente + sua distribuição
+pelo sidecar. O operador copia o comando no console (`clientes/{id}/agentes`) e roda na máquina:
+`curl <server>/v1/agent/install.sh | sh -s -- --enroll-token=<tok> --server=<server>`.
+
+```bash
+# 1) Buildar os binários (precisa Go 1.22+) → apps/sidecar/agent-dist/ (gitignored)
+cd apps/agent && bash build.sh ../sidecar/agent-dist   # linux-amd64, windows-amd64.exe, darwin-arm64
+# 2) Levar os binários ao host de staging (gitignored → scp, não git):
+scp apps/sidecar/agent-dist/* gc:~/ground-control/apps/sidecar/agent-dist/
+# 3) Build do sidecar DEPOIS dos binários (Dockerfile bakeia agent-dist → /app/agent-dist):
+ssh gc 'cd ~/ground-control && DC="docker compose --env-file .env --env-file .env.prod --profile gerti" && \
+  git pull origin main && $DC build sidecar && $DC up -d sidecar'
+```
+
+> **Empacotamento:** o build context do `sidecar` é `./apps/sidecar`, que **não alcança** `apps/agent/`.
+> Por isso os binários são pré-buildados em `apps/sidecar/agent-dist/` (gitignored) antes do `docker build`.
+> Alternativa futura: mudar o context p/ a raiz + multi-stage Go no Dockerfile.
+
+> **⚠️ Exposição pública (necessária p/ máquinas reais do cliente):** os endpoints `/v1/agent/*`
+> (enroll/heartbeat/install.sh/download) precisam estar acessíveis da internet. Adicionar um
+> **Public Hostname no Cloudflare Tunnel → `sidecar:8001`** (ex.: `api-dev.was.dev.br`, o mesmo de
+> `AGENT_SERVER_URL`). Os paths `/v1/agent/*` estão na allowlist do `TenantMiddleware` (resolvem sem
+> subdomínio de tenant; o tenant vem do token). Sem auth de sessão por design (a credencial é o Bearer).
+
+> **Status (2026-06-10): VALIDADO em staging (agente real).** `go test`/`go vet` verdes;
+> cross-compile dos 3 alvos OK; router de distribuição (8 testes). **e2e (container Debian limpo na
+> rede `ground-control_app`, simulando a máquina do cliente):** `gc-agent enroll --server
+> http://sidecar:8001 --enroll-token <token do console>` → **status active**, `agent.conf` (0600)
+> gravado com `agent_id`+`agent_secret` e **sem o enroll_token** (descartado) → `gc-agent run` inicia
+> o heartbeat → no servidor o `device_agent` fica `active` (last_seen setado) e o ativo
+> (`fd5a8d5098f9`, OS Debian 12 coletado pelo agente) aparece no **CMDB da Aurora**. Falta só o
+> Public Hostname no Cloudflare p/ deploy em máquinas reais fora da rede + e2e do `install.sh`+systemd
+> numa VM real.
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)
