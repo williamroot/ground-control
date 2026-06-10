@@ -900,6 +900,32 @@ $DC build sidecar portal admin && $DC up -d sidecar sidecar-worker portal admin
 > OpenSearch Dashboards ad-hoc interno: ferramenta de operação (dados crus do Znuny), **sem**
 > Public Hostname no tunnel — subir sob demanda no profile interno.
 
+### Deploy das Faturas (Spec #1P — profile `gerti`)
+
+**O que muda.** Geração de **fatura interna** (não-fiscal) a partir de um **ciclo fechado** (#1B):
+PDF branded (logo/cores do tenant) + numeração sequencial por tenant + status
+`open/paid/overdue/void`. Tabelas `invoice`+`invoice_line` (RLS). PDF via **WeasyPrint**
+(libs nativas no Dockerfile do sidecar). Worker marca `overdue` 1x/dia. Sem mudança no Znuny.
+
+```bash
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+git pull origin main
+$DC build sidecar && $DC run --rm sidecar-migrate     # -> 0017_invoice (enum + 2 tabelas + RLS)
+$DC build portal admin && $DC up -d sidecar sidecar-worker portal admin
+# validar WeasyPrint NO VENV (uv run — não o python base!):
+docker compose exec -T sidecar uv run python -c "import weasyprint; print(weasyprint.__version__)"
+```
+
+> **Pegadinha de verificação:** o app roda via `uv run` (venv `.venv`). Testar `import` com o
+> `python` base do container dá **falso-negativo** (`ModuleNotFoundError`). Sempre use
+> `uv run python -c "import weasyprint"`.
+
+> **Status (2026-06-09): DEPLOYADO em staging + e2e ao vivo.** sidecar (224) + portal (104) +
+> admin (50) verdes; WeasyPrint 69.0 importa no venv (pacote + libpango/libcairo/gdk-pixbuf).
+> **e2e (Aurora, ciclos fechados Jan/Fev):** gerar fatura **201** (number 1, open) → mesmo ciclo
+> **409** (idempotente) → portal admin lista → `GET /v1/invoices/1/pdf` **200 application/pdf**
+> (13.7 KB) → marcar paga **paid** → 2ª fatura com `due_at` vencido + restart do worker → **overdue**.
+
 ## Backup (a definir em prod)
 
 - Postgres: `pg_dump` agendado → storage externo (não implementado nesta fase)
