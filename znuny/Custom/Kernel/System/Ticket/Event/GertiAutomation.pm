@@ -26,6 +26,7 @@ use HTTP::Request ();
 our @ObjectDependencies = (
     'Kernel::Config',
     'Kernel::System::Ticket',
+    'Kernel::System::Ticket::Article',
     'Kernel::System::JSON',
     'Kernel::System::Log',
 );
@@ -68,6 +69,26 @@ sub Run {
 
     my $TicketID = $Param{Data} && $Param{Data}->{TicketID};
     return 1 if !$TicketID;
+
+    # Anti-loop (staging revelou): para ArticleCreate, só reage a artigos do
+    # CLIENTE. As notas internas que as próprias ações criam (add_note/notify/
+    # ai_summarize_note) geram ArticleCreate de agente/sistema — se reagíssemos a
+    # elas, add_note viraria loop infinito (nota→evento→regra casa→nota→…).
+    if ( $EventName eq 'ArticleCreate' ) {
+        my $ArticleID = $Param{Data} && $Param{Data}->{ArticleID};
+        return 1 if !$ArticleID;
+        my $ArticleObject = $Kernel::OM->Get('Kernel::System::Ticket::Article');
+        my $Backend = eval {
+            $ArticleObject->BackendForArticle( TicketID => $TicketID, ArticleID => $ArticleID );
+        };
+        return 1 if !$Backend;
+        my %Article = eval {
+            $Backend->ArticleGet(
+                TicketID => $TicketID, ArticleID => $ArticleID, DynamicFields => 0,
+            );
+        };
+        return 1 if ( $Article{SenderType} // '' ) ne 'customer';
+    }
 
     # Best-effort: tudo dentro de eval — nunca derruba a transação do ticket.
     eval {
