@@ -64,10 +64,27 @@ sub Run {
         StateType    => 'new',
         State        => 'new',
     );
-    $CreateArgs{Queue}    = $D->{Queue}    || 'Raw';
-    $CreateArgs{Priority} = $D->{Priority} || '3 normal';
-    $CreateArgs{Type}     = $D->{Type} if IsStringWithData( $D->{Type} );
-    $CreateArgs{Service}  = $D->{Service} if IsStringWithData( $D->{Service} );
+    $CreateArgs{Queue} = $D->{Queue} || 'Raw';
+
+    # O portal (#1E) envia os IDs (Keys do form-meta) de prioridade/tipo/serviço,
+    # não os nomes. O Znuny aceita PriorityID/TypeID/ServiceID (numérico) OU o nome —
+    # então detectamos: dígitos puros → *ID; caso contrário → nome (retrocompat).
+    # (staging revelou: enviar o nome "10" em Service falhava o TicketCreate nativo.)
+    if ( IsStringWithData( $D->{Priority} ) ) {
+        if ( $D->{Priority} =~ m{\A\d+\z} ) { $CreateArgs{PriorityID} = $D->{Priority}; }
+        else                                { $CreateArgs{Priority}   = $D->{Priority}; }
+    }
+    else { $CreateArgs{PriorityID} = 3; }    # 3 normal (default)
+
+    if ( IsStringWithData( $D->{Type} ) ) {
+        if ( $D->{Type} =~ m{\A\d+\z} ) { $CreateArgs{TypeID} = $D->{Type}; }
+        else                            { $CreateArgs{Type}   = $D->{Type}; }
+    }
+
+    if ( IsStringWithData( $D->{Service} ) ) {
+        if ( $D->{Service} =~ m{\A\d+\z} ) { $CreateArgs{ServiceID} = $D->{Service}; }
+        else                               { $CreateArgs{Service}   = $D->{Service}; }
+    }
 
     my $TicketID = $TicketObject->TicketCreate(%CreateArgs);
     if ( !$TicketID ) {
