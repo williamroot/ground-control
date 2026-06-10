@@ -42,6 +42,7 @@ __all__ = [
     "agent_get",
     "agent_get_thread",
     "agent_search",
+    "agent_ticket_update",
     "config_item_get",
     "config_item_search",
     "create_ticket",
@@ -346,6 +347,35 @@ async def agent_search(*, query: str | None, customer_id: str | None) -> list[Ag
 
 async def agent_get(*, znuny_ticket_id: int) -> dict[str, Any]:
     return await _post_agent("/Agent/Ticket/Get", {"TicketID": znuny_ticket_id})
+
+
+async def agent_ticket_update(
+    *,
+    ticket_id: int,
+    queue: str | None = None,
+    state: str | None = None,
+    priority: str | None = None,
+    owner: str | None = None,
+    note: str | None = None,
+) -> None:
+    """Aplica mudanças de fila/estado/prioridade/dono + nota interna (Spec #1Q).
+
+    Op de agente (token GertiAgent) — usada pelo executor de ações da automação.
+    Só envia os campos presentes; o GI aplica os que vierem e cria a nota interna
+    se `note` for dado. Nunca toca outro ticket (escopado por TicketID no Perl).
+    """
+    payload: dict[str, Any] = {"TicketID": ticket_id}
+    if queue is not None:
+        payload["Queue"] = queue
+    if state is not None:
+        payload["State"] = state
+    if priority is not None:
+        payload["Priority"] = priority
+    if owner is not None:
+        payload["Owner"] = owner
+    if note is not None:
+        payload["Note"] = note
+    await _post_agent("/Agent/Ticket/Update", payload)
 
 
 async def agent_get_thread(*, znuny_ticket_id: int) -> AgentTicket:

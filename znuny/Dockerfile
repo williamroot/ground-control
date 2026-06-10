@@ -183,6 +183,8 @@ COPY Custom/Kernel/GenericInterface/Operation/GertiTicket/AgentTicketSearch.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/AgentTicketSearch.pm
 COPY Custom/Kernel/GenericInterface/Operation/GertiTicket/AgentTicketGet.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/AgentTicketGet.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiTicket/AgentTicketUpdate.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/AgentTicketUpdate.pm
 COPY Custom/Kernel/GenericInterface/Operation/GertiTicket/ConfigItemSearch.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/ConfigItemSearch.pm
 COPY Custom/Kernel/GenericInterface/Operation/GertiTicket/ConfigItemGet.pm \
@@ -191,7 +193,7 @@ COPY Custom/Kernel/GenericInterface/Operation/GertiTicket/TicketStats.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/TicketStats.pm
 RUN set -eux; \
     chown -R otrs:www-data ${OTRS_HOME}/Custom; \
-    for m in TicketCreate TicketSearch TicketGet TicketReply FormMeta TimeAccountingSince TimeAccountingAdd AgentTicketSearch AgentTicketGet ConfigItemSearch ConfigItemGet TicketStats ; do \
+    for m in TicketCreate TicketSearch TicketGet TicketReply FormMeta TimeAccountingSince TimeAccountingAdd AgentTicketSearch AgentTicketGet AgentTicketUpdate ConfigItemSearch ConfigItemGet TicketStats ; do \
         perl -I${OTRS_HOME} -I${OTRS_HOME}/Kernel/cpan-lib -I${OTRS_HOME}/Custom \
              -c ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiTicket/$m.pm ; \
     done

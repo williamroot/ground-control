@@ -34,6 +34,9 @@ Provider:
     AgentTicketGet:
       Description: Agent-side ticket detail
       Type: GertiTicket::AgentTicketGet
+    AgentTicketUpdate:
+      Description: Apply queue/state/priority/owner + internal note (Spec #1Q automation)
+      Type: GertiTicket::AgentTicketUpdate
     ConfigItemSearch:
       Description: Search ITSM Config Items scoped by CustomerID (Spec #1K)
       Type: GertiTicket::ConfigItemSearch
@@ -84,6 +87,10 @@ Provider:
           RequestMethod:
           - POST
           Route: /Agent/Ticket/Get
+        AgentTicketUpdate:
+          RequestMethod:
+          - POST
+          Route: /Agent/Ticket/Update
         ConfigItemSearch:
           RequestMethod:
           - POST
