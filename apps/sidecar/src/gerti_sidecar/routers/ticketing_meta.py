@@ -14,12 +14,17 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from gerti_sidecar import db
 from gerti_sidecar.auth.session import SessionPayload, get_current_session
+from gerti_sidecar.config import Settings, get_ollama_client, get_settings
 from gerti_sidecar.db import get_tenant_session
+from gerti_sidecar.domain.ai_service import AiService
 from gerti_sidecar.domain.consumption_service import ConsumptionService
+from gerti_sidecar.domain.errors import AiRateLimited
 from gerti_sidecar.integrations import znuny_ticket
+from gerti_sidecar.integrations.ollama import OllamaDisabled, OllamaUnavailable
 from gerti_sidecar.integrations.znuny_customer_admin import ZnunyUnavailable, ZnunyWriteError
 from gerti_sidecar.models import Contract
 from gerti_sidecar.models.enums import ContractStatus
@@ -62,11 +67,14 @@ class FormMeta(BaseModel):
     services: list[dict[str, object]]
     priorities: list[dict[str, object]]
     types: list[dict[str, object]]
+    # #1S: a UI usa esta flag p/ mostrar/ocultar o botão "Melhorar com IA".
+    ai_assist_enabled: bool = False
 
 
 @router.get("/form-meta", response_model=FormMeta)
 async def form_meta(
     session_payload: SessionPayload = Depends(get_current_session),
+    settings: Settings = Depends(get_settings),
 ) -> FormMeta:
     try:
         meta = await znuny_ticket.form_meta(customer_user=session_payload["znuny_login"])
@@ -78,4 +86,59 @@ async def form_meta(
         services=meta["services"],
         priorities=meta["priorities"],
         types=meta["types"],
+        ai_assist_enabled=bool(settings.ai_features_enabled),
     )
+
+
+class AssistBody(BaseModel):
+    title: str | None = None
+    body: str
+
+
+class AssistOut(BaseModel):
+    title: str
+    body: str
+
+
+def _admin_factory() -> async_sessionmaker[AsyncSession]:
+    if db.AdminSessionLocal is None:
+        raise HTTPException(status_code=503, detail="admin_db_unavailable")
+    return db.AdminSessionLocal
+
+
+@router.post("/assist", response_model=AssistOut)
+async def assist(
+    payload: AssistBody,
+    session: SessionPayload = Depends(get_current_session),
+    settings: Settings = Depends(get_settings),
+) -> AssistOut:
+    """#1S — assistente de escrita do portal (opt-in, cliente-facing, rate-limited).
+
+    A saída é um RASCUNHO (título+corpo) que o cliente edita e envia manualmente —
+    nunca auto-submete. Defesa anti-injeção no AiService/prompts; sem tools.
+    """
+    # Kill-switch global: feature oculta (404) quando desligada.
+    if not settings.ai_features_enabled:
+        raise HTTPException(status_code=404, detail="ai_features_disabled")
+    title = (payload.title or "").strip()
+    body = payload.body.strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="empty_body")
+    factory = _admin_factory()
+    async with factory() as s:
+        svc = AiService(s, get_ollama_client(settings), gi=None)
+        try:
+            result = await svc.assist_ticket(
+                tenant_id=uuid.UUID(session["tenant_id"]),
+                customer_login=session["znuny_login"],
+                title=title,
+                body=body,
+            )
+        except AiRateLimited as exc:
+            await s.commit()  # persiste o log se houver
+            raise HTTPException(status_code=429, detail="rate_limited") from exc
+        except (OllamaDisabled, OllamaUnavailable) as exc:
+            await s.commit()  # persiste o log ok=False
+            raise HTTPException(status_code=503, detail="ai_unavailable") from exc
+        await s.commit()
+        return AssistOut(title=result["title"], body=result["body"])

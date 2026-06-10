@@ -36,7 +36,11 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Estreitar o CHECK exige que nenhuma linha use o valor removido. ai_generation_log
+    # é um log de auditoria operacional (não-tenant); na reversão removemos as linhas
+    # kind='assist' antes de recriar o constraint estrito (senão o ADD falha).
     op.execute(f"ALTER TABLE gerti.ai_generation_log DROP CONSTRAINT {_CONSTRAINT}")
+    op.execute("DELETE FROM gerti.ai_generation_log WHERE kind = 'assist'")
     op.execute(
         f"ALTER TABLE gerti.ai_generation_log ADD CONSTRAINT {_CONSTRAINT} "
         "CHECK (kind IN ('summary','reply'))"
