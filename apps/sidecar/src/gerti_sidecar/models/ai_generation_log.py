@@ -21,7 +21,7 @@ from gerti_sidecar.models.base import Base
 class AiGenerationLog(Base):
     __tablename__ = "ai_generation_log"
     __table_args__ = (
-        CheckConstraint("kind IN ('summary','reply')", name="ck_ai_generation_log_kind"),
+        CheckConstraint("kind IN ('summary','reply','assist')", name="ck_ai_generation_log_kind"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -29,7 +29,7 @@ class AiGenerationLog(Base):
     )
     agent_login: Mapped[str] = mapped_column(String, nullable=False)
     znuny_ticket_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    kind: Mapped[str] = mapped_column(String, nullable=False)  # summary | reply
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # summary | reply | assist
     model: Mapped[str] = mapped_column(String, nullable=False)
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
