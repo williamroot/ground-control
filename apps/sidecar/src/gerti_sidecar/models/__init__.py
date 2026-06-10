@@ -2,6 +2,7 @@
 
 from gerti_sidecar.models.agent_timer import AgentTimer
 from gerti_sidecar.models.ai_generation_log import AiGenerationLog
+from gerti_sidecar.models.automation import AutomationRule, AutomationRun
 from gerti_sidecar.models.base import Base
 from gerti_sidecar.models.catalog import ServiceCatalogItem, SharedCreditPool
 from gerti_sidecar.models.consumption import ConsumptionEvent, Glosa
@@ -24,6 +25,8 @@ from gerti_sidecar.models.znuny_instance import ZnunyInstance
 __all__ = [
     "AgentTimer",
     "AiGenerationLog",
+    "AutomationRule",
+    "AutomationRun",
     "Base",
     "ConsumptionEvent",
     "ConsumptionSyncCursor",
