@@ -18,6 +18,7 @@ from gerti_sidecar.routers import (
     admin_ai,
     admin_analytics,
     admin_auth,
+    admin_automation,
     admin_contracts,
     admin_invoices,
     admin_tenants,
@@ -87,6 +88,8 @@ def create_app() -> FastAPI:
     app.include_router(admin_ai.router, prefix=settings.api_v1_prefix)
     # Dashboards por tenant — console analytics (Spec #1O), cross-tenant.
     app.include_router(admin_analytics.router, prefix=settings.api_v1_prefix)
+    # CRUD de regras de automação (Spec #1Q) — console, validação server-side.
+    app.include_router(admin_automation.router, prefix=settings.api_v1_prefix)
     # Webhooks Znuny→sidecar (Spec #1Q) — tenant vem do customer_id assinado (HMAC).
     app.include_router(hooks.router, prefix=settings.api_v1_prefix)
     app.add_middleware(TenantMiddleware)
