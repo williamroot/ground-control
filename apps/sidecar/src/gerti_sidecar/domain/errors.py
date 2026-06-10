@@ -19,6 +19,18 @@ class CycleError(DomainError):
     """Invalid cycle operation."""
 
 
+class InvoiceError(DomainError):
+    """Operação inválida sobre fatura (transição proibida, fatura inexistente) -> 404/409."""
+
+
+class InvoiceAlreadyExists(InvoiceError):
+    """Já existe uma fatura para este ciclo (1 por ciclo) -> 409."""
+
+
+class CycleNotClosable(InvoiceError):
+    """Ciclo não está num estado faturável (ex.: ainda aberto) -> 409."""
+
+
 class CsatError(DomainError):
     """Invalid CSAT submission (ticket não encontrado/posse, score inválido) -> 404/422."""
 
