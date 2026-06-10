@@ -70,6 +70,17 @@ sub Load {
     #   que o sidecar envia. Vazio → fail-closed (AuthFail).
     $Self->{'GertiAgent::AccessToken'} = '__GERTI_AGENT_WS_TOKEN__';
 
+    # ── Motor de automação (#1Q) — Event module GertiAutomation ─────
+    #   Segredo HMAC-SHA256 compartilhado com o sidecar: o Event module
+    #   GertiAutomation.pm assina o corpo do webhook com ele; o sidecar
+    #   verifica (ZnunyInstance.webhook_signing_secret_ref). DEVE bater
+    #   com GERTI_WEBHOOK_SIGNING_SECRET. Vazio → o módulo não posta
+    #   (fail-closed: sem segredo, sem evento; nunca posta sem assinar).
+    $Self->{'GertiAutomation::WebhookSecret'} = '__GERTI_WEBHOOK_SIGNING_SECRET__';
+    #   Endpoint do sidecar p/ os eventos de ticket (rede interna do compose).
+    $Self->{'GertiAutomation::SidecarUrl'}
+        = '__GERTI_AUTOMATION_SIDECAR_URL__';
+
     # ── Habilita Serviço e Tipo de ticket (#1E form-meta) ───────────
     #   Sem isto o Znuny não usa serviços/tipos e os dropdowns do portal
     #   do cliente ficam vazios (FormMeta.pm gatea em Ticket::Type e

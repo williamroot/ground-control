@@ -55,6 +55,8 @@ render_config() {
         -e "s|__OS_PORT__|${OPENSEARCH_PORT}|g" \
         -e "s|__GERTI_ADMIN_WS_TOKEN__|${GERTI_ADMIN_WS_TOKEN:-}|g" \
         -e "s|__GERTI_AGENT_WS_TOKEN__|${GERTI_AGENT_WS_TOKEN:-}|g" \
+        -e "s|__GERTI_WEBHOOK_SIGNING_SECRET__|${GERTI_WEBHOOK_SIGNING_SECRET:-}|g" \
+        -e "s|__GERTI_AUTOMATION_SIDECAR_URL__|${GERTI_AUTOMATION_SIDECAR_URL:-http://sidecar:8001/v1/hooks/znuny/ticket-event}|g" \
         "${tmpl}" > "${out}"
     chown otrs:www-data "${out}"
     chmod 660 "${out}"
@@ -169,6 +171,11 @@ provision_all() {
     su otrs -s /bin/bash -c "cd ${OTRS_HOME} && perl scripts/ensure-cmdb-fields.pl" \
         && log "CMDB Computer fields (Disco/Memoria) ensured." \
         || log "WARN: ensure-cmdb-fields falhou — continuando."
+    # ── Motor de automação (#1Q): registra/verifica o Event module GertiAutomation
+    #    (XML SysConfig declarativo) + checa o segredo HMAC. Idempotente.
+    su otrs -s /bin/bash -c "cd ${OTRS_HOME} && perl scripts/ensure-automation-invoker.pl" \
+        && log "GertiAutomation event module ensured (#1Q)." \
+        || log "WARN: ensure-automation-invoker falhou — continuando."
     su otrs -s /bin/bash -c "cd ${OTRS_HOME} && bin/otrs.Console.pl Maint::Cache::Delete" || true
     mkdir -p "$(dirname "${MARKER}")"
     date -u +%FT%TZ > "${MARKER}"

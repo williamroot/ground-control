@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<otrs_config version="2.0" init="Application">
+    <!--
+      Registra o Event module GertiAutomation (#1Q) nos eventos de ticket.
+      Overlay Custom/ (upgrade-safe). O sidecar resolve o tenant pelo CustomerID
+      da payload assinada. Spike R1Q decidiu Event module (não Invoker GI nativo).
+    -->
+    <Setting Name="Ticket::EventModulePost###9700-GertiAutomation" Required="0" Valid="1">
+        <Description Translatable="1">Posta eventos de ticket ao sidecar Gerti (assinado HMAC) para o motor de automação (#1Q).</Description>
+        <Navigation>Core::Event::Ticket</Navigation>
+        <Value>
+            <Hash>
+                <Item Key="Module">Kernel::System::Ticket::Event::GertiAutomation</Item>
+                <Item Key="Event">(TicketCreate|ArticleCreate|TicketStateUpdate|TicketPriorityUpdate|TicketQueueUpdate|EscalationResponseTimeStart|EscalationUpdateTimeStart|EscalationSolutionTimeStart)</Item>
+                <Item Key="Transaction">1</Item>
+            </Hash>
+        </Value>
+    </Setting>
+</otrs_config>

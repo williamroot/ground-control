@@ -203,6 +203,23 @@ COPY webservices/GertiTicket.yml ${OTRS_HOME}/webservices/GertiTicket.yml
 COPY scripts/ensure-gerti-dynamicfield.pl ${OTRS_HOME}/scripts/ensure-gerti-dynamicfield.pl
 RUN chown -R otrs:www-data ${OTRS_HOME}/webservices ${OTRS_HOME}/scripts/ensure-gerti-dynamicfield.pl
 
+# ── Motor de automação (#1Q): Event module Perl + XML SysConfig + ensure script.
+#    O Event module GertiAutomation.pm assina HMAC e posta os eventos de ticket
+#    ao sidecar; o XML registra a Setting Ticket::EventModulePost. Overlay Custom/
+#    (upgrade-safe). perl -c é gate de build (lição #1O — todo .pm novo aqui).
+COPY Custom/Kernel/System/Ticket/Event/GertiAutomation.pm \
+     ${OTRS_HOME}/Custom/Kernel/System/Ticket/Event/GertiAutomation.pm
+COPY Custom/Kernel/Config/Files/XML/GertiAutomation.xml \
+     ${OTRS_HOME}/Custom/Kernel/Config/Files/XML/GertiAutomation.xml
+COPY scripts/ensure-automation-invoker.pl ${OTRS_HOME}/scripts/ensure-automation-invoker.pl
+RUN set -eux; \
+    chown -R otrs:www-data \
+        ${OTRS_HOME}/Custom/Kernel/System/Ticket/Event/GertiAutomation.pm \
+        ${OTRS_HOME}/Custom/Kernel/Config/Files/XML/GertiAutomation.xml \
+        ${OTRS_HOME}/scripts/ensure-automation-invoker.pl; \
+    perl -I${OTRS_HOME} -I${OTRS_HOME}/Kernel/cpan-lib -I${OTRS_HOME}/Custom \
+         -c ${OTRS_HOME}/Custom/Kernel/System/Ticket/Event/GertiAutomation.pm
+
 # ── Znuny ITSM CMDB add-ons (#1K, R1K): baked for idempotent install at provision.
 # Dependency order: GeneralCatalog → ITSMCore → ITSMConfigurationManagement (version 7.2.1).
 # Source: https://addons.znuny.com/public/ (NOT download.znuny.org/releases/itsm/ — 404 for 7.2).
