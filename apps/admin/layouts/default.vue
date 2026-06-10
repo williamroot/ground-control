@@ -14,6 +14,7 @@ const navLinks = [
   { to: '/', label: 'Clientes' },
   { to: '/atendimento', label: 'Atendimento' },
   { to: '/analytics', label: 'Analytics' },
+  { to: '/automacoes', label: 'Automações' },
 ]
 </script>
 
