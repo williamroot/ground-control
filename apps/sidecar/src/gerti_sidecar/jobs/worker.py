@@ -16,6 +16,7 @@ import structlog
 from gerti_sidecar import db
 from gerti_sidecar.config import get_settings
 from gerti_sidecar.domain.cycle_closer import CycleCloser
+from gerti_sidecar.domain.invoice_overdue import InvoiceOverdueMarker
 from gerti_sidecar.domain.reconciliation_service import ReconciliationService
 from gerti_sidecar.integrations import znuny_ticket
 
@@ -45,6 +46,14 @@ async def tick(state: WorkerState, *, today: dt.date | None = None) -> None:
                 log.info("cycles.closed", count=closed)
         except Exception as exc:
             log.warning("close_cycles.error", error=str(exc))
+
+        # Faturas vencidas: open → overdue (cross-tenant, 1x/dia). Failure-soft.
+        try:
+            overdue = await InvoiceOverdueMarker().mark_overdue_due()
+            if overdue:
+                log.info("invoices.overdue", count=overdue)
+        except Exception as exc:
+            log.warning("mark_overdue.error", error=str(exc))
 
 
 async def run() -> None:
