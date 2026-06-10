@@ -43,6 +43,10 @@ class CsatAlreadyExists(CsatError):
     """Já existe uma resposta CSAT para este ticket (UNIQUE) -> 409."""
 
 
+class AiRateLimited(DomainError):
+    """Cliente excedeu o limite de chamadas do assistente de IA na janela -> 429 (#1S)."""
+
+
 class EnrollError(DomainError):
     """Erro no enrollment/heartbeat do agente de inventário (#1R-a)."""
 
