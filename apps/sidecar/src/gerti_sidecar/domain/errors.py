@@ -41,3 +41,15 @@ class TicketNotClosed(CsatError):
 
 class CsatAlreadyExists(CsatError):
     """Já existe uma resposta CSAT para este ticket (UNIQUE) -> 409."""
+
+
+class EnrollError(DomainError):
+    """Erro no enrollment/heartbeat do agente de inventário (#1R-a)."""
+
+
+class EnrollTokenInvalid(EnrollError):
+    """Token de enroll inexistente/desabilitado, ou agent_secret desconhecido -> 401."""
+
+
+class AgentRevoked(EnrollError):
+    """Device revogado pelo operador: heartbeat recusado -> 401."""
