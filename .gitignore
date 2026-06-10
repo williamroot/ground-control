@@ -18,3 +18,7 @@ znuny/*.tar.gz
 
 # Visual brainstorming companion (superpowers)
 .superpowers/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
