@@ -46,6 +46,16 @@ class BillingStatus(StrEnum):
     disputed = "disputed"
 
 
+class InvoiceStatus(StrEnum):
+    """Status de uma fatura interna (Spec #1P). `paid`/`void` são terminais."""
+
+    draft = "draft"
+    open = "open"
+    paid = "paid"
+    overdue = "overdue"
+    void = "void"
+
+
 class PortalRole(StrEnum):
     """Papel do usuário no Portal do Cliente (Spec #1H)."""
 

@@ -13,6 +13,7 @@ from gerti_sidecar.models.contract_policy import (
 from gerti_sidecar.models.contract_scope import ContractScopeCi, ContractScopeService
 from gerti_sidecar.models.csat import CsatResponse
 from gerti_sidecar.models.cycle import ContractCycle
+from gerti_sidecar.models.invoice import Invoice, InvoiceLine
 from gerti_sidecar.models.portal_user_role import PortalUserRole
 from gerti_sidecar.models.sync_cursor import ConsumptionSyncCursor
 from gerti_sidecar.models.tenant import Tenant
@@ -35,6 +36,8 @@ __all__ = [
     "ContractScopeService",
     "CsatResponse",
     "Glosa",
+    "Invoice",
+    "InvoiceLine",
     "PortalUserRole",
     "ServiceCatalogItem",
     "SharedCreditPool",
