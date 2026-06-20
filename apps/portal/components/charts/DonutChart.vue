@@ -57,6 +57,23 @@ const arcs = computed(() => {
     const start = acc
     const end = acc + frac
     acc = end
+    const { fill, opacity } = colorFor(seg, i)
+    // Fatia única de 100%: o arco de 360° tem início == fim (ponto das 12h) e
+    // degenera (nada é desenhado). Desenha um ANEL completo (dois semicírculos
+    // externos + dois internos) com fill-rule evenodd p/ vazar o miolo.
+    if (frac >= 0.999999) {
+      const d = [
+        `M${cx},${(cy - rOuter).toFixed(2)}`,
+        `A${rOuter},${rOuter} 0 1 1 ${cx},${(cy + rOuter).toFixed(2)}`,
+        `A${rOuter},${rOuter} 0 1 1 ${cx},${(cy - rOuter).toFixed(2)}`,
+        'Z',
+        `M${cx},${(cy - rInner).toFixed(2)}`,
+        `A${rInner},${rInner} 0 1 1 ${cx},${(cy + rInner).toFixed(2)}`,
+        `A${rInner},${rInner} 0 1 1 ${cx},${(cy - rInner).toFixed(2)}`,
+        'Z',
+      ].join(' ')
+      return { d, fill, opacity, label: seg.label, value: seg.value, ring: true }
+    }
     const large = frac > 0.5 ? 1 : 0
     const [ox1, oy1] = polar(cx, cy, rOuter, start)
     const [ox2, oy2] = polar(cx, cy, rOuter, end)
@@ -70,8 +87,7 @@ const arcs = computed(() => {
       `A${rInner},${rInner} 0 ${large} 0 ${ix1.toFixed(2)},${iy1.toFixed(2)}`,
       'Z',
     ].join(' ')
-    const { fill, opacity } = colorFor(seg, i)
-    return { d, fill, opacity, label: seg.label, value: seg.value }
+    return { d, fill, opacity, label: seg.label, value: seg.value, ring: false }
   })
 })
 </script>
@@ -95,6 +111,7 @@ const arcs = computed(() => {
       :d="a.d"
       :fill="a.fill"
       :fill-opacity="a.opacity"
+      :fill-rule="a.ring ? 'evenodd' : undefined"
     >
       <title>{{ a.label }}: {{ a.value }}</title>
     </path>

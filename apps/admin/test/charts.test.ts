@@ -47,4 +47,11 @@ describe('DonutChart (admin bundle)', () => {
     expect(html).toContain('var(--color-error)')
     expect(html).not.toContain('var(--brand-primary)')
   })
+  it('desenha um ANEL completo para fatia única de 100% (regressão arco 360°)', () => {
+    const w = mount(DonutChart, { props: { segments: [{ label: 'new', value: 5 }] } })
+    const path = w.find('path')
+    expect(path.exists()).toBe(true)
+    expect(path.attributes('fill-rule')).toBe('evenodd')
+    expect(((path.attributes('d') ?? '').match(/A/g) ?? []).length).toBeGreaterThanOrEqual(4)
+  })
 })

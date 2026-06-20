@@ -97,4 +97,16 @@ describe('DonutChart', () => {
     const w = mount(DonutChart, { props: { segments: [] } })
     expect(w.text()).toContain('Sem dados')
   })
+  it('desenha um ANEL completo para uma fatia única de 100% (não degenera o arco de 360°)', () => {
+    // Regressão: arco de 360° tem início == fim (12h) → path degenerado, nada
+    // é desenhado. Acontecia quando todos os tickets estavam num só estado.
+    const w = mount(DonutChart, { props: { segments: [{ label: 'new', value: 10 }] } })
+    const path = w.find('path')
+    expect(path.exists()).toBe(true)
+    // anel completo vaza o miolo com fill-rule evenodd
+    expect(path.attributes('fill-rule')).toBe('evenodd')
+    const d = path.attributes('d') ?? ''
+    // path real (dois arcos externos + dois internos), não um arco degenerado
+    expect((d.match(/A/g) ?? []).length).toBeGreaterThanOrEqual(4)
+  })
 })
