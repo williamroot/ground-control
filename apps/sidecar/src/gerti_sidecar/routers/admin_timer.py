@@ -230,5 +230,21 @@ async def get_ticket(
                 .where(TicketContractLink.znuny_ticket_id == ticket_id)
             )
         ).first()
-        detail["contract"] = {"code": row[0], "type": str(row[1])} if row else None
-    return detail
+        contract = {"code": row[0], "type": str(row[1])} if row else None
+    # O GI Znuny devolve chaves capitalizadas (TicketID/Title/Articles/...). O
+    # front (apps/admin /atendimento/[id]) consome snake_case — igual ao endpoint
+    # de busca. Mapeamos aqui p/ manter o contrato consistente; os artigos
+    # mantêm as chaves capitalizadas (From/SenderType/Subject/Body/CreateTime),
+    # que é o que o componente da thread espera.
+    return {
+        "znuny_ticket_id": int(detail.get("TicketID") or ticket_id),
+        "ticket_number": str(detail.get("TicketNumber") or ""),
+        "title": str(detail.get("Title") or ""),
+        "state": str(detail.get("State") or ""),
+        "priority": str(detail.get("Priority") or ""),
+        "customer_id": str(detail.get("CustomerID") or ""),
+        "owner": str(detail.get("Owner") or ""),
+        "created": str(detail.get("Created") or ""),
+        "articles": detail.get("Articles") or [],
+        "contract": contract,
+    }
