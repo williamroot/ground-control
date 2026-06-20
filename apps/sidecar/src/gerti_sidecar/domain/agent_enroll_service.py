@@ -72,13 +72,14 @@ class AgentEnrollService:
 
     async def _write_cmdb(self, tenant: Tenant, device: DeviceAgent) -> tuple[int, str]:
         """Cria/atualiza o CI no CMDB com o customer_id do TENANT (anti-IDOR)."""
-        return await self._gi.config_item_upsert(
+        result: tuple[int, str] = await self._gi.config_item_upsert(
             customer_id=tenant.znuny_customer_id,
             name=device.hostname,
             fingerprint=device.fingerprint,
             attributes=_specs_to_attributes(device.specs or {}),
             config_item_id=device.znuny_config_item_id,
         )
+        return result
 
     async def enroll(
         self,

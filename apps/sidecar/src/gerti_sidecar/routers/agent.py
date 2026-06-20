@@ -22,6 +22,7 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gerti_sidecar import db
 from gerti_sidecar.db import tenant_session_scope
@@ -61,7 +62,7 @@ def _bearer(authorization: str | None) -> str:
     return token
 
 
-def _admin_factory():
+def _admin_factory() -> async_sessionmaker[AsyncSession]:
     if db.AdminSessionLocal is None:
         raise HTTPException(status_code=503, detail="admin_db_unavailable")
     return db.AdminSessionLocal
@@ -71,7 +72,7 @@ async def _tenant_for_token(token: str) -> uuid.UUID:
     """Resolve o tenant dono do enroll token (lookup BYPASSRLS, é diretório)."""
     factory = _admin_factory()
     async with factory() as s:
-        tid = (
+        tid: uuid.UUID | None = (
             await s.execute(
                 select(AgentEnrollToken.tenant_id).where(
                     AgentEnrollToken.token_hash == hash_token(token)
@@ -87,7 +88,7 @@ async def _tenant_for_secret(secret: str) -> uuid.UUID:
     """Resolve o tenant dono do device pelo agent_secret (lookup BYPASSRLS)."""
     factory = _admin_factory()
     async with factory() as s:
-        tid = (
+        tid: uuid.UUID | None = (
             await s.execute(
                 select(DeviceAgent.tenant_id).where(
                     DeviceAgent.agent_secret_hash == hash_token(secret)
