@@ -57,3 +57,19 @@ class EnrollTokenInvalid(EnrollError):
 
 class AgentRevoked(EnrollError):
     """Device revogado pelo operador: heartbeat recusado -> 401."""
+
+
+class CheckoutError(DomainError):
+    """Erro de contratação (plano inválido, conflito de cadastro, conta) (#2)."""
+
+
+class CheckoutDisabled(CheckoutError):
+    """Asaas/contratação desligado (ASAAS_ENABLED=false / sem key) -> 404."""
+
+
+class CheckoutConflict(CheckoutError):
+    """Subdomínio/znuny_customer_id já em uso, ou plano inexistente -> 409/404."""
+
+
+class ProvisioningError(DomainError):
+    """Falha ao provisionar (onboarding/contrato) após pagamento confirmado (#2)."""

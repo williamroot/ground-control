@@ -291,6 +291,14 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-https://ollama.com}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gpt-oss:120b}
       AI_FEATURES_ENABLED: ${AI_FEATURES_ENABLED:-false}
+      # Contratação + Asaas (Spec #2) — feature opt-in. Sem ASAAS_ENABLED=true
+      # ou sem chave => /v1/checkout responde 404 (fail-safe, kill-switch).
+      # ASAAS_API_KEY/WEBHOOK_TOKEN são SEGREDOS: só em .env.prod (nunca commitar).
+      ASAAS_ENABLED: ${ASAAS_ENABLED:-false}
+      ASAAS_API_KEY: ${ASAAS_API_KEY:-}
+      ASAAS_BASE_URL: ${ASAAS_BASE_URL:-https://api-sandbox.asaas.com/v3}
+      ASAAS_WEBHOOK_TOKEN: ${ASAAS_WEBHOOK_TOKEN:-}
+      CHECKOUT_PUBLIC_BASE_URL: ${CHECKOUT_PUBLIC_BASE_URL:-https://contratar.was.dev.br}
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8001/v1/health || exit 1"]
       interval: 15s
@@ -373,6 +381,30 @@ services:
     environment:
       SIDECAR_URL: http://sidecar:8001
       ADMIN_BASE_DOMAIN: ${ADMIN_BASE_DOMAIN:-gerti.was.dev.br}
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 25s
+
+  # ───────────────────────────────────────────────────────────────────
+  #  Página de Contratação self-service (Spec #2) — profile `gerti`.
+  #  App PÚBLICO (sem login, cross-tenant): planos → dados → pagamento
+  #  (PIX/boleto/cartão via Asaas) → provisiona no webhook. Subdomínio
+  #  próprio (contratar.was.dev.br). Fala só com `sidecar` (/v1/checkout/*).
+  #  Aditivo/profile-gated (padrão D13/D15); ingresso Cloudflare manual.
+  # ───────────────────────────────────────────────────────────────────
+  checkout:
+    profiles: ["gerti"]
+    build: { context: ./apps/checkout }
+    image: ground-control/checkout:${GERTI_CHECKOUT_UI_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      sidecar: { condition: service_healthy }
+    networks: [app, edge]
+    environment:
+      SIDECAR_URL: http://sidecar:8001
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 15s

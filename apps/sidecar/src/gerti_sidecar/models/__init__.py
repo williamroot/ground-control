@@ -13,6 +13,13 @@ from gerti_sidecar.models.contract_policy import (
     ContractRenewalPolicy,
 )
 from gerti_sidecar.models.contract_scope import ContractScopeCi, ContractScopeService
+from gerti_sidecar.models.contratacao import (
+    AsaasWebhookEvent,
+    CheckoutSession,
+    Payment,
+    PaymentProviderAccount,
+    Plan,
+)
 from gerti_sidecar.models.csat import CsatResponse
 from gerti_sidecar.models.cycle import ContractCycle
 from gerti_sidecar.models.invoice import Invoice, InvoiceLine
@@ -27,9 +34,11 @@ __all__ = [
     "AgentEnrollToken",
     "AgentTimer",
     "AiGenerationLog",
+    "AsaasWebhookEvent",
     "AutomationRule",
     "AutomationRun",
     "Base",
+    "CheckoutSession",
     "ConsumptionEvent",
     "ConsumptionSyncCursor",
     "Contract",
@@ -44,6 +53,9 @@ __all__ = [
     "Glosa",
     "Invoice",
     "InvoiceLine",
+    "Payment",
+    "PaymentProviderAccount",
+    "Plan",
     "PortalUserRole",
     "ServiceCatalogItem",
     "SharedCreditPool",

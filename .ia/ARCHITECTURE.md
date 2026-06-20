@@ -475,3 +475,43 @@ Estático (HTML/CSS/JS), estética mission-control. Deploy próprio independente
 - **Request externo** → Cloudflare edge → cloudflared (tunnel) → znuny-web:80 → Apache/mod_perl → Postgres/Redis.
 - **Jobs/escalações** → znuny-daemon (independente do web; só sobe após marcador de provisionamento do web).
 - **Cache** → toda leitura/escrita de cache do Znuny → Redis (não FS).
+
+## Contratação self-service + Asaas (Spec #2) — `apps/checkout/`
+
+Página **pública** de contratação (sem login, cross-tenant) que vende planos e
+cobra via **Asaas** (PIX/PIX recorrente/Boleto/Cartão). Modelo **pré-cadastro →
+paga → webhook provisiona**: o prospecto preenche os dados (nada é criado no
+Znuny/`gerti.tenant` ainda), paga, e só ao **confirmar o pagamento** o webhook
+provisiona — reusando `OnboardingService` (#1G) + `ContractService` (#1C). Assim
+o tenant **nasce pago** (sem lixo de abandono no Znuny).
+
+```
+Browser → cloudflared → checkout:3000 → sidecar:8001 /v1/checkout/* (PÚBLICO)
+                                          │  AsaasClient (httpx) → Asaas API
+   Asaas ── webhook (token) ─────────────▶ /v1/hooks/asaas/payment
+                                          │  AsaasWebhookService (idempotente)
+                                          └─ on PAYMENT_RECEIVED → ProvisioningService
+                                               ├─ OnboardingService (#1G)
+                                               └─ ContractService (#1C)
+```
+
+- **Backend (`apps/sidecar`):** `integrations/asaas_client.py` (molde `ollama.py`,
+  transport injetável, auth header `access_token`); `domain/checkout_service.py`,
+  `provisioning_service.py`, `asaas_webhook_service.py`; rotas **públicas**
+  `routers/checkout.py` (`/v1/checkout/plans|sessions`) e webhook
+  `routers/asaas_hooks.py` (`/v1/hooks/asaas/payment`, auth por token
+  `asaas-access-token`, idempotência por `event_id`, sempre 200). `/v1/checkout`
+  está na allowlist do `TenantMiddleware` (público, sem tenant).
+- **Modelo (`gerti`, migration 0021, tabelas NÃO-tenant):** `plan` (catálogo
+  vendável), `payment_provider_account` (multi-conta Gerti+MSP), `checkout_session`
+  (pré-cadastro), `payment` (espelho da cobrança Asaas), `asaas_webhook_event`
+  (idempotência). String+CheckConstraint (sem enum nativo). Acesso via
+  `AdminSessionLocal` (BYPASSRLS) — o checkout roda antes de o tenant existir.
+- **Feature-flag:** `ASAAS_ENABLED` (default false) + `ASAAS_API_KEY` — sem isso o
+  checkout responde 404 (fail-safe). Cartão NUNCA persiste o PAN (só o
+  `creditCardToken` do Asaas).
+- **Frontend (`apps/checkout/`):** Nuxt 3 SSR público (serviço compose `checkout`,
+  profile `gerti`, redes `app`+`edge`); páginas planos → dados → pagamento (QR PIX
+  base64 / boleto / link Asaas) com polling de status → confirmação + link do portal.
+
+Fases (MVP→completo) e decisões: `docs/superpowers/plans/2026-06-20-contratacao-asaas.md`.

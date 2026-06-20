@@ -93,6 +93,12 @@ class TenantMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith("/v1/agent"):
             return await call_next(request)
 
+        # Contratação self-service (Spec #2) é PÚBLICA e SEM tenant: o cliente
+        # pode nem existir ainda (pré-cadastro → paga → provisiona). Pular a
+        # resolução por host (o checkout roda em contratar.* / via app próprio).
+        if request.url.path.startswith("/v1/checkout"):
+            return await call_next(request)
+
         # X-Forwarded-Host tem precedência sobre Host (H9): o portal Nuxt
         # encaminha o host do tenant via XFH porque o undici/Node fetch
         # PROÍBE override do Host (reescreve p/ a autoridade `sidecar:8001`).

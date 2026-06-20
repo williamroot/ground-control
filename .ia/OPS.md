@@ -1066,3 +1066,47 @@ $DC build sidecar portal && $DC run --rm sidecar-migrate && $DC up -d sidecar si
 ## Observabilidade (a definir)
 
 Logs via `docker compose logs` por enquanto. Stack de observabilidade (OTEL/Grafana) é fase posterior — documentar aqui quando entrar.
+
+### Deploy da Contratação + Asaas (Spec #2 — profile `gerti`)
+
+Aditivo/profile-gated (padrão D13/D15): novo serviço `checkout` + migration `0021`
++ rebuild do `sidecar` (traz `/v1/checkout/*` e o webhook). **Feature opt-in**: sem
+`ASAAS_ENABLED=true` + `ASAAS_API_KEY` o checkout responde 404 (deploy seguro a
+qualquer momento; liga-se quando a chave Asaas estiver no `.env.prod`).
+
+**Pré-requisitos (humano, one-time, em `~/ground-control/.env.prod` — gitignored):**
+- `ASAAS_API_KEY` (sandbox primeiro: conta Asaas sandbox), `ASAAS_BASE_URL`
+  (`https://api-sandbox.asaas.com/v3` sandbox / `https://api.asaas.com/v3` prod),
+  `ASAAS_WEBHOOK_TOKEN` (forte; cadastrar IGUAL no painel Asaas), `ASAAS_ENABLED=true`.
+- Catálogo: ao menos 1 linha em `gerti.plan` (public+active) e a conta default.
+
+```bash
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+git pull origin main
+$DC build sidecar && $DC run --rm sidecar-migrate      # -> 0021_contratacao_asaas
+$DC build checkout && $DC up -d sidecar sidecar-worker checkout && $DC ps
+# seed de um plano (exemplo) via psql (gerti_admin_user/superuser):
+#   INSERT INTO gerti.plan (slug,name,audience,contract_type,billing_mode,price_cents,cycle,initial_amount_brl)
+#   VALUES ('starter','Starter','msp','saas_product','subscription',149000,'MONTHLY',1490.00);
+```
+
+**Webhook Asaas:** cadastrar no painel a URL `https://api-dev.was.dev.br/v1/hooks/asaas/payment`
+com o header `asaas-access-token` = `ASAAS_WEBHOOK_TOKEN`, eventos de PAYMENT.
+
+**Ingresso Cloudflare** (read-modify-write, padrão D3/D15): splice de
+`contratar.was.dev.br → http://checkout:3000` ANTES do catch-all 404 + DNS CNAME
+proxied. Guard: não remover os hostnames existentes.
+
+**Verificação:** `curl https://api-dev.was.dev.br/v1/checkout/plans` (200 com
+ASAAS_ENABLED; 404 sem). e2e sandbox: criar sessão → simular webhook
+`PAYMENT_RECEIVED` → tenant provisionado (limpar throwaway).
+
+**Rollback (checkout só):** `$DC stop checkout`; reverter sidecar: `git checkout
+<sha> -- apps/sidecar docker-compose.yml && $DC build sidecar && $DC up -d sidecar`.
+Migration reversa: `$DC run --rm sidecar-migrate uv run alembic downgrade -1`.
+**NUNCA** `make reset`.
+
+> **Status (2026-06-20):** implementado (backend + app `apps/checkout`), gates
+> verdes (ruff/mypy/319 testes; build+lint do checkout). Deploy per runbook;
+> **pendente humano:** chave Asaas sandbox no `.env.prod` + cadastro do webhook +
+> ingress `contratar.*`. Sem a chave, o checkout fica 404 (fail-safe).

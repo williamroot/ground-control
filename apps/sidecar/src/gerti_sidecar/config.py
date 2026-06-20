@@ -8,12 +8,15 @@ env vars antes do processo iniciar.
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import PostgresDsn, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from gerti_sidecar.integrations.ollama import OllamaClient
+
+if TYPE_CHECKING:
+    from gerti_sidecar.integrations.asaas_client import AsaasClient
 
 Environment = Literal["development", "staging", "production", "test"]
 
@@ -72,6 +75,14 @@ class Settings(BaseSettings):
     ollama_model: str = "gpt-oss:120b"  # OLLAMA_MODEL
     ollama_timeout_seconds: int = 120  # OLLAMA_TIMEOUT_SECONDS
     ai_features_enabled: bool = False  # AI_FEATURES_ENABLED (kill-switch global)
+
+    # Contratação + Asaas (Spec #2) — opt-in. Vazio/false => checkout 404, fail-safe.
+    asaas_enabled: bool = False  # ASAAS_ENABLED (kill-switch)
+    asaas_api_key: str = ""  # ASAAS_API_KEY (conta Gerti default; vazio = off)
+    asaas_base_url: str = "https://api-sandbox.asaas.com/v3"  # ASAAS_BASE_URL (sandbox por default)
+    asaas_webhook_token: str = ""  # ASAAS_WEBHOOK_TOKEN (header asaas-access-token)
+    asaas_timeout_seconds: int = 30  # ASAAS_TIMEOUT_SECONDS
+    checkout_public_base_url: str = "https://contratar.was.dev.br"  # CHECKOUT_PUBLIC_BASE_URL
 
     @field_validator("database_url")
     @classmethod
@@ -135,4 +146,19 @@ def get_ollama_client(settings: Settings) -> OllamaClient:
         api_key=settings.ollama_api_key,
         model=settings.ollama_model,
         timeout=float(settings.ollama_timeout_seconds),
+    )
+
+
+def get_asaas_client(settings: Settings) -> AsaasClient:
+    """Factory do cliente Asaas da conta Gerti default a partir das Settings (#2).
+
+    Import local p/ evitar custo no import de config em quem não usa Asaas.
+    Contas de MSP (multi-conta) resolvem a key por `api_key_ref` (env var) na fase 3.
+    """
+    from gerti_sidecar.integrations.asaas_client import AsaasClient
+
+    return AsaasClient(
+        base_url=settings.asaas_base_url,
+        api_key=settings.asaas_api_key,
+        timeout=float(settings.asaas_timeout_seconds),
     )

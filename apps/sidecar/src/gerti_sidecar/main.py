@@ -26,9 +26,11 @@ from gerti_sidecar.routers import (
     admin_timer,
     agent,
     agent_dist,
+    asaas_hooks,
     assets,
     auth,
     branding,
+    checkout,
     contracts,
     dashboard,
     health,
@@ -97,6 +99,10 @@ def create_app() -> FastAPI:
     app.include_router(admin_agents.router, prefix=settings.api_v1_prefix)
     # Webhooks Znuny→sidecar (Spec #1Q) — tenant vem do customer_id assinado (HMAC).
     app.include_router(hooks.router, prefix=settings.api_v1_prefix)
+    # Contratação self-service (Spec #2) — público; pré-cadastro → paga → provisiona.
+    app.include_router(checkout.router, prefix=settings.api_v1_prefix)
+    # Webhook do Asaas (Spec #2) — auth por token; sob /v1/hooks (allowlist).
+    app.include_router(asaas_hooks.router, prefix=settings.api_v1_prefix)
     # Agente de inventário (Spec #1R-a) — Bearer token/secret; tenant vem do token.
     app.include_router(agent.router, prefix=settings.api_v1_prefix)
     # Distribuição do binário/install.sh do agente (Spec #1R-b) — público, sem auth.
