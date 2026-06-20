@@ -31,7 +31,7 @@ interface CPage { page: number, page_size: number, total: number, items: CItem[]
 
 const route = useRoute()
 const id = computed(() => String(route.params.id))
-const headers = useRequestHeaders(['cookie'])
+const headers = useSidecarHeaders()
 
 // Auth + papel admin garantidos pela middleware nomeada `auth` (definePageMeta, #1H).
 const { data: detail, error } = await useAsyncData(`detail-${id.value}`, () =>

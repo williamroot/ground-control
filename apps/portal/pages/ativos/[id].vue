@@ -22,7 +22,7 @@ interface AssetDetail {
 
 const route = useRoute()
 const id = computed(() => String(route.params.id))
-const headers = useRequestHeaders(['cookie'])
+const headers = useSidecarHeaders()
 const branding = useState<Branding>('branding', () => DEFAULT_BRANDING)
 const tenantName = computed(() => branding.value?.display_name ?? 'Portal')
 

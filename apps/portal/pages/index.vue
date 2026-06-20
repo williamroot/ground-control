@@ -23,7 +23,7 @@ interface Dashboard {
 }
 
 // Auth + papel admin garantidos pela middleware nomeada `auth` (definePageMeta, #1H).
-const headers = useRequestHeaders(['cookie'])
+const headers = useSidecarHeaders()
 const { data: dashboard } = await useAsyncData('dashboard', () =>
   $fetch<Dashboard>('/api/portal/dashboard', { headers }).catch(() => null))
 const { data: contracts } = await useAsyncData('contracts', () =>

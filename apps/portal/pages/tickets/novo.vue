@@ -33,7 +33,7 @@ interface OpenedTicket {
   contract_id: string
 }
 
-const headers = useRequestHeaders(['cookie'])
+const headers = useSidecarHeaders()
 const toast = useToast()
 const route = useRoute()
 const branding = useState<Branding>('branding', () => DEFAULT_BRANDING)

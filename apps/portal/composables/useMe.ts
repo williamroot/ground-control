@@ -11,8 +11,9 @@ export interface Me {
 }
 
 export function useMe() {
-  // Em SSR repassa o cookie da request original (igual aos demais fetches).
-  const headers = import.meta.server ? useRequestHeaders(['cookie']) : undefined
+  // Em SSR repassa cookie + host do tenant (x-forwarded-host) — sem o host o
+  // sidecar não resolve o tenant e rejeita o gsid (401). Ver useSidecarHeaders.
+  const headers = useSidecarHeaders()
   return useAsyncData<Me | null>('me', () =>
     $fetch<Me>('/api/portal/me', { headers }).catch(() => null))
 }

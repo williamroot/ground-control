@@ -23,7 +23,7 @@ interface InvoiceRow {
   total_cents: number
 }
 
-const headers = useRequestHeaders(['cookie'])
+const headers = useSidecarHeaders()
 const branding = useState<Branding>('branding', () => DEFAULT_BRANDING)
 const tenantName = computed(() => branding.value?.display_name ?? 'Portal')
 

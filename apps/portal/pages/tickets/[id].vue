@@ -35,7 +35,7 @@ interface SelectableContract { id: string, code: string }
 
 const route = useRoute()
 const id = computed(() => String(route.params.id))
-const headers = useRequestHeaders(['cookie'])
+const headers = useSidecarHeaders()
 const toast = useToast()
 const branding = useState<Branding>('branding', () => DEFAULT_BRANDING)
 const tenantName = computed(() => branding.value?.display_name ?? 'Portal')

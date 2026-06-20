@@ -17,7 +17,7 @@ interface TicketRow {
 }
 interface SelectableContract { id: string, code: string }
 
-const headers = useRequestHeaders(['cookie'])
+const headers = useSidecarHeaders()
 const branding = useState<Branding>('branding', () => DEFAULT_BRANDING)
 const tenantName = computed(() => branding.value?.display_name ?? 'Portal')
 const { data: me } = await useMe()
