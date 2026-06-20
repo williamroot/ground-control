@@ -1,0 +1,15 @@
+[project]
+name = "ground-control-e2e"
+version = "0.1.0"
+description = "Suíte e2e de browser (Playwright) contra a stack viva do Ground Control"
+requires-python = ">=3.11"
+dependencies = [
+    "playwright>=1.49",
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+markers = [
+    "destructive: muta dados em produção — rodar manualmente, nunca no CI",
+]

@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+.pytest_cache/
+shots/
+*.png
+uv.lock
