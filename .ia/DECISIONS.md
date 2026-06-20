@@ -357,7 +357,7 @@ Znuny (`helpdesk@auroramoveis.com.br` / `suporte.ops@technova.example`, senhas
 portal **34 vitest** (guarda + nav por papel). Reviews independentes de código
 e de **autorização** APROVADAS (sem blockers): privilege-escalation fechado,
 least-privilege em toda omissão, claim assinado validado por allowlist,
-`portal_user_role` FORCE-RLS resolvido após o 403 cross-tenant, query
+`portal_user_role` FORCE-RLS resolvido após o 401 cross-tenant, query
 parametrizada, enforcement server-side.
 
 ## D19 — Console de Administração: auth de agente via GI + escrita de cliente via operação GI custom

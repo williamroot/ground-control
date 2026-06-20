@@ -166,8 +166,10 @@ id `b437f4d5-8266-4270-9253-ef536c8ff59c`). Nenhum Znuny separado por
 tenant — §2.1 preservado.
 
 **Prova de isolamento cross-tenant:** um cookie `gsid` mintado para o
-tenant Aurora é rejeitado com **403** ao bater em qualquer endpoint do
-tenant TechNova (e vice-versa). Verificado no e2e smoke (`test_portal_e2e_smoke.py`).
+tenant Aurora é rejeitado com **401** ao bater em qualquer endpoint do
+tenant TechNova (e vice-versa) — fail-closed: o `gsid` é tenant-scoped e
+não valida fora do seu tenant. Verificado no e2e smoke (`test_portal_e2e_smoke.py`)
+e ao vivo via browser (2026-06-20).
 
 Tenants seeded de forma idempotente por `scripts/seed_demo_branding.py`
 (branding + TechNova tenant) + `scripts/seed-technova.pl` via
@@ -367,7 +369,7 @@ de tempo por agente, integrado ao fluxo de billing do #1B.
   controle de timer inline por linha.
 - `/atendimento/[id]` — detalhe do ticket com card de timer proeminente + badge
   do contrato vinculado (`ContractBadge`). Stop dialog permite `adjust_minutes`
-  (cap 1440 min) + nota obrigatória antes de lançar.
+  (cap 1440 min) + nota **opcional** antes de lançar.
 - Composable `useTimers`; componentes `TimerControls`, `TimerStopDialog`,
   `ContractBadge`. Link de navegação no menu admin.
 
