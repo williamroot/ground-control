@@ -2,6 +2,13 @@
 
 > ⚠️ **INSTÂNCIA DE DEMONSTRAÇÃO — credenciais descartáveis.**
 > Todas as senhas abaixo são públicas e padronizadas só para apresentação.
+>
+> **Login aceita e-mail OU usuário**, nos dois lados. No console, o agente entra
+> por `william` ou por `williamalvesroot@gmail.com`; no portal, o cliente entra
+> por `eduardo.salvi` ou pelo e-mail dele. A resolução de e-mail→login é
+> server-side e **falha fechada** se o e-mail casar mais de um agente. Existe um
+> agente sem e-mail (`root@localhost`, do instalador) — para ele o login curto é o
+> único caminho.
 > **TROQUE TODAS antes de qualquer uso real / produção.** Não há dado sensível aqui:
 > empresa, pessoas, CNPJ e tickets são **fictícios**.
 

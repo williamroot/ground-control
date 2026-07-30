@@ -1331,3 +1331,17 @@ Nenhuma migration para reverter. **NUNCA** `make reset`.
 > Spec #2 (ingress nunca criado, falta token Cloudflare) — o serviço `checkout`
 > responde 200 internamente; (c) o `sidecar-worker` não reconcilia consumo desde
 > 2026-06-24, pré-existente, revelado pelo painel de saúde novo.
+
+> **Login por e-mail ou usuário (2026-07-30) — DEPLOYADO e verificado.** Os dois
+> lados aceitam ambos os formatos. **Prova ao vivo:** console com
+> `williamalvesroot@gmail.com` → 200 e a sessão carrega `agent_login: "william"`
+> (o login **canônico**, não o e-mail) — a sessão vira o `AgentLogin` de toda
+> operação GI, então guardar o e-mail faria a pessoa entrar e todas as telas
+> quebrarem depois; `bruno.cardoso@gerti.com.br` → 200; e-mail inexistente, senha
+> errada e e-mail ambíguo → **o mesmo 401**, sem vazar enumeração. Portal:
+> `eduardo.salvi` e o e-mail completo, ambos 200.
+>
+> **A causa raiz do login "impossível" era de front-end:** o campo era
+> `type="email"`, e o navegador barrava o envio do login curto **antes de qualquer
+> requisição sair** — sem erro de servidor, sem log, sem nada para investigar.
+> Guards nos dois apps (`test/login-field.test.ts`) travam a regressão.
