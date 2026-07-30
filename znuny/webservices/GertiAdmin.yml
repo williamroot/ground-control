@@ -60,6 +60,9 @@ Provider:
     AdminAgentGroupSet:
       Description: Set an agent's full group membership, anti-lockout guarded (Spec #4 Bloco C)
       Type: GertiAdmin::AdminAgentGroupSet
+    AdminAgentResolveLogin:
+      Description: Resolve an agent's canonical UserLogin from a login OR email identifier (#2 login-por-email)
+      Type: GertiAdmin::AdminAgentResolveLogin
   Transport:
     Config:
       KeepAlive: ''
@@ -137,5 +140,9 @@ Provider:
           RequestMethod:
           - POST
           Route: /Agent/Group/Set
+        AdminAgentResolveLogin:
+          RequestMethod:
+          - POST
+          Route: /Agent/ResolveLogin
     Type: HTTP::REST
 RemoteSystem: ''

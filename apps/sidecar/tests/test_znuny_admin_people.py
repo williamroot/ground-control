@@ -353,6 +353,65 @@ async def test_set_agent_groups_anti_lockout_raises_write_error(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# resolve_agent_login — #2, login universal (login OU e-mail)
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_resolve_agent_login_happy(monkeypatch):
+    post, captured = _capturing_post(200, {"Login": "william", "UserID": 5})
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+
+    login = await people.resolve_agent_login("william@gerti.com")
+
+    assert captured["url"] == _BASE + "/Agent/ResolveLogin"
+    assert captured["json"]["Identifier"] == "william@gerti.com"
+    assert captured["json"]["AccessToken"] == _TOKEN
+    # Sem AgentLogin: esta é a única chamada deste módulo feita ANTES de
+    # existir uma sessão admin — não há autor a atribuir.
+    assert "AgentLogin" not in captured["json"]
+    assert login == "william"
+
+
+@pytest.mark.asyncio
+async def test_resolve_agent_login_not_found_returns_none(monkeypatch):
+    post, _ = _capturing_post(
+        200,
+        {"Error": {"ErrorCode": "AdminAgentResolveLogin.NotFound", "ErrorMessage": "not found"}},
+    )
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+
+    assert await people.resolve_agent_login("ghost@gerti.com") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_agent_login_ambiguous_returns_none(monkeypatch):
+    """Ambíguo devolve o MESMO None que 'não encontrado' — o chamador (login
+    do console) não deve distinguir os dois, para não vazar enumeração."""
+    post, _ = _capturing_post(
+        200,
+        {
+            "Error": {
+                "ErrorCode": "AdminAgentResolveLogin.Ambiguous",
+                "ErrorMessage": "email matches more than one valid agent",
+            }
+        },
+    )
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+
+    assert await people.resolve_agent_login("shared@gerti.com") is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_agent_login_transport_error_raises_unavailable(monkeypatch):
+    async def boom(self, url, **kw):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", boom)
+
+    with pytest.raises(people.ZnunyUnavailable):
+        await people.resolve_agent_login("william@gerti.com")
+
+
+# --------------------------------------------------------------------------- #
 # transporte / 5xx
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio

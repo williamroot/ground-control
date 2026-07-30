@@ -31,6 +31,17 @@ de `update_agent` — nunca um efeito colateral de salvar o cadastro. Espelha
 do Perl só traz `{Success, UserID, UserLogin}`) e esta função não a loga nem
 a devolve — só confirma o sucesso.
 
+`resolve_agent_login` (#2, login universal do console) espelha
+`AdminAgentResolveLogin.pm` (Route `/Agent/ResolveLogin`): recebe um
+`Identifier` cru (login OU e-mail) e devolve o LOGIN CANÔNICO, ou `None`
+quando não resolve a exatamente um agente válido. Diferente das outras
+funções deste módulo, NÃO exige `AgentLogin` (autor) — é chamada durante o
+login do próprio admin_auth, antes de qualquer sessão existir, então não há
+autor a atribuir. `None` cobre TANTO "não encontrado" QUANTO "ambíguo" — o
+chamador (`routers/admin_auth.py`) trata os dois como o mesmo 401
+`invalid_credentials`, então esta função deliberadamente não distingue o
+motivo (ver `AdminAgentResolveLogin.pm` para o erro explícito no lado Perl).
+
 O sidecar não persiste nada disto (Spec #4): estas funções só leem/escrevem
 o Znuny ao vivo; a única gravação em `gerti` é a linha de auditoria, feita
 pelo router.
@@ -60,6 +71,7 @@ __all__ = [
     "get_agent",
     "list_agents",
     "list_groups",
+    "resolve_agent_login",
     "set_agent_groups",
     "set_agent_password",
     "update_agent",
@@ -266,6 +278,31 @@ async def set_agent_password(agent_id: int, new_password: str, *, agent_login: s
         "/Agent/SetPassword",
         {"AgentLogin": agent_login, "TargetUserID": agent_id, "NewPassword": new_password},
     )
+
+
+async def resolve_agent_login(identifier: str) -> str | None:
+    """Resolve o LOGIN CANÔNICO de um agente a partir de um `identifier` cru
+    (login OU e-mail), via `AdminAgentResolveLogin.pm` (Route
+    `/Agent/ResolveLogin`). Devolve `None` quando o identifier não resolve a
+    exatamente um agente válido — tanto "não encontrado" quanto "ambíguo"
+    (o Perl distingue os dois com `ErrorCode`s explícitos e auditáveis, mas
+    aqui é deliberado NÃO propagar o motivo: o chamador — login do console —
+    trata os dois como o mesmo 401 `invalid_credentials`, para não vazar
+    enumeração de e-mail).
+
+    Sem `agent_login` (autor): esta é a ÚNICA operação deste módulo chamada
+    ANTES de existir uma sessão admin — não há autor a atribuir.
+
+    `ZnunyUnavailable` (falha de transporte) propaga normalmente — isso é
+    infraestrutura fora do ar, não "não encontrado", e o chamador mapeia
+    para 503, não para o 401 de credenciais inválidas.
+    """
+    try:
+        data = await _post("/Agent/ResolveLogin", {"Identifier": identifier})
+    except ZnunyWriteError:
+        return None
+    login = data.get("Login")
+    return str(login) if isinstance(login, str) and login else None
 
 
 def _group_from(data: dict[str, Any]) -> Group:

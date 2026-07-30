@@ -195,6 +195,13 @@ COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminGroupList.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminGroupList.pm
 COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGroupSet.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGroupSet.pm
+# AdminAgentResolveLogin (#2) — login universal do console (login OU e-mail).
+# Devolve o LOGIN CANÔNICO do agente; a tabela users não tem coluna de e-mail
+# (e-mail é user_preferences.UserEmail), então esta op faz UserLookup direto e,
+# só se o Identifier tiver '@', cai para UserSearch(PostMasterSearch => ...).
+# Fail-closed em ambiguidade — nunca escolhe entre múltiplos agentes válidos.
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentResolveLogin.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentResolveLogin.pm
 RUN set -eux; \
     chown -R otrs:www-data ${OTRS_HOME}/Custom; \
     for m in \
@@ -216,7 +223,8 @@ RUN set -eux; \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentSet.pm \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentSetPassword.pm \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminGroupList.pm \
-        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGroupSet.pm ; \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGroupSet.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentResolveLogin.pm ; \
     do \
         perl -I${OTRS_HOME} -I${OTRS_HOME}/Kernel/cpan-lib -I${OTRS_HOME}/Custom \
              -c ${OTRS_HOME}/$m ; \

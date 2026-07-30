@@ -7,7 +7,13 @@ Cobre:
   • router /v1/admin/auth/login: 200 + Set-Cookie gsid_adm (válido), 401
     (inválido), 503 (ZnunyUnavailable); /logout → 204 + cookie limpo;
   • isolamento: um JWT de CLIENTE em gsid_adm é rejeitado (401) e o gsid_adm
-    emitido pelo login é aceito por decode_admin_session.
+    emitido pelo login é aceito por decode_admin_session;
+  • #2 — login universal (login OU e-mail): login direto nunca chama
+    resolve_agent_login (agente sem e-mail continua entrando por login);
+    login por e-mail resolve o canônico e a SESSÃO GUARDA O LOGIN, nunca o
+    e-mail (bug perigoso — asserido explicitamente); e-mail ambíguo e e-mail
+    inexistente devolvem o MESMO 401 de senha errada; ZnunyUnavailable da
+    resolução (classe distinta da do auth direto) também vira 503.
 """
 
 from __future__ import annotations
@@ -226,6 +232,183 @@ async def test_admin_login_znuny_unavailable_503(monkeypatch):
             "/v1/admin/auth/login",
             headers=_HOST,
             json={"login": "william", "password": "pw"},
+        )
+    assert r.status_code == 503
+    assert r.json()["detail"] == "znuny_unavailable"
+
+
+# ---------------------------------------------------------------------------
+# #2 — login universal (login OU e-mail)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_admin_login_direct_success_never_calls_resolve(monkeypatch):
+    """Sucesso já na primeira tentativa (login normal — inclusive um login que
+    por acaso CONTÉM '@', como o agente sem e-mail nenhum 'root@localhost' do
+    instalador) NUNCA chama `resolve_agent_login`. Cobre ao mesmo tempo:
+    'nenhuma chamada extra ao GI quando o login direto já funciona' e 'agente
+    sem e-mail continua entrando por login'."""
+    settings = _settings(monkeypatch)
+
+    async def auth(login, password):
+        return True
+
+    async def resolve_should_not_run(identifier):
+        raise AssertionError(
+            "resolve_agent_login não deveria ser chamado — login direto já funcionou"
+        )
+
+    monkeypatch.setattr(admin_auth_router, "authenticate_agent", auth)
+    monkeypatch.setattr(admin_auth_router, "resolve_agent_login", resolve_should_not_run)
+    transport = ASGITransport(app=create_app())
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        r = await c.post(
+            "/v1/admin/auth/login",
+            headers=_HOST,
+            json={"login": "root@localhost", "password": "pw"},
+        )
+    assert r.status_code == 200
+    payload = decode_admin_session(r.cookies["gsid_adm"], settings)
+    assert payload is not None
+    assert payload["agent_login"] == "root@localhost"
+
+
+@pytest.mark.asyncio
+async def test_admin_login_by_email_success_session_stores_canonical_login(monkeypatch):
+    """Login por e-mail: `authenticate_agent` falha com o e-mail cru primeiro,
+    `resolve_agent_login` acha o login canônico, `authenticate_agent` tenta de
+    novo com ele — e a SESSÃO GUARDA O LOGIN CANÔNICO, nunca o e-mail digitado.
+    Este é o bug perigoso da spec: se a sessão guardasse o e-mail, o operador
+    entraria e toda operação GI subsequente (que usa `agent_login` como
+    `AgentLogin`) quebraria."""
+    settings = _settings(monkeypatch)
+    attempted_logins: list[str] = []
+
+    async def auth(login, password):
+        attempted_logins.append(login)
+        return login == "william"  # só autentica com o LOGIN canônico, nunca o e-mail
+
+    async def resolve(identifier):
+        assert identifier == "william@gerti.com"
+        return "william"
+
+    monkeypatch.setattr(admin_auth_router, "authenticate_agent", auth)
+    monkeypatch.setattr(admin_auth_router, "resolve_agent_login", resolve)
+    transport = ASGITransport(app=create_app())
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        r = await c.post(
+            "/v1/admin/auth/login",
+            headers=_HOST,
+            json={"login": "william@gerti.com", "password": "pw"},
+        )
+    assert r.status_code == 200
+    assert attempted_logins == ["william@gerti.com", "william"]
+    payload = decode_admin_session(r.cookies["gsid_adm"], settings)
+    assert payload is not None
+    # Guarda checada explicitamente: o claim tem que ser o LOGIN, nunca o e-mail.
+    assert payload["agent_login"] == "william"
+    assert payload["agent_login"] != "william@gerti.com"
+
+
+@pytest.mark.asyncio
+async def test_admin_login_ambiguous_email_401_identical_to_bad_password(monkeypatch):
+    """E-mail que casa mais de um agente válido: `resolve_agent_login` devolve
+    `None` (mesmo contrato de 'não encontrado') → 401 `invalid_credentials`,
+    idêntico ao de senha errada. Nada de vazar que o e-mail é ambíguo."""
+    _settings(monkeypatch)
+
+    async def auth(login, password):
+        return False
+
+    async def resolve(identifier):
+        return None
+
+    monkeypatch.setattr(admin_auth_router, "authenticate_agent", auth)
+    monkeypatch.setattr(admin_auth_router, "resolve_agent_login", resolve)
+    transport = ASGITransport(app=create_app())
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        r = await c.post(
+            "/v1/admin/auth/login",
+            headers=_HOST,
+            json={"login": "duplicado@gerti.com", "password": "pw"},
+        )
+    assert r.status_code == 401
+    assert r.json()["detail"] == "invalid_credentials"
+    assert "gsid_adm" not in r.cookies
+
+
+@pytest.mark.asyncio
+async def test_admin_login_unknown_email_401_identical_to_bad_password(monkeypatch):
+    """E-mail que não casa nenhum agente: mesmo 401 `invalid_credentials` do
+    caso de senha errada — sem enumeração de e-mails cadastrados."""
+    _settings(monkeypatch)
+
+    async def auth(login, password):
+        return False
+
+    async def resolve(identifier):
+        return None
+
+    monkeypatch.setattr(admin_auth_router, "authenticate_agent", auth)
+    monkeypatch.setattr(admin_auth_router, "resolve_agent_login", resolve)
+    transport = ASGITransport(app=create_app())
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        r = await c.post(
+            "/v1/admin/auth/login",
+            headers=_HOST,
+            json={"login": "fantasma@gerti.com", "password": "pw"},
+        )
+    assert r.status_code == 401
+    assert r.json()["detail"] == "invalid_credentials"
+    assert "gsid_adm" not in r.cookies
+
+
+@pytest.mark.asyncio
+async def test_admin_login_wrong_password_still_401_same_shape(monkeypatch):
+    """Senha errada (login por username, sem e-mail envolvido) — mesmo 401,
+    completando a matriz: os três motivos de falha (senha errada, e-mail
+    ambíguo, e-mail inexistente) são indistinguíveis no response."""
+    _settings(monkeypatch)
+
+    async def auth(login, password):
+        return False
+
+    monkeypatch.setattr(admin_auth_router, "authenticate_agent", auth)
+    transport = ASGITransport(app=create_app())
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        r = await c.post(
+            "/v1/admin/auth/login",
+            headers=_HOST,
+            json={"login": "william", "password": "bad"},
+        )
+    assert r.status_code == 401
+    assert r.json()["detail"] == "invalid_credentials"
+
+
+@pytest.mark.asyncio
+async def test_admin_login_resolve_znuny_unavailable_503(monkeypatch):
+    """`ZnunyUnavailable` levantado pela RESOLUÇÃO por e-mail (não só pelo
+    `authenticate_agent` direto) também vira 503 — mesmo contrato
+    failure-safe, e ela é uma classe de exceção DIFERENTE da usada pelo
+    auth direto (módulos diferentes), então o router precisa capturar as
+    duas."""
+    _settings(monkeypatch)
+
+    async def auth(login, password):
+        return False
+
+    async def resolve_down(identifier):
+        raise admin_auth_router.ResolveUnavailable("down")
+
+    monkeypatch.setattr(admin_auth_router, "authenticate_agent", auth)
+    monkeypatch.setattr(admin_auth_router, "resolve_agent_login", resolve_down)
+    transport = ASGITransport(app=create_app())
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        r = await c.post(
+            "/v1/admin/auth/login",
+            headers=_HOST,
+            json={"login": "william@gerti.com", "password": "pw"},
         )
     assert r.status_code == 503
     assert r.json()["detail"] == "znuny_unavailable"
