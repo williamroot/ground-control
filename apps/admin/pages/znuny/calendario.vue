@@ -15,6 +15,8 @@ import type {
 } from '../../composables/useWorkingHours'
 import {
   CALENDAR_OPTIONS,
+  DEFAULT_CALENDAR,
+  calendarToQuery,
   emptyGrid,
   gridToPayload,
   oneTimeToPayload,
@@ -43,13 +45,13 @@ interface CalendarResponse {
 const headers = useRequestHeaders(['cookie'])
 const toast = useToast()
 
-const selectedCalendar = ref('')
+const selectedCalendar = ref(DEFAULT_CALENDAR)
 
 const { data, pending, refresh } = await useAsyncData<CalendarResponse | null>(
   'znuny-calendar',
   () => $fetch<CalendarResponse | null>('/api/admin/znuny/calendar', {
     headers,
-    query: { calendar: selectedCalendar.value },
+    query: { calendar: calendarToQuery(selectedCalendar.value) },
   }).catch(() => null),
   { watch: [selectedCalendar] },
 )
@@ -76,7 +78,7 @@ watch(data, (d) => {
   recurring.value = payloadToRecurring(d.time_vacation_days)
   oneTime.value = payloadToOneTime(d.time_vacation_days_one_time)
   loadedPayload.value = {
-    calendar: d.calendar ?? selectedCalendar.value,
+    calendar: d.calendar ?? calendarToQuery(selectedCalendar.value),
     time_working_hours: d.time_working_hours ?? {},
     time_vacation_days: d.time_vacation_days ?? {},
     time_vacation_days_one_time: d.time_vacation_days_one_time ?? {},
@@ -89,7 +91,7 @@ const isEmpty = computed(() => {
 })
 
 const draftPayload = computed<CalendarPayload>(() => ({
-  calendar: selectedCalendar.value,
+  calendar: calendarToQuery(selectedCalendar.value),
   time_working_hours: gridToPayload(grid.value),
   time_vacation_days: recurringToPayload(recurring.value),
   time_vacation_days_one_time: oneTimeToPayload(oneTime.value),

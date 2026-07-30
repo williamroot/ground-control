@@ -15,6 +15,7 @@ import {
   groupOneTimeByMonth,
   groupRecurringByMonth,
   isValidCalendar,
+  isValidCalendarSuffix,
   oneTimeToPayload,
   parseCalendarErrors,
   payloadToGrid,
@@ -37,6 +38,9 @@ import {
   type OneTimeHoliday,
   type RecurringHoliday,
   type WorkingGrid,
+  DEFAULT_CALENDAR,
+  calendarToQuery,
+  isValidCalendar,
 } from '../composables/useWorkingHours'
 
 describe('grade <-> payload (TimeWorkingHours: dia -> lista de horas)', () => {
@@ -141,10 +145,17 @@ describe('validateWorkingHoursShape — espelho do 422', () => {
 })
 
 describe('isValidCalendar', () => {
-  it('aceita padrão e Calendar1..9', () => {
-    expect(isValidCalendar('')).toBe(true)
+  it('aceita o sentinela do padrão e Calendar1..9 (domínio da UI)', () => {
+    expect(isValidCalendar(DEFAULT_CALENDAR)).toBe(true)
     expect(isValidCalendar('1')).toBe(true)
     expect(isValidCalendar('9')).toBe(true)
+  })
+
+  it('o sufixo da API aceita vazio (padrão do Znuny), a UI não', () => {
+    expect(isValidCalendarSuffix('')).toBe(true)
+    expect(isValidCalendarSuffix('9')).toBe(true)
+    expect(isValidCalendarSuffix('default')).toBe(false)
+    expect(isValidCalendar('')).toBe(false)
   })
 
   it('rejeita fora da faixa', () => {
@@ -481,5 +492,33 @@ describe('OneTimeHolidayEditor — adicionar, editar, remover', () => {
     await wrapper.find('[data-testid="onetime-remove"]').trigger('click')
     const ev = wrapper.emitted('update:modelValue')!
     expect(ev.at(-1)![0]).toEqual([])
+  })
+})
+
+// --------------------------------------------------------------------------- #
+// Nenhuma opção de select pode ter valor string vazia.
+//
+// O `USelect` do Nuxt UI trata string vazia como "sem seleção" e recusa um item
+// com esse valor — derrubando a PÁGINA INTEIRA com 500 no SSR. Foi o que
+// aconteceu com o calendário "Padrão", cujo sufixo real no Znuny é vazio.
+// A UI usa o sentinela `default`; a conversão para o sufixo real acontece só na
+// borda da API. Só o navegador pega isso: a rota responde e o endpoint funciona.
+// --------------------------------------------------------------------------- #
+describe('opções do seletor de calendário', () => {
+  it('nenhuma opção tem valor string vazia (quebraria o USelect no SSR)', () => {
+    for (const opt of CALENDAR_OPTIONS) {
+      expect(opt.value).not.toBe('')
+      expect(opt.value.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('o sentinela do padrão vira sufixo vazio na borda da API', () => {
+    expect(calendarToQuery(DEFAULT_CALENDAR)).toBe('')
+    expect(calendarToQuery('3')).toBe('3')
+  })
+
+  it('o padrão continua sendo uma opção válida', () => {
+    expect(isValidCalendar(DEFAULT_CALENDAR)).toBe(true)
+    expect(isValidCalendar('')).toBe(false)
   })
 })

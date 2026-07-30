@@ -44,13 +44,36 @@ export function emptyGrid(): WorkingGrid {
 
 // ---- Seletor de calendário (Calendar1..9 além do padrão) ------------------
 
+// O calendário padrão do Znuny é o sufixo VAZIO (`TimeWorkingHours`, sem
+// `::CalendarN`). Mas o `USelect` do Nuxt UI recusa item com valor string vazia
+// — string vazia é o sinal de "sem seleção" dele — e derrubava a página inteira
+// com erro 500 no SSR. Por isso a UI usa o sentinela `default` e a conversão
+// para o sufixo real acontece só na borda da API (`calendarToQuery`).
+export const DEFAULT_CALENDAR = 'default'
+
 export const CALENDAR_OPTIONS: { value: string, label: string }[] = [
-  { value: '', label: 'Padrão' },
+  { value: DEFAULT_CALENDAR, label: 'Padrão' },
   ...Array.from({ length: 9 }, (_, i) => ({ value: String(i + 1), label: `Calendário ${i + 1}` })),
 ]
 
+/** Sentinela da UI -> sufixo que o sidecar/Znuny esperam (`''` = padrão). */
+export function calendarToQuery(value: string): string {
+  return value === DEFAULT_CALENDAR ? '' : value
+}
+
+/** Valida o valor do SELETOR (domínio da UI: `default`, `1`..`9`). */
 export function isValidCalendar(value: string): boolean {
   return CALENDAR_OPTIONS.some(o => o.value === value)
+}
+
+/** Valida o SUFIXO que vai para o sidecar/Znuny (domínio da API: `''`, `1`..`9`).
+ *
+ * São dois domínios de verdade, não redundância: a UI nunca pode ter opção com
+ * valor vazio (quebra o `USelect` no SSR), e a API nunca aceita `default` — o
+ * calendário padrão do Znuny é o sufixo ausente. Misturar os dois foi o que
+ * derrubou a tela. */
+export function isValidCalendarSuffix(value: string): boolean {
+  return value === '' || /^[1-9]$/.test(value)
 }
 
 // ---- Conversão grade <-> payload do Znuny (TimeWorkingHours) --------------
@@ -422,7 +445,7 @@ export interface CalendarPayload {
 
 export function validateCalendarPayload(payload: CalendarPayload): string[] {
   const errors: string[] = []
-  if (!isValidCalendar(payload.calendar)) errors.push('Calendário selecionado é inválido.')
+  if (!isValidCalendarSuffix(payload.calendar)) errors.push('Calendário selecionado é inválido.')
   errors.push(...validateWorkingHoursShape(payload.time_working_hours))
   errors.push(...validateRecurringDaysShape(payload.time_vacation_days))
   errors.push(...validateOneTimeDaysShape(payload.time_vacation_days_one_time))
