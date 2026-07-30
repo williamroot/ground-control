@@ -17,7 +17,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -25,6 +25,7 @@ from gerti_sidecar import db
 from gerti_sidecar.auth.admin_session import AdminSessionPayload, get_admin_session
 from gerti_sidecar.config import get_settings
 from gerti_sidecar.db import tenant_session_scope
+from gerti_sidecar.domain import audit_service
 from gerti_sidecar.domain.agent_enroll_service import AgentEnrollService
 from gerti_sidecar.domain.agent_secrets import new_enroll_token
 from gerti_sidecar.domain.errors import AgentRevoked, EnrollError
@@ -135,6 +136,7 @@ async def list_tokens(
 async def create_token(
     tenant_id: str,
     body: TokenIn,
+    request: Request,
     admin: AdminSessionPayload = Depends(get_admin_session),
 ) -> TokenCreated:
     tid = await _require_tenant(tenant_id)
@@ -158,6 +160,20 @@ async def create_token(
         s.add(tok)
         await s.flush()
         out = _token_out(tok)
+
+    # NUNCA grava o plaintext/hash do token — só o rótulo (metadados de auditoria).
+    await audit_service.record(
+        actor_type="agent",
+        actor_login=admin["agent_login"],
+        tenant_id=tid,
+        action="create",
+        entity="agent_enroll_token",
+        entity_id=out.id,
+        description=f"token de agente criado: {body.label}",
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        metadata={"label": body.label},
+    )
     return TokenCreated(
         **out.model_dump(),
         token=plain,
@@ -169,6 +185,7 @@ async def create_token(
 async def disable_token(
     tenant_id: str,
     token_id: str,
+    request: Request,
     admin: AdminSessionPayload = Depends(get_admin_session),
 ) -> TokenOut:
     tid = await _require_tenant(tenant_id)
@@ -184,7 +201,20 @@ async def disable_token(
             raise HTTPException(status_code=404, detail="token_not_found")
         tok.enabled = False
         await s.flush()
-        return _token_out(tok)
+        out = _token_out(tok)
+
+    await audit_service.record(
+        actor_type="agent",
+        actor_login=admin["agent_login"],
+        tenant_id=tid,
+        action="update",
+        entity="agent_enroll_token",
+        entity_id=token_id,
+        description="token de agente desabilitado",
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
+    return out
 
 
 @router.get("/tenants/{tenant_id}/devices")

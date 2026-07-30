@@ -1110,3 +1110,64 @@ Migration reversa: `$DC run --rm sidecar-migrate uv run alembic downgrade -1`.
 > verdes (ruff/mypy/319 testes; build+lint do checkout). Deploy per runbook;
 > **pendente humano:** chave Asaas sandbox no `.env.prod` + cadastro do webhook +
 > ingress `contratar.*`. Sem a chave, o checkout fica 404 (fail-safe).
+
+### Deploy da paridade de interface (Spec #3 — profile `gerti`)
+
+**O que muda.** Seis subsistemas novos no portal e no console — base de
+conhecimento, catálogo de serviços, notificações + preferências, identidade visual
+editável, trilha de auditoria e saúde do sistema + busca global. **Sem mudança no
+Znuny** (nenhuma op GI nova, nenhum rebuild de `znuny-web`) e **sem serviço novo**
+no compose. Três migrations (`0022`–`0024`) e rebuild de `sidecar`, `portal` e
+`admin`. Decisões em [`DECISIONS.md`](DECISIONS.md) D20; arquitetura em
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+**Pré-requisitos:** nenhum segredo novo, nenhuma variável de ambiente nova.
+
+```bash
+ssh gc 'cd ~/ground-control && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 1) migrations 0022 → 0023 → 0024 (encadeadas; sidecar-migrate roda como
+#    gerti_admin_user, BYPASSRLS, dono do DDL). Aguardar Exit 0.
+ssh gc "cd ~/ground-control && $DC build sidecar && $DC run --rm sidecar-migrate"
+
+# 2) app + worker + fronts
+ssh gc "cd ~/ground-control && $DC build portal admin && \
+        $DC up -d sidecar sidecar-worker portal admin && $DC ps"
+
+# 3) prova de RLS das tabelas novas (zero-tolerância): as 4 tenant-scoped
+#    precisam ter relrowsecurity E relforcerowsecurity = t; audit_log é
+#    operacional e fica FALSE de propósito (só AdminSessionLocal a lê).
+ssh gc 'cd ~/ground-control && docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+  "select relname,relrowsecurity,relforcerowsecurity from pg_class c \
+   join pg_namespace n on n.oid=relnamespace \
+   where nspname='"'"'gerti'"'"' and relname in \
+   ('"'"'kb_article'"'"','"'"'service_catalog_item'"'"','"'"'notification'"'"','"'"'user_preference'"'"','"'"'audit_log'"'"');"'
+
+# 4) fail-closed de verdade: como gerti_sidecar, sem o GUC app.current_tenant,
+#    toda tabela nova tem que devolver zero linha.
+ssh gc 'cd ~/ground-control && docker compose exec -T postgres psql -U gerti_sidecar -d "$POSTGRES_DB" \
+  -c "select count(*) from gerti.kb_article;"'   # → 0
+
+# 5) serviços anteriores intactos
+curl -fsS https://znuny-dev.was.dev.br/znuny/index.pl | grep -qi login && echo ZNUNY_OK
+curl -fsS https://api-dev.was.dev.br/v1/health && echo SIDECAR_OK
+curl -fsS https://aurora.was.dev.br/ | grep -qi 'Aurora' && echo AURORA_OK
+curl -fsS https://technova.was.dev.br/ | grep -qi 'TechNova' && echo TECHNOVA_OK
+curl -fsS https://gerti.was.dev.br/login | grep -qi 'login' && echo ADMIN_OK
+curl -fsS https://groundcontrol.was.dev.br >/dev/null && echo LANDING_OK
+```
+
+**Roteiro de teste manual:** [`../docs/COMO-TESTAR-PARIDADE-INTERFACE.md`](../docs/COMO-TESTAR-PARIDADE-INTERFACE.md).
+
+**Rollback (portal/admin/sidecar; Znuny intocado):**
+
+```bash
+$DC stop portal admin          # as telas novas somem; Znuny e worker seguem
+git checkout <sha-anterior> -- apps/sidecar apps/portal apps/admin
+$DC build sidecar portal admin && $DC up -d sidecar portal admin
+# migration reversa, se necessário (uma por vez, na ordem inversa):
+$DC run --rm sidecar-migrate uv run alembic downgrade -1
+```
+
+**NUNCA** `make reset` (destrói o DB Znuny compartilhado).

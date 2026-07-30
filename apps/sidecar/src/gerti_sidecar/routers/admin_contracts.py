@@ -11,13 +11,14 @@ import datetime as dt
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from gerti_sidecar import db
 from gerti_sidecar.auth.admin_session import AdminSessionPayload, get_admin_session
 from gerti_sidecar.db import tenant_session_scope
+from gerti_sidecar.domain import audit_service
 from gerti_sidecar.domain.contract_service import ContractService, NewContract
 from gerti_sidecar.domain.errors import ContractValidationError
 from gerti_sidecar.models import Tenant
@@ -64,6 +65,7 @@ class ContractOut(BaseModel):
 async def create_contract(
     tenant_id: str,
     body: NewContractBody,
+    request: Request,
     admin: AdminSessionPayload = Depends(get_admin_session),
 ) -> ContractOut:
     """Cria um contrato (1 dos 6 tipos) para `tenant_id` via ContractService.
@@ -110,7 +112,7 @@ async def create_contract(
             contract = await ContractService(session).create(new)
         except ContractValidationError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return ContractOut(
+        out = ContractOut(
             id=str(contract.id),
             code=contract.code,
             type=str(contract.type),
@@ -118,3 +120,17 @@ async def create_contract(
             starts_on=contract.starts_on,
             ends_on=contract.ends_on,
         )
+
+    await audit_service.record(
+        actor_type="agent",
+        actor_login=admin["agent_login"],
+        tenant_id=tenant_uuid,
+        action="create",
+        entity="contract",
+        entity_id=out.id,
+        description=f"contrato {out.code} criado ({out.type})",
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        metadata={"code": out.code, "type": out.type},
+    )
+    return out

@@ -15,6 +15,11 @@ const navLinks = [
   { to: '/atendimento', label: 'Atendimento' },
   { to: '/analytics', label: 'Analytics' },
   { to: '/automacoes', label: 'Automações' },
+  // Spec #3 — telas de outros agentes (V5/V6); linkadas aqui mesmo antes de
+  // existirem, conforme o contrato da spec.
+  { to: '/auditoria', label: 'Auditoria' },
+  { to: '/sistema', label: 'Sistema' },
+  { to: '/busca', label: 'Busca' },
 ]
 </script>
 

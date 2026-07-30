@@ -87,6 +87,30 @@ const roleLabel = (r: string) =>
             Faturas
           </UButton>
           <UButton
+            :to="`/clientes/${tenant.id}/conhecimento`"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-book-open"
+          >
+            Conhecimento
+          </UButton>
+          <UButton
+            :to="`/clientes/${tenant.id}/catalogo`"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-package"
+          >
+            Catálogo
+          </UButton>
+          <UButton
+            :to="`/clientes/${tenant.id}/identidade`"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-palette"
+          >
+            Identidade visual
+          </UButton>
+          <UButton
             :to="`/clientes/${tenant.id}/contratos/novo`"
             color="primary"
             icon="i-lucide-plus"

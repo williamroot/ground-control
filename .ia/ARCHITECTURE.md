@@ -515,3 +515,70 @@ Browser → cloudflared → checkout:3000 → sidecar:8001 /v1/checkout/* (PÚBL
   base64 / boleto / link Asaas) com polling de status → confirmação + link do portal.
 
 Fases (MVP→completo) e decisões: `docs/superpowers/plans/2026-06-20-contratacao-asaas.md`.
+
+## Paridade de interface (Spec #3) — `apps/portal` + `apps/admin` + `apps/sidecar`
+
+Seis subsistemas novos, todos aditivos e profile-gated (padrão D13/D15): nenhum
+serviço novo no compose, nenhuma mudança no Znuny. Só migrations + rebuild de
+`sidecar`, `portal` e `admin`. Decisões de escopo em [`DECISIONS.md`](DECISIONS.md) D20.
+
+### Modelo de dados (migrations `0022`–`0024`)
+
+| Tabela | Escopo | RLS |
+|---|---|---|
+| `gerti.kb_article` | tenant | `FORCE` + policy |
+| `gerti.service_catalog_item` | tenant | `FORCE` + policy |
+| `gerti.notification` | tenant (+ filtro por `recipient_login` no service) | `FORCE` + policy |
+| `gerti.user_preference` | tenant, `UNIQUE(tenant_id, user_login)` | `FORCE` + policy |
+| `gerti.audit_log` | **operacional cross-tenant** | **sem RLS**, só `AdminSessionLocal` |
+
+`tenant_branding` (já existente) passa a ter escrita pelo console — nenhuma tabela
+nova para identidade visual.
+
+### Superfície de API
+
+```
+Cliente (gsid)                          Console/staff (gsid_adm)
+─────────────────────────────           ───────────────────────────────────────
+GET  /v1/kb/articles                    GET|POST   /v1/admin/tenants/{t}/kb/articles
+GET  /v1/kb/articles/{slug}             GET|PUT|DELETE /v1/admin/tenants/{t}/kb/articles/{id}
+GET  /v1/kb/categories                  GET|POST   /v1/admin/tenants/{t}/catalog/items
+GET  /v1/catalog/items                  GET|PUT|DELETE /v1/admin/tenants/{t}/catalog/items/{id}
+GET  /v1/catalog/items/{id}             GET|PUT    /v1/admin/tenants/{t}/branding
+GET  /v1/catalog/categories             GET        /v1/admin/audit-logs
+GET  /v1/notifications                  GET        /v1/admin/system/health
+POST /v1/notifications/{id}/read        GET        /v1/admin/search
+POST /v1/notifications/read-all
+GET|PUT /v1/me/preferences
+GET  /v1/search
+```
+
+O KB do cliente enxerga **apenas** `visibility='public' AND status='published'` —
+artigo em rascunho ou interno é **404** para ele, não 403. O catálogo do cliente
+enxerga apenas `active=true`. Ambos são anti-IDOR por construção (RLS + filtro).
+
+### Fluxo do catálogo até o chamado
+
+```
+/catalogo → "Solicitar" → /tickets/novo?servico=<id>
+          → portal busca o item → pré-preenche assunto/fila/serviço/prioridade
+          → POST /v1/tickets (GertiTicket GI) → ticket Znuny
+```
+
+Todos os campos pré-preenchidos permanecem editáveis; id inválido ou item inativo
+abre o formulário em branco, sem erro ruidoso.
+
+### Saúde do sistema
+
+`GET /v1/admin/system/health` agrega sondas de banco, Znuny GI, worker de consumo
+(lag do `consumption_sync_cursor`), IA e Asaas. Cada sonda tem timeout ≤3 s e
+**falha isolada** — sonda vermelha vira `{"ok": false, "message": …}` e o HTTP
+continua 200, para que o painel diga *o que* caiu em vez de cair junto. Nenhuma
+URL com credencial é exposta.
+
+### Auditoria
+
+`audit_service.record(...)` é chamado nos endpoints admin de escrita (onboarding,
+contrato, fatura, branding, KB, catálogo, tokens de agente, regras de automação).
+Gravação **best-effort**: nunca derruba a operação auditada; nunca registra
+segredo, token ou corpo de ticket.

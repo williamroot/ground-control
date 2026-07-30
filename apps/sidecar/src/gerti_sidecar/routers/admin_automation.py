@@ -17,13 +17,14 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 
 from gerti_sidecar import db
 from gerti_sidecar.auth.admin_session import AdminSessionPayload, get_admin_session
 from gerti_sidecar.db import tenant_session_scope
+from gerti_sidecar.domain import audit_service
 from gerti_sidecar.domain.automation_actions import ACTION_HANDLERS
 from gerti_sidecar.domain.automation_eval import ALLOWED_FIELDS, OPS
 from gerti_sidecar.models import AutomationRule, Tenant
@@ -154,6 +155,7 @@ async def list_rules(
 async def create_rule(
     tenant_id: str,
     body: RuleIn,
+    request: Request,
     admin: AdminSessionPayload = Depends(get_admin_session),
 ) -> RuleOut:
     tid = await _require_tenant(tenant_id)
@@ -169,7 +171,21 @@ async def create_rule(
         )
         s.add(rule)
         await s.flush()
-        return _out(rule)
+        out = _out(rule)
+
+    await audit_service.record(
+        actor_type="agent",
+        actor_login=admin["agent_login"],
+        tenant_id=tid,
+        action="create",
+        entity="automation_rule",
+        entity_id=out.id,
+        description=f"regra de automação criada: {body.name}",
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        metadata={"trigger_event": body.trigger_event},
+    )
+    return out
 
 
 @router.put("/tenants/{tenant_id}/automation-rules/{rule_id}")
@@ -177,6 +193,7 @@ async def update_rule(
     tenant_id: str,
     rule_id: str,
     body: RuleIn,
+    request: Request,
     admin: AdminSessionPayload = Depends(get_admin_session),
 ) -> RuleOut:
     tid = await _require_tenant(tenant_id)
@@ -197,13 +214,28 @@ async def update_rule(
         rule.position = body.position
         rule.enabled = body.enabled
         await s.flush()
-        return _out(rule)
+        out = _out(rule)
+
+    await audit_service.record(
+        actor_type="agent",
+        actor_login=admin["agent_login"],
+        tenant_id=tid,
+        action="update",
+        entity="automation_rule",
+        entity_id=out.id,
+        description=f"regra de automação atualizada: {body.name}",
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        metadata={"trigger_event": body.trigger_event},
+    )
+    return out
 
 
 @router.delete("/tenants/{tenant_id}/automation-rules/{rule_id}", status_code=204)
 async def delete_rule(
     tenant_id: str,
     rule_id: str,
+    request: Request,
     admin: AdminSessionPayload = Depends(get_admin_session),
 ) -> Response:
     tid = await _require_tenant(tenant_id)
@@ -218,4 +250,16 @@ async def delete_rule(
         if rule is None:
             raise HTTPException(status_code=404, detail="rule_not_found")
         await s.delete(rule)
+
+    await audit_service.record(
+        actor_type="agent",
+        actor_login=admin["agent_login"],
+        tenant_id=tid,
+        action="delete",
+        entity="automation_rule",
+        entity_id=rule_id,
+        description="regra de automação excluída",
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+    )
     return Response(status_code=204)

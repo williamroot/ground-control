@@ -95,6 +95,41 @@ async function logout() {
             :class="isActive('/faturas') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
             :style="isActive('/faturas') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
           >Faturas</NuxtLink>
+
+          <!-- Spec #3: liberadas a QUALQUER papel autenticado (não são
+               admin-only) — ver predicado adminOnly em middleware/auth.ts.
+               Notificações/Perfil/Busca são de outro agente (V3/V6): o link
+               entra aqui mesmo que a página ainda não exista. -->
+          <NuxtLink
+            to="/base-conhecimento"
+            class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
+            :class="isActive('/base-conhecimento') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
+            :style="isActive('/base-conhecimento') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
+          >Base de Conhecimento</NuxtLink>
+          <NuxtLink
+            to="/catalogo"
+            class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
+            :class="isActive('/catalogo') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
+            :style="isActive('/catalogo') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
+          >Catálogo</NuxtLink>
+          <NuxtLink
+            to="/notificacoes"
+            class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
+            :class="isActive('/notificacoes') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
+            :style="isActive('/notificacoes') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
+          >Notificações</NuxtLink>
+          <NuxtLink
+            to="/perfil"
+            class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
+            :class="isActive('/perfil') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
+            :style="isActive('/perfil') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
+          >Perfil</NuxtLink>
+          <NuxtLink
+            to="/busca"
+            class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
+            :class="isActive('/busca') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
+            :style="isActive('/busca') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
+          >Busca</NuxtLink>
         </nav>
 
         <div class="ml-auto flex items-center gap-3">
@@ -103,6 +138,8 @@ async function logout() {
             :href="`mailto:${b.support_email}`"
             class="hidden text-sm text-muted transition hover:text-highlighted sm:inline"
           >{{ b.support_email }}</a>
+          <!-- #3 V3: indicador de não lidas no cabeçalho autenticado. -->
+          <NotificationBell />
           <ThemeToggle />
           <UButton
             color="neutral"

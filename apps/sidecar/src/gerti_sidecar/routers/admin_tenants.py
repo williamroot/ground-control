@@ -10,13 +10,14 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerti_sidecar import db
 from gerti_sidecar.auth.admin_session import AdminSessionPayload, get_admin_session
+from gerti_sidecar.domain import audit_service
 from gerti_sidecar.domain.onboarding_service import (
     NewOnboarding,
     NewOnboardingUser,
@@ -198,6 +199,7 @@ async def list_tenants(
 @router.post("", status_code=201)
 async def onboard_tenant(
     body: NewTenantBody,
+    request: Request,
     admin: AdminSessionPayload = Depends(get_admin_session),
 ) -> OnboardingResultOut:
     _require_admin_factory()
@@ -253,6 +255,18 @@ async def onboard_tenant(
         assert tenant is not None
         detail = await _build_detail(s, tenant)
 
+    await audit_service.record(
+        actor_type="agent",
+        actor_login=admin["agent_login"],
+        tenant_id=result.tenant_id,
+        action="create",
+        entity="tenant",
+        entity_id=str(result.tenant_id),
+        description=f"onboarding do tenant {body.trade_name} ({body.subdomain})",
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        metadata={"subdomain": body.subdomain, "znuny_customer_id": body.znuny_customer_id},
+    )
     return OnboardingResultOut(
         tenant=detail,
         subdomain_to_register=result.subdomain,

@@ -477,3 +477,54 @@ idempotente, D6). Vazio → fail-closed (toda chamada GertiAdmin rejeitada com
   de bloqueio externo já documentada (D13 DNS). O console está **rodando e
   verificado internamente**; falta só rotear `gerti.was.dev.br → admin:3000`
   (passo de ingress + CNAME no runbook `OPS.md`), 1 min com o token.
+
+## D20 — Paridade com o protótipo `grounddesk-itsm` (#3): o que espelhar e o que recusar
+
+**Contexto.** O protótipo `grounddesk-itsm` (React/Vite/Base44, 43 telas, ~10,5k
+LOC) desenha um ITSM completo sobre Znuny. Ele é uma **maquete visual**: das 43
+páginas, só `ZnunyIntegration.jsx` faz I/O real — o resto lê arrays de
+`src/lib/mockData.js`. Não há CRUD, validação, paginação, confirmação de
+destrutivo, loading nem tratamento de erro. As únicas regras de dados reais estão
+nos JSON Schemas de `base44/entities/*.jsonc`.
+
+**Decisão 1 — não existe "portar", existe projetar.** Cada tela adotada foi
+reimplementada com backend real, RLS, validação server-side e os três estados de
+UI. O protótipo serviu como **especificação de produto** (taxonomias, rótulos em
+pt-BR, thresholds semânticos), não como código-fonte.
+
+**Decisão 2 — recusar o espelhamento da configuração do Znuny.** Ficaram **fora**
+de escopo, por princípio e não por prazo: filas, políticas de SLA, tipos/estados
+de chamado, classes de CI, calendário de feriados, jornadas de trabalho, agenda da
+equipe e gestão de agentes/usuários/perfis de acesso. Todos são **configuração
+nativa do Znuny**. Espelhá-los no nosso console criaria uma **segunda fonte de
+verdade** e exigiria um caminho de escrita administrativo fora do Generic
+Interface — contra a invariante mãe ("núcleo Znuny imutável, Znuny é a fonte da
+verdade"). O MSP administra isso no painel do Znuny. Inventário de estoque e
+gamificação/conquistas são **produto novo**, não paridade de interface.
+
+**Decisão 3 — conhecimento e catálogo são tenant-scoped, com visibilidade.**
+`kb_article` e `service_catalog_item` nascem com `tenant_id` + `FORCE ROW LEVEL
+SECURITY`. O KB usa `visibility` (`public`|`internal`) + `status`
+(`draft`|`published`|`archived`): o cliente só enxerga `public` + `published`;
+todo o resto é 404 para ele. Assim a mesma tabela serve à base do cliente e à base
+interna da equipe sem uma segunda tabela nem um segundo caminho de acesso.
+
+**Decisão 4 — `audit_log` é operacional, não tenant-scoped.** A trilha é
+cross-tenant por natureza (ela existe para o staff do MSP investigar), então fica
+**sem RLS e sem GRANT a `gerti_app`**, exposta só em `/v1/admin/*` via
+`AdminSessionLocal`. Em troca, a gravação é **best-effort**: falha de auditoria
+nunca derruba a operação auditada, e o registro nunca contém segredo, token ou
+corpo de ticket.
+
+**Decisão 5 — notificação é escopada por destinatário, não por tenant.** RLS por
+`tenant_id` não basta: dois usuários do mesmo tenant não podem ler a notificação
+um do outro. O filtro por `recipient_login` da sessão é aplicado no service, e a
+tentativa de marcar como lida a notificação alheia responde **404**.
+
+**Bugs do protótipo que NÃO foram replicados** (registrados aqui para não voltarem
+por "fidelidade visual"): `SLABadge` recebendo `time` em vez de `remaining`
+(o tempo nunca aparecia); concatenação de rota gerando `/knowledge-basekb-001`;
+"Impacta SLA" renderizado sempre como ✔ ignorando o campo; contadores hardcoded
+(`count: 1`, semana fixa, "contratos ativos" contando inativos); `statusConfig`
+sem fallback (status desconhecido quebrava a página); `saveError` capturado e
+nunca renderizado; fallback silencioso para o primeiro item em vez de 404.

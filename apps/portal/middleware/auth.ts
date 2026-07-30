@@ -12,6 +12,9 @@ export default defineNuxtRouteMiddleware(async (to) => {
   const { data: me } = await useMe()
   if (!me.value) return navigateTo('/login')
 
+  // Spec #3: /base-conhecimento, /catalogo, /notificacoes, /perfil e /busca
+  // são liberadas para QUALQUER papel autenticado — de propósito NÃO entram
+  // neste predicado (não use startsWith aqui sem checar contra essa lista).
   const adminOnly = path === '/' || path.startsWith('/contratos')
   if (adminOnly && me.value.role !== 'admin') return navigateTo('/tickets')
 })

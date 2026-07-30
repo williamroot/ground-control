@@ -18,10 +18,16 @@ from gerti_sidecar.routers import (
     admin_agents,
     admin_ai,
     admin_analytics,
+    admin_audit,
     admin_auth,
     admin_automation,
+    admin_branding,
+    admin_catalog,
     admin_contracts,
     admin_invoices,
+    admin_kb,
+    admin_search,
+    admin_system,
     admin_tenants,
     admin_timer,
     agent,
@@ -30,13 +36,18 @@ from gerti_sidecar.routers import (
     assets,
     auth,
     branding,
+    catalog,
     checkout,
     contracts,
     dashboard,
     health,
     hooks,
     invoices,
+    kb,
     me,
+    notifications,
+    preferences,
+    search,
     ticketing_meta,
     tickets,
 )
@@ -107,6 +118,26 @@ def create_app() -> FastAPI:
     app.include_router(agent.router, prefix=settings.api_v1_prefix)
     # Distribuição do binário/install.sh do agente (Spec #1R-b) — público, sem auth.
     app.include_router(agent_dist.router, prefix=settings.api_v1_prefix)
+    # Notificações + preferências do cliente (Spec #3 V3) — portal, escopo por destinatário.
+    app.include_router(notifications.router, prefix=settings.api_v1_prefix)
+    app.include_router(preferences.router, prefix=settings.api_v1_prefix)
+    # Base de Conhecimento (Spec #3 V1) — portal: lista/busca/detalhe públicos.
+    app.include_router(kb.router, prefix=settings.api_v1_prefix)
+    # Base de Conhecimento — console CRUD (Spec #3 V1), cross-tenant.
+    app.include_router(admin_kb.router, prefix=settings.api_v1_prefix)
+    # Catálogo de Serviços (Spec #3 V2) — portal: vitrine de itens ativos.
+    app.include_router(catalog.router, prefix=settings.api_v1_prefix)
+    # Catálogo de Serviços — console CRUD (Spec #3 V2), cross-tenant.
+    app.include_router(admin_catalog.router, prefix=settings.api_v1_prefix)
+    # Identidade visual editável (Spec #3 V4) — console, reusa tenant_branding.
+    app.include_router(admin_branding.router, prefix=settings.api_v1_prefix)
+    # Trilha de auditoria (Spec #3 V5) — console, cross-tenant, sem RLS.
+    app.include_router(admin_audit.router, prefix=settings.api_v1_prefix)
+    # Saúde do sistema (Spec #3 V6) — console, sondas com falha isolada.
+    app.include_router(admin_system.router, prefix=settings.api_v1_prefix)
+    # Busca federada (Spec #3 V6) — portal (tenant-scoped) e console (cross-tenant).
+    app.include_router(search.router, prefix=settings.api_v1_prefix)
+    app.include_router(admin_search.router, prefix=settings.api_v1_prefix)
     app.add_middleware(TenantMiddleware)
 
     return app

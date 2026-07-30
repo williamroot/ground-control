@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from gerti_sidecar import db
 from gerti_sidecar.auth.admin_session import AdminSessionPayload, get_admin_session
 from gerti_sidecar.db import tenant_session_scope
+from gerti_sidecar.domain import audit_service
 from gerti_sidecar.domain.errors import (
     CycleNotClosable,
     InvoiceAlreadyExists,
@@ -80,7 +81,8 @@ async def _resolve_tenant(tenant_id: str) -> uuid.UUID:
 async def create_invoice_from_cycle(
     tenant_id: str,
     body: CreateInvoiceBody,
-    _admin: AdminSessionPayload = Depends(get_admin_session),
+    request: Request,
+    admin: AdminSessionPayload = Depends(get_admin_session),
 ) -> InvoiceOut:
     tenant_uuid = await _resolve_tenant(tenant_id)
     try:
@@ -97,7 +99,21 @@ async def create_invoice_from_cycle(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except InvoiceError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return _out(inv)
+        out = _out(inv)
+
+    await audit_service.record(
+        actor_type="agent",
+        actor_login=admin["agent_login"],
+        tenant_id=tenant_uuid,
+        action="create",
+        entity="invoice",
+        entity_id=out.id,
+        description=f"fatura #{out.number} gerada do ciclo {body.cycle_id}",
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        metadata={"number": out.number, "total_cents": out.total_cents},
+    )
+    return out
 
 
 @router.get("/{tenant_id}/invoices", response_model=list[InvoiceOut])
@@ -125,8 +141,9 @@ async def _get_by_number(session: AsyncSession, number: int) -> Invoice:
 @router.post("/{tenant_id}/invoices/{number}/paid", response_model=InvoiceOut)
 async def mark_paid(
     tenant_id: str,
+    request: Request,
     number: int = Path(..., ge=1),
-    _admin: AdminSessionPayload = Depends(get_admin_session),
+    admin: AdminSessionPayload = Depends(get_admin_session),
 ) -> InvoiceOut:
     tenant_uuid = await _resolve_tenant(tenant_id)
     async with tenant_session_scope(tenant_uuid) as session:
@@ -135,14 +152,29 @@ async def mark_paid(
             inv = await InvoiceService(session).mark_paid(inv.id)
         except InvoiceError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return _out(inv)
+        out = _out(inv)
+
+    await audit_service.record(
+        actor_type="agent",
+        actor_login=admin["agent_login"],
+        tenant_id=tenant_uuid,
+        action="update",
+        entity="invoice",
+        entity_id=out.id,
+        description=f"fatura #{number} marcada como paga",
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        metadata={"number": number},
+    )
+    return out
 
 
 @router.post("/{tenant_id}/invoices/{number}/void", response_model=InvoiceOut)
 async def mark_void(
     tenant_id: str,
+    request: Request,
     number: int = Path(..., ge=1),
-    _admin: AdminSessionPayload = Depends(get_admin_session),
+    admin: AdminSessionPayload = Depends(get_admin_session),
 ) -> InvoiceOut:
     tenant_uuid = await _resolve_tenant(tenant_id)
     async with tenant_session_scope(tenant_uuid) as session:
@@ -151,4 +183,18 @@ async def mark_void(
             inv = await InvoiceService(session).mark_void(inv.id)
         except InvoiceError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return _out(inv)
+        out = _out(inv)
+
+    await audit_service.record(
+        actor_type="agent",
+        actor_login=admin["agent_login"],
+        tenant_id=tenant_uuid,
+        action="update",
+        entity="invoice",
+        entity_id=out.id,
+        description=f"fatura #{number} cancelada",
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        metadata={"number": number},
+    )
+    return out
