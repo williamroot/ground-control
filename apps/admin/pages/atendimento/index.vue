@@ -42,9 +42,16 @@ watch(query, (v) => {
   debounceHandle = setTimeout(() => { debounced.value = v }, 300)
 })
 
+// `headers` é obrigatório: no SSR (carga direta ou F5 desta rota) o `$fetch`
+// interno NÃO herda o cookie do navegador — a requisição saía sem sessão, o
+// sidecar devolvia 401 e a tela caía no estado de erro. Só aparecia no acesso
+// direto; navegando por dentro do app o cookie ia junto e parecia funcionar.
+const headers = useRequestHeaders(['cookie'])
+
 const { data: tickets, status, error, refresh: refreshTickets } = await useAsyncData(
   'admin-tickets',
   () => $fetch<TicketRow[] | null>('/api/admin/tickets', {
+    headers,
     query: debounced.value ? { q: debounced.value } : undefined,
   }).then(r => r ?? []),
   { watch: [debounced], default: () => [] as TicketRow[] },
