@@ -75,15 +75,20 @@ async function submit() {
         <p class="mt-1 text-sm text-muted">Use suas credenciais de acesso.</p>
 
         <UForm :state="state" class="mt-8 space-y-5" @submit="submit">
-          <UFormField label="E-mail" name="username">
+          <!-- `type="text"`, NÃO `type="email"`: o Znuny autentica o cliente tanto
+               pelo e-mail quanto pelo login (ex.: `eduardo.salvi`). Com
+               `type="email"` o navegador barrava o envio do login curto antes de
+               chegar ao servidor — o usuário não conseguia entrar com uma
+               credencial perfeitamente válida. -->
+          <UFormField label="E-mail ou usuário" name="username">
             <UInput
               v-model="state.username"
-              type="email"
-              placeholder="voce@empresa.com.br"
-              autocomplete="email"
+              type="text"
+              placeholder="voce@empresa.com.br ou seu.usuario"
+              autocomplete="username"
               size="lg"
               class="w-full"
-              icon="i-lucide-mail"
+              icon="i-lucide-user"
             />
           </UFormField>
           <UFormField label="Senha" name="password">

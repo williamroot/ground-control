@@ -78,11 +78,15 @@ async function submit() {
         </p>
 
         <UForm :state="state" class="mt-8 space-y-5" @submit="submit">
-          <UFormField label="Login" name="login">
+          <!-- Aceita e-mail ou login de agente: o sidecar tenta o login direto e,
+               se falhar e houver "@", resolve o e-mail para o login canônico do
+               Znuny. `type="text"` de propósito — `type="email"` barraria o login
+               curto no navegador. -->
+          <UFormField label="E-mail ou login" name="login">
             <UInput
               v-model="state.login"
               type="text"
-              placeholder="agente"
+              placeholder="voce@empresa.com.br ou seu.login"
               autocomplete="username"
               size="lg"
               class="w-full"
