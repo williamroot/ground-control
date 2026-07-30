@@ -120,6 +120,12 @@ def main() -> None:
 
     docs = [
         Doc(
+            Path("docs/ENTREGA-E-ROADMAP.md"),
+            "Entrega e roadmap",
+            "O que foi entregue nesta rodada, os acessos do ambiente de "
+            "demonstração e o que vem a seguir — documento de apresentação.",
+        ),
+        Doc(
             Path("docs/COMO-TESTAR-PARIDADE-INTERFACE.md"),
             "Como testar a paridade de interface",
             "Base de conhecimento, catálogo de serviços, notificações, identidade "
