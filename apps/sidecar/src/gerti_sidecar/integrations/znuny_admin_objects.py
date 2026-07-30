@@ -98,7 +98,7 @@ async def object_add(
     object_key: str, fields: dict[str, Any], *, agent_login: str
 ) -> dict[str, Any]:
     return await _post(
-        "/AdminObject",
+        "/AdminObject/Add",
         {"Object": object_key, "Fields": fields, "AgentLogin": agent_login},
     )
 
@@ -113,13 +113,13 @@ async def object_update(
 
 
 async def ci_class_list(*, agent_login: str) -> list[dict[str, Any]]:
-    data = await _post("/AdminCiClass/List", {"AgentLogin": agent_login})
+    data = await _post("/CiClass/List", {"AgentLogin": agent_login})
     return list(data.get("Items") or [])
 
 
 async def ci_class_definition_get(class_id: int, *, agent_login: str) -> dict[str, Any]:
     return await _post(
-        "/AdminCiClass/Definition/Get",
+        "/CiClass/Definition/Get",
         {"ClassID": class_id, "AgentLogin": agent_login},
     )
 
@@ -136,7 +136,7 @@ async def ci_class_definition_set(
     do Perl; este cliente só repassa.
     """
     return await _post(
-        "/AdminCiClass/Definition/Set",
+        "/CiClass/Definition/Set",
         {"ClassID": class_id, "Definition": definition, "AgentLogin": agent_login},
     )
 

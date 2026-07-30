@@ -129,7 +129,7 @@ async def test_object_add_happy(monkeypatch):
 
     out = await zao.object_add("SLA", {"Name": "Gold"}, agent_login="william")
 
-    assert captured["url"] == _BASE + "/AdminObject"
+    assert captured["url"] == _BASE + "/AdminObject/Add"
     body = captured["json"]
     assert body["Object"] == "SLA"
     assert body["Fields"] == {"Name": "Gold"}
@@ -171,7 +171,7 @@ async def test_ci_class_list_happy(monkeypatch):
 
     out = await zao.ci_class_list(agent_login="william")
 
-    assert captured["url"] == _BASE + "/AdminCiClass/List"
+    assert captured["url"] == _BASE + "/CiClass/List"
     assert captured["json"]["AgentLogin"] == "william"
     assert out == [{"ID": 1, "Name": "Computer"}]
 
@@ -185,7 +185,7 @@ async def test_ci_class_definition_get_happy(monkeypatch):
 
     out = await zao.ci_class_definition_get(1, agent_login="william")
 
-    assert captured["url"] == _BASE + "/AdminCiClass/Definition/Get"
+    assert captured["url"] == _BASE + "/CiClass/Definition/Get"
     assert captured["json"]["ClassID"] == 1
     assert out["DefinitionID"] == 4
 
@@ -197,7 +197,7 @@ async def test_ci_class_definition_set_happy(monkeypatch):
 
     out = await zao.ci_class_definition_set(1, {"Pages": []}, agent_login="william")
 
-    assert captured["url"] == _BASE + "/AdminCiClass/Definition/Set"
+    assert captured["url"] == _BASE + "/CiClass/Definition/Set"
     body = captured["json"]
     assert body["ClassID"] == 1
     assert body["Definition"] == {"Pages": []}
