@@ -15,6 +15,51 @@ Provider:
     CustomerUserSetPassword:
       Description: Set a CustomerUser password (Gerti custom op)
       Type: CustomerUser::SetPassword
+    AdminSysConfigGet:
+      Description: Read allowlisted calendar/working-hours SysConfig settings (Spec #4 Bloco D)
+      Type: GertiAdmin::AdminSysConfigGet
+    AdminSysConfigSet:
+      Description: Lock/Update/Deploy one allowlisted calendar SysConfig setting (Spec #4 Bloco D)
+      Type: GertiAdmin::AdminSysConfigSet
+    AdminObjectList:
+      Description: List rows of one allowlisted admin object (Queue/SLA/Service/Type/State/Priority) (Spec #4 Bloco A)
+      Type: GertiAdmin::AdminObjectList
+    AdminObjectGet:
+      Description: Get one row of one allowlisted admin object (Spec #4 Bloco A)
+      Type: GertiAdmin::AdminObjectGet
+    AdminObjectAdd:
+      Description: Create a row of one allowlisted admin object (Spec #4 Bloco A)
+      Type: GertiAdmin::AdminObjectAdd
+    AdminObjectUpdate:
+      Description: Update a row of one allowlisted admin object (Spec #4 Bloco A)
+      Type: GertiAdmin::AdminObjectUpdate
+    AdminCiClassList:
+      Description: List ITSM CI classes from GeneralCatalog (Spec #4 Bloco B)
+      Type: GertiAdmin::AdminCiClassList
+    AdminCiClassDefinitionGet:
+      Description: Read the current YAML definition of one CI class (Spec #4 Bloco B)
+      Type: GertiAdmin::AdminCiClassDefinitionGet
+    AdminCiClassDefinitionSet:
+      Description: Write a new definition version for one CI class, DefinitionCheck-gated (Spec #4 Bloco B)
+      Type: GertiAdmin::AdminCiClassDefinitionSet
+    AdminAgentList:
+      Description: List Znuny agents, UserPw never returned (Spec #4 Bloco C)
+      Type: GertiAdmin::AdminAgentList
+    AdminAgentGet:
+      Description: Get one Znuny agent, UserPw never returned (Spec #4 Bloco C)
+      Type: GertiAdmin::AdminAgentGet
+    AdminAgentSet:
+      Description: Create or update a Znuny agent cadastro (never touches password) (Spec #4 Bloco C)
+      Type: GertiAdmin::AdminAgentSet
+    AdminAgentSetPassword:
+      Description: Set an agent's password — separate, explicit operation, never a side effect of AdminAgentSet (Spec #4 Bloco C)
+      Type: GertiAdmin::AdminAgentSetPassword
+    AdminGroupList:
+      Description: List Znuny groups (Spec #4 Bloco C)
+      Type: GertiAdmin::AdminGroupList
+    AdminAgentGroupSet:
+      Description: Set an agent's full group membership, anti-lockout guarded (Spec #4 Bloco C)
+      Type: GertiAdmin::AdminAgentGroupSet
   Transport:
     Config:
       KeepAlive: ''
@@ -32,5 +77,65 @@ Provider:
           RequestMethod:
           - POST
           Route: /CustomerUser/Password
+        AdminSysConfigGet:
+          RequestMethod:
+          - POST
+          Route: /SysConfig/Get
+        AdminSysConfigSet:
+          RequestMethod:
+          - POST
+          Route: /SysConfig/Set
+        AdminObjectList:
+          RequestMethod:
+          - POST
+          Route: /AdminObject/List
+        AdminObjectGet:
+          RequestMethod:
+          - POST
+          Route: /AdminObject/Get
+        AdminObjectAdd:
+          RequestMethod:
+          - POST
+          Route: /AdminObject/Add
+        AdminObjectUpdate:
+          RequestMethod:
+          - POST
+          Route: /AdminObject/Update
+        AdminCiClassList:
+          RequestMethod:
+          - POST
+          Route: /CiClass/List
+        AdminCiClassDefinitionGet:
+          RequestMethod:
+          - POST
+          Route: /CiClass/Definition/Get
+        AdminCiClassDefinitionSet:
+          RequestMethod:
+          - POST
+          Route: /CiClass/Definition/Set
+        AdminAgentList:
+          RequestMethod:
+          - POST
+          Route: /Agent/List
+        AdminAgentGet:
+          RequestMethod:
+          - POST
+          Route: /Agent/Get
+        AdminAgentSet:
+          RequestMethod:
+          - POST
+          Route: /Agent/Set
+        AdminAgentSetPassword:
+          RequestMethod:
+          - POST
+          Route: /Agent/SetPassword
+        AdminGroupList:
+          RequestMethod:
+          - POST
+          Route: /Group/List
+        AdminAgentGroupSet:
+          RequestMethod:
+          - POST
+          Route: /Agent/Group/Set
     Type: HTTP::REST
 RemoteSystem: ''

@@ -15,7 +15,28 @@ const navLinks = [
   { to: '/atendimento', label: 'Atendimento' },
   { to: '/analytics', label: 'Analytics' },
   { to: '/automacoes', label: 'Automações' },
+  // Spec #3 — telas de outros agentes (V5/V6); linkadas aqui mesmo antes de
+  // existirem, conforme o contrato da spec.
+  { to: '/auditoria', label: 'Auditoria' },
+  { to: '/sistema', label: 'Sistema' },
+  { to: '/busca', label: 'Busca' },
 ]
+
+// Spec #4 — capa de administração do Znuny (7 rotas). Só duas (filas, sla)
+// existem nesta etapa; as outras cinco são de outros agentes em paralelo e
+// entram no menu mesmo antes de existirem, conforme o contrato da spec.
+const znunyLinks = [
+  { to: '/znuny/filas', label: 'Filas' },
+  { to: '/znuny/sla', label: 'SLA' },
+  { to: '/znuny/servicos', label: 'Serviços' },
+  { to: '/znuny/classificacao', label: 'Classificação' },
+  { to: '/znuny/classes-ci', label: 'Classes de CI' },
+  { to: '/znuny/agentes', label: 'Agentes' },
+  { to: '/znuny/calendario', label: 'Calendário' },
+]
+const znunyMenuOpen = ref(false)
+const isZnunyRoute = computed(() => route.path.startsWith('/znuny/'))
+watch(() => route.path, () => { znunyMenuOpen.value = false })
 </script>
 
 <template>
@@ -44,6 +65,36 @@ const navLinks = [
           >
             {{ link.label }}
           </ULink>
+
+          <!-- Spec #4 — grupo Znuny (filas, SLA, serviços, classificação, -->
+          <!-- classes de CI, agentes, calendário) numa única entrada. -->
+          <div class="relative">
+            <button
+              type="button"
+              data-testid="nav-znuny-toggle"
+              class="flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium text-muted transition hover:bg-elevated hover:text-default"
+              :class="{ 'bg-elevated text-highlighted': isZnunyRoute }"
+              @click="znunyMenuOpen = !znunyMenuOpen"
+            >
+              Znuny
+              <UIcon name="i-lucide-chevron-down" class="h-3.5 w-3.5" />
+            </button>
+            <div
+              v-if="znunyMenuOpen"
+              data-testid="nav-znuny-menu"
+              class="absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-default bg-default p-1 shadow-lg"
+            >
+              <ULink
+                v-for="link in znunyLinks"
+                :key="link.to"
+                :to="link.to"
+                class="block rounded-md px-3 py-1.5 text-sm text-muted transition hover:bg-elevated hover:text-default"
+                active-class="bg-elevated text-highlighted"
+              >
+                {{ link.label }}
+              </ULink>
+            </div>
+          </div>
         </nav>
       </div>
     </header>

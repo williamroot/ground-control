@@ -1110,3 +1110,193 @@ Migration reversa: `$DC run --rm sidecar-migrate uv run alembic downgrade -1`.
 > verdes (ruff/mypy/319 testes; build+lint do checkout). Deploy per runbook;
 > **pendente humano:** chave Asaas sandbox no `.env.prod` + cadastro do webhook +
 > ingress `contratar.*`. Sem a chave, o checkout fica 404 (fail-safe).
+
+### Deploy da paridade de interface (Spec #3 — profile `gerti`)
+
+**O que muda.** Seis subsistemas novos no portal e no console — base de
+conhecimento, catálogo de serviços, notificações + preferências, identidade visual
+editável, trilha de auditoria e saúde do sistema + busca global. **Sem mudança no
+Znuny** (nenhuma op GI nova, nenhum rebuild de `znuny-web`) e **sem serviço novo**
+no compose. Três migrations (`0022`–`0024`) e rebuild de `sidecar`, `portal` e
+`admin`. Decisões em [`DECISIONS.md`](DECISIONS.md) D20; arquitetura em
+[`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+**Pré-requisitos:** nenhum segredo novo, nenhuma variável de ambiente nova.
+
+```bash
+ssh gc 'cd ~/ground-control && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 1) migrations 0022 → 0023 → 0024 (encadeadas; sidecar-migrate roda como
+#    gerti_admin_user, BYPASSRLS, dono do DDL). Aguardar Exit 0.
+ssh gc "cd ~/ground-control && $DC build sidecar && $DC run --rm sidecar-migrate"
+
+# 2) app + worker + fronts
+ssh gc "cd ~/ground-control && $DC build portal admin && \
+        $DC up -d sidecar sidecar-worker portal admin && $DC ps"
+
+# 3) prova de RLS das tabelas novas (zero-tolerância): as 4 tenant-scoped
+#    precisam ter relrowsecurity E relforcerowsecurity = t; audit_log é
+#    operacional e fica FALSE de propósito (só AdminSessionLocal a lê).
+ssh gc 'cd ~/ground-control && docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c \
+  "select relname,relrowsecurity,relforcerowsecurity from pg_class c \
+   join pg_namespace n on n.oid=relnamespace \
+   where nspname='"'"'gerti'"'"' and relname in \
+   ('"'"'kb_article'"'"','"'"'service_catalog_item'"'"','"'"'notification'"'"','"'"'user_preference'"'"','"'"'audit_log'"'"');"'
+
+# 4) fail-closed de verdade: como gerti_sidecar, sem o GUC app.current_tenant,
+#    toda tabela nova tem que devolver zero linha.
+ssh gc 'cd ~/ground-control && docker compose exec -T postgres psql -U gerti_sidecar -d "$POSTGRES_DB" \
+  -c "select count(*) from gerti.kb_article;"'   # → 0
+
+# 5) serviços anteriores intactos
+curl -fsS https://znuny-dev.was.dev.br/znuny/index.pl | grep -qi login && echo ZNUNY_OK
+curl -fsS https://api-dev.was.dev.br/v1/health && echo SIDECAR_OK
+curl -fsS https://aurora.was.dev.br/ | grep -qi 'Aurora' && echo AURORA_OK
+curl -fsS https://technova.was.dev.br/ | grep -qi 'TechNova' && echo TECHNOVA_OK
+curl -fsS https://gerti.was.dev.br/login | grep -qi 'login' && echo ADMIN_OK
+curl -fsS https://groundcontrol.was.dev.br >/dev/null && echo LANDING_OK
+```
+
+**Roteiro de teste manual:** [`../docs/COMO-TESTAR-PARIDADE-INTERFACE.md`](../docs/COMO-TESTAR-PARIDADE-INTERFACE.md).
+
+**Rollback (portal/admin/sidecar; Znuny intocado):**
+
+```bash
+$DC stop portal admin          # as telas novas somem; Znuny e worker seguem
+git checkout <sha-anterior> -- apps/sidecar apps/portal apps/admin
+$DC build sidecar portal admin && $DC up -d sidecar portal admin
+# migration reversa, se necessário (uma por vez, na ordem inversa):
+$DC run --rm sidecar-migrate uv run alembic downgrade -1
+```
+
+**NUNCA** `make reset` (destrói o DB Znuny compartilhado).
+
+> **Status (2026-07-30): DEPLOYADO em staging e verificado ao vivo.** Branch
+> `feature/spec-3-paridade-grounddesk` (`43147d9`) na VPS; migrations `0022`→`0025`
+> aplicadas; `sidecar`, `sidecar-worker`, `portal` e `admin` reconstruídos e de pé.
+> **Provas colhidas:** RLS das 4 tabelas de negócio com `relrowsecurity` e
+> `relforcerowsecurity` = `t` (`audit_log` = `f`, por desenho); fail-closed real —
+> `gerti_sidecar` sem o GUC lê **0 linhas** de `kb_article`; `audit_log` responde
+> **`permission denied`** ao papel de runtime (após a `0025`); os 6 endpoints novos
+> respondem **401** sem sessão; login de agente real (`william`) → `/v1/admin/system/health`
+> com sondas reais (db 2 ms, Znuny GI 67 ms `pong`, IA habilitada, Asaas desligado),
+> `/v1/admin/audit-logs?limit=20` **200** e `?limit=500` **422**, `/v1/admin/search` **200**.
+> As 8 páginas novas (5 no portal, 3 no console) respondem **302 → login** sem sessão
+> (rota existe e a guarda funciona). Serviços anteriores intactos: znuny 200,
+> api-dev 200, aurora 302, technova 302, gerti 200, landing 200.
+>
+> **Achado operacional revelado pelo próprio painel novo:** `worker.last_sync_at`
+> está em **2026-06-24** (lag de ~35 dias) — o `sidecar-worker` está de pé mas não
+> reconcilia consumo desde então. É **pré-existente**, não foi introduzido por esta
+> entrega; investigar o cursor `gerti.consumption_sync_cursor` e o GI
+> `TimeAccountingSince`. Nota de calibragem: a sonda marcou `ok: true` com esse lag —
+> vale definir um limiar (ex.: `ok` só com lag < 24 h) para o cartão ficar vermelho
+> quando isso acontecer de novo.
+
+### Deploy da capa de administração do Znuny (Spec #4 — profile `gerti` + rebuild Znuny)
+
+**O que muda.** O console passa a administrar o próprio Znuny: filas, SLAs,
+serviços, tipos/estados/prioridades, classes de CI, agentes/permissões e
+calendário/jornada. **15 módulos GI novos** no webservice `GertiAdmin` (rebuild do
+`znuny-web` obrigatório), rotas `/v1/admin/znuny/*` no sidecar e 7 telas no console.
+**Nenhuma migration** — a spec não persiste nada (D21).
+
+**Pré-requisitos:** nenhum segredo novo. Reusa `ZNUNY_ADMIN_WS_URL` e
+`ZNUNY_WS_TOKEN` (`GertiAdmin::AccessToken`), já presentes desde o #1G-a.
+
+```bash
+ssh gc 'cd ~/ground-control && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 1) Znuny: rebuild (bakeia os 15 .pm; perl -c é gate de build) e recria web+daemon.
+#    NOTA: recria o core Znuny (downtime curto). Provisionamento é idempotente (D6).
+ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-daemon"
+
+# 2) CRÍTICO — atualizar o webservice GertiAdmin (já existe em prod desde #1G-a).
+#    Admin::WebService::Update exige --webservice-id (NÃO --name) nesta versão.
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && \
+   WSID=\$(bin/otrs.Console.pl Admin::WebService::List | sed -n \"s/.*GertiAdmin (\\([0-9]\\+\\)).*/\\1/p\"); \
+   bin/otrs.Console.pl Admin::WebService::Update --webservice-id \"\$WSID\" \
+     --source-path /opt/otrs/webservices/GertiAdmin.yml"'
+#   GUARD: os 3 webservices seguem presentes (nenhum pode sumir):
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List | grep -iE \"GertiCustomerAuth|GertiAdmin|GertiTicket\""'
+
+# 3) sidecar + console (SEM migration nova):
+ssh gc "cd ~/ground-control && $DC build sidecar admin && $DC up -d sidecar sidecar-worker admin && $DC ps"
+```
+
+**Verificação — a que importa é a de invariante:**
+
+```bash
+# nenhuma tabela de configuração do Znuny foi criada no schema gerti.
+# CUIDADO: `znuny_instance` existe desde a migration 0001 — é o registro de
+# instâncias do modelo multi-tenant, NÃO configuração. Por isso ela é excluída.
+ssh gc 'cd ~/ground-control && set -a && . ./.env && set +a && \
+  docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c \
+  "select count(*) from information_schema.tables where table_schema='"'"'gerti'"'"' \
+   and table_name in ('"'"'znuny_queue'"'"','"'"'znuny_sla'"'"','"'"'znuny_service'"'"', \
+                      '"'"'znuny_state'"'"','"'"'znuny_priority'"'"','"'"'znuny_agent'"'"', \
+                      '"'"'znuny_ci_class'"'"','"'"'znuny_calendar'"'"');"'   # → 0
+
+# e a prova mais forte: a cabeça da cadeia de migrations não mudou com a #4.
+ssh gc 'cd ~/ground-control && docker compose run --rm sidecar-migrate \
+  uv run alembic current 2>&1 | tail -2'      # → 0025_audit_log_revoke_app
+
+# endpoints fail-closed sem sessão de agente:
+ssh gc 'cd ~/ground-control && docker compose exec -T sidecar sh -lc \
+  "curl -s -o /dev/null -w \"objects=%{http_code} calendar=%{http_code}\\n\" \
+   http://127.0.0.1:8001/v1/admin/znuny/objects/Queue"'   # → 401
+
+# objeto fora da allowlist é 404, não 500:
+#   GET /v1/admin/znuny/objects/Kernel::System::Ticket  → 404
+```
+
+Mais o e2e no console: abrir `/znuny/filas` e conferir que lista as filas **reais**
+do Znuny; criar uma fila throwaway; invalidá-la (`ValidID=2`); conferir a linha
+correspondente em `/auditoria`; e remover o throwaway pelo painel do Znuny.
+
+> **Cuidado com o Bloco D (calendário).** É o único ponto do console que grava em
+> SysConfig e dispara deploy de configuração. Antes de testar em staging, anote a
+> jornada atual para poder restaurá-la. Se a gravação falhar, o backend libera o
+> `SettingLock` e **nada é aplicado** — pode tentar de novo com segurança.
+
+**Rollback (console/sidecar; Znuny volta pelo rebuild do sha anterior):**
+
+```bash
+$DC stop admin                       # as telas /znuny/* somem
+git checkout <sha-anterior> -- apps/sidecar apps/admin znuny/
+$DC build znuny-web sidecar admin && $DC up -d znuny-web znuny-daemon sidecar admin
+```
+
+Nenhuma migration para reverter. **NUNCA** `make reset`.
+
+> **Status (2026-07-30): DEPLOYADO em staging e verificado ao vivo.** Branch
+> `feature/spec-3-paridade-grounddesk` (`1bc0f2f`); imagem Znuny rebuildada com os
+> **16 módulos GI** (`perl -c` verde), `znuny-web`/`znuny-daemon` recriados
+> (Healthy); `GertiAdmin` atualizado por `--webservice-id 2` com os 3 webservices
+> intactos (`GertiCustomerAuth` 1 + `GertiAdmin` 2 + `GertiTicket` 3);
+> `sidecar`+`admin` rebuildados e Healthy. **Sem migration** — a cabeça da cadeia
+> segue `0025`.
+>
+> **Provas colhidas:** zero tabelas de configuração do Znuny no schema `gerti`;
+> os 5 grupos de endpoint respondem **401** sem `gsid_adm`; login de agente real
+> (`william`) → `GET /objects/Queue` devolve as **filas reais da instância**
+> (Postmaster, Raw, Junk…), `GET /calendar` devolve a **jornada real**
+> (`TimeWorkingHours` seg–sex 8–20); `objects/Kernel::System::Ticket` → **404**
+> (o dispatcher não pode ser induzido a carregar classe Perl arbitrária);
+> `?calendar=99` → **404**. As 7 telas respondem 302→login. Serviços anteriores
+> intactos: znuny 200, api-dev 200, aurora 302, technova 302, console 200,
+> landing 200.
+>
+> **Duas quebras de integração corrigidas antes do deploy** (achadas pela revisão
+> adversarial, nunca chegaram a subir): o contrato do calendário divergia entre
+> tela e router — a tela do Bloco D estava 100% não-funcional; e "Definir senha"
+> era tela sem backend, sempre 422. Ambas fechadas em `6946a44`.
+>
+> **Pendente de e2e manual:** o caminho de falha do `SettingLock` (gravação de
+> calendário que falha no meio) foi verificado por leitura de código e por teste
+> com GI mockado, **não** contra um Znuny real. Exercitar pelo roteiro
+> `docs/COMO-TESTAR-ADMIN-ZNUNY.md`, Parte 6.

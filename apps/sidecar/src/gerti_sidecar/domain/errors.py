@@ -73,3 +73,31 @@ class CheckoutConflict(CheckoutError):
 
 class ProvisioningError(DomainError):
     """Falha ao provisionar (onboarding/contrato) após pagamento confirmado (#2)."""
+
+
+class KbError(DomainError):
+    """Erro de artigo de Base de Conhecimento (Spec #3 V1) -> 404."""
+
+
+class KbArticleNotFound(KbError):
+    """Artigo inexistente, não público/publicado, ou escondido pelo RLS -> 404."""
+
+
+class KbSlugExhausted(KbError):
+    """Não foi possível gerar um slug único após várias tentativas -> 422."""
+
+
+class CatalogError(DomainError):
+    """Erro de item do Catálogo de Serviços (Spec #3 V2) -> 404."""
+
+
+class CatalogItemNotFound(CatalogError):
+    """Item inexistente, inativo (visão do cliente), ou escondido pelo RLS -> 404."""
+
+
+class NotificationError(DomainError):
+    """Erro de notificação (Spec #3 V3) -> 404."""
+
+
+class NotificationNotFound(NotificationError):
+    """Notificação inexistente, escondida pelo RLS, ou de outro destinatário -> 404."""

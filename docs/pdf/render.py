@@ -1,0 +1,175 @@
+"""Renderiza a documentação do Ground Control em PDF.
+
+Markdown -> HTML (python-markdown) -> PDF (WeasyPrint, a MESMA engine das faturas
+do #1P, para não termos duas tecnologias de PDF no projeto).
+
+Roda só dentro do container `docs/pdf/Dockerfile` — nada é instalado no host.
+Uso: `scripts/docs-pdf.sh` (ou veja o `argparse` abaixo).
+"""
+
+from __future__ import annotations
+
+import argparse
+import html
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+import markdown
+from weasyprint import CSS, HTML
+
+STYLE = Path("/render/style.css")
+
+# Marcadores dos runbooks: "✅ **Esperado:**" é a linha que a pessoa procura ao
+# voltar ao documento depois de executar um passo. O ✓ do DejaVu é confiável em
+# PDF; o emoji nem sempre tem fonte no container e viraria tofu.
+MARKER_REPLACEMENTS = {
+    "✅": '<span class="ok">✓</span>',
+    "⚠️": '<span class="ok">!</span>',
+    "🔐": '<span class="ok">#</span>',
+}
+
+
+@dataclass(frozen=True)
+class Doc:
+    """Um documento a renderizar."""
+
+    source: Path
+    title: str
+    subtitle: str
+
+
+def _slug(text: str) -> str:
+    s = re.sub(r"[^\w\s-]", "", text.lower()).strip()
+    return re.sub(r"[\s_]+", "-", s)
+
+
+def _apply_markers(rendered: str) -> str:
+    for needle, replacement in MARKER_REPLACEMENTS.items():
+        rendered = rendered.replace(needle, replacement)
+    return rendered
+
+
+def _build_toc(md: markdown.Markdown) -> str:
+    """Sumário com número de página, resolvido pelo WeasyPrint (target-counter)."""
+    items = getattr(md, "toc_tokens", [])
+    if not items:
+        return ""
+
+    def render(tokens: list[dict], depth: int = 0) -> str:
+        if not tokens or depth > 1:  # só H1/H2 — um sumário que cabe numa página
+            return ""
+        parts = ["<ul>"]
+        for token in tokens:
+            name = html.escape(token["name"])
+            parts.append(f'<li><a href="#{token["id"]}">{name}</a>')
+            parts.append(render(token.get("children", []), depth + 1))
+            parts.append("</li>")
+        parts.append("</ul>")
+        return "".join(parts)
+
+    return f'<nav class="toc"><h2>Sumário</h2>{render(items)}</nav>'
+
+
+def _cover(doc: Doc, generated_at: str, commit: str) -> str:
+    return f"""
+    <section class="cover">
+      <div class="cover__mark">Ground Control &middot; Documentação</div>
+      <h1 class="cover__title">{html.escape(doc.title)}</h1>
+      <p class="cover__subtitle">{html.escape(doc.subtitle)}</p>
+      <div class="cover__meta">
+        <strong>Gerado em</strong> {html.escape(generated_at)}
+        &nbsp;&middot;&nbsp; <strong>Revisão</strong> {html.escape(commit)}
+        <br>Plataforma de Service Desk para MSP &mdash; núcleo Znuny, white-label por cliente.
+      </div>
+    </section>
+    """
+
+
+def render(doc: Doc, out_dir: Path, generated_at: str, commit: str) -> Path:
+    md = markdown.Markdown(
+        extensions=["tables", "fenced_code", "toc", "sane_lists", "attr_list"],
+        extension_configs={"toc": {"slugify": lambda value, sep: _slug(value)}},
+    )
+    body = md.convert(doc.source.read_text(encoding="utf-8"))
+    body = _apply_markers(body)
+
+    # O H1 do markdown vira o título corrente do cabeçalho (string-set no CSS);
+    # a capa já mostra o título, então o do corpo é redundante — removido.
+    body = re.sub(r"<h1[^>]*>.*?</h1>", "", body, count=1, flags=re.DOTALL)
+
+    document = f"""<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>{html.escape(doc.title)}</title></head>
+<body>{_cover(doc, generated_at, commit)}{_build_toc(md)}
+<main><h1>{html.escape(doc.title)}</h1>{body}</main></body></html>"""
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{doc.source.stem}.pdf"
+    HTML(string=document, base_url=str(doc.source.parent)).write_pdf(
+        out_path, stylesheets=[CSS(filename=str(STYLE))]
+    )
+    return out_path
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Gera a documentação em PDF.")
+    parser.add_argument("--out", default="docs/pdf/out", help="diretório de saída")
+    parser.add_argument("--generated-at", required=True, help="data legível da geração")
+    parser.add_argument("--commit", required=True, help="revisão curta do git")
+    args = parser.parse_args()
+
+    docs = [
+        Doc(
+            Path("docs/COMO-TESTAR-PARIDADE-INTERFACE.md"),
+            "Como testar a paridade de interface",
+            "Base de conhecimento, catálogo de serviços, notificações, identidade "
+            "visual, auditoria e saúde do sistema — roteiro passo a passo, com a "
+            "prova de isolamento entre clientes.",
+        ),
+        Doc(
+            Path("docs/COMO-TESTAR-ADMIN-ZNUNY.md"),
+            "Como testar a administração do Znuny",
+            "Filas, SLAs, serviços, classificação, classes de CI, agentes e "
+            "calendário — administrados pelo console, ao vivo, sem duplicar dado.",
+        ),
+        Doc(
+            Path("docs/COMO-TESTAR-AGENTE-INVENTARIO.md"),
+            "Como testar o agente de inventário",
+            "Auto-registro de equipamentos no CMDB do cliente por token de "
+            "enrollment, com aprovação, revogação e prova de isolamento.",
+        ),
+        Doc(
+            Path(".ia/OVERVIEW.md"),
+            "Visão geral da plataforma",
+            "O problema que o Ground Control resolve, o escopo e a terminologia.",
+        ),
+        Doc(
+            Path(".ia/ARCHITECTURE.md"),
+            "Arquitetura",
+            "Containers, redes, fluxos, provisionamento e os subsistemas de produto.",
+        ),
+        Doc(
+            Path(".ia/OPS.md"),
+            "Operação e runbooks",
+            "Hosts, deploy, verificação, rollback e troubleshooting.",
+        ),
+        Doc(
+            Path(".ia/DECISIONS.md"),
+            "Decisões de arquitetura",
+            "Os ADRs: por que cada decisão foi tomada — e, quando foi o caso, "
+            "por que foi corrigida.",
+        ),
+    ]
+
+    out_dir = Path(args.out)
+    for doc in docs:
+        if not doc.source.exists():
+            print(f"  ignorado (não existe): {doc.source}")
+            continue
+        path = render(doc, out_dir, args.generated_at, args.commit)
+        size_kb = path.stat().st_size / 1024
+        print(f"  {path}  ({size_kb:.0f} KB)")
+
+
+if __name__ == "__main__":
+    main()

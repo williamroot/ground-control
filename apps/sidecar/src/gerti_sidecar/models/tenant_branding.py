@@ -15,7 +15,10 @@ from gerti_sidecar.models.base import Base
 class TenantBranding(Base):
     __tablename__ = "tenant_branding"
     __table_args__ = (
-        CheckConstraint("default_theme IN ('light','dark')", name="ck_tenant_branding_theme"),
+        # Alargado em 0024_audit_log (Spec #3 V4) p/ incluir 'system'.
+        CheckConstraint(
+            "default_theme IN ('light','dark','system')", name="ck_tenant_branding_theme"
+        ),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(

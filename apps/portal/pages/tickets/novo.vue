@@ -2,11 +2,16 @@
 import type { Branding } from '#shared/branding'
 import { DEFAULT_BRANDING } from '#shared/branding'
 import { applyAssistResult, shouldShowAssistButton } from '~/components/ticket/assist'
+import { prefillFromCatalogItem, resolveServicoId } from '~/components/ticket/catalog-prefill'
 
 // #1E fase 3 — Abertura de chamado (form A, página única). Guarda por sessão
 // (qualquer papel logado pode abrir). O seletor de contrato é CONDICIONAL
 // (D-1E-2): só aparece quando há >= 2 contratos selecionáveis; com 0 ou 1 o
 // backend vincula sozinho (single/None) e não pedimos nada ao cliente.
+//
+// Spec #3 · V2 — abertura pré-preenchida a partir do catálogo (?servico=<id>).
+// Ver components/ticket/catalog-prefill.ts para a divergência documentada do
+// campo "fila" (o backend não aceita/expõe queue na criação de chamado).
 definePageMeta({ middleware: 'auth' })
 
 interface SelectableContract {
@@ -32,6 +37,17 @@ interface OpenedTicket {
   ticket_number: string
   contract_id: string
 }
+interface CatalogItemDetail {
+  id: string
+  name: string
+  category: string
+  description: string | null
+  sla_hours: number | null
+  icon: string
+  znuny_queue: string | null
+  znuny_service: string | null
+  default_priority: string | null
+}
 
 const headers = useSidecarHeaders()
 const toast = useToast()
@@ -47,6 +63,9 @@ const assetId = computed(() => {
   return v ? String(v) : ''
 })
 
+// Spec #3 · V2 — vindo do catálogo (/catalogo → "Solicitar"): ?servico=<id>.
+const servicoId = computed(() => resolveServicoId(route.query.servico))
+
 // SSR: catálogo de contratos selecionáveis + meta do formulário (serviços,
 // prioridades, tipos). Falhas degradam para listas vazias — o form ainda abre.
 const { data: contracts } = await useAsyncData('ticketing-contracts', () =>
@@ -55,6 +74,17 @@ const { data: contracts } = await useAsyncData('ticketing-contracts', () =>
 const { data: meta } = await useAsyncData('ticketing-form-meta', () =>
   $fetch<FormMeta>('/api/portal/ticketing/form-meta', { headers })
     .catch(() => ({ services: [], priorities: [], types: [], ai_assist_enabled: false } as FormMeta)))
+
+// Item de catálogo (se ?servico= presente). O proxy devolve 404→null pra id
+// inexistente, malformado (guard de formato) ou item inativo — nesse caso a
+// página abre normalmente, sem pré-preenchimento e sem erro visível ao cliente.
+const { data: catalogItem } = await useAsyncData(`catalog-item-${servicoId.value || 'none'}`, () =>
+  servicoId.value
+    ? $fetch<CatalogItemDetail>(`/api/portal/catalog/items/${servicoId.value}`, { headers }).catch(() => null)
+    : Promise.resolve(null))
+
+const catalogPrefill = computed(() =>
+  prefillFromCatalogItem(catalogItem.value, meta.value?.services ?? [], meta.value?.priorities ?? []))
 
 const selectableContracts = computed(() => contracts.value ?? [])
 // D-1E-2: seletor só quando há ambiguidade (>= 2 contratos ativos).
@@ -80,12 +110,14 @@ function defaultPriority(): string | undefined {
   return (normal ?? list[0])?.Key
 }
 
+// #3·V2: quando há item de catálogo resolvido, assunto/serviço/prioridade
+// nascem preenchidos (todos editáveis); sem item, mesmo default de sempre.
 const form = reactive({
   contractId: undefined as string | undefined,
-  service: undefined as string | undefined,
+  service: catalogPrefill.value.service,
   type: undefined as string | undefined,
-  priority: defaultPriority(),
-  title: '',
+  priority: catalogPrefill.value.priority ?? defaultPriority(),
+  title: catalogPrefill.value.title,
   body: '',
 })
 const files = ref<File[]>([])
@@ -254,6 +286,22 @@ async function submit() {
       icon="i-lucide-server"
       title="Chamado sobre o ativo"
       :description="`Este chamado será vinculado ao ativo #${assetId}.`"
+      class="mb-6"
+    />
+
+    <!-- #3·V2: chamado aberto a partir do catálogo — assunto/serviço/prioridade
+         abaixo já vieram preenchidos e continuam editáveis. `znuny_queue` do
+         item é só informativo: o formulário não tem (nem envia) campo de
+         fila hoje — ver components/ticket/catalog-prefill.ts. -->
+    <UAlert
+      v-if="catalogItem"
+      color="info"
+      variant="soft"
+      icon="i-lucide-package"
+      title="Chamado a partir do catálogo"
+      :description="catalogItem.znuny_queue
+        ? `Pré-preenchido a partir de “${catalogItem.name}” · Fila sugerida: ${catalogItem.znuny_queue}. Revise os campos antes de enviar.`
+        : `Pré-preenchido a partir de “${catalogItem.name}”. Revise os campos antes de enviar.`"
       class="mb-6"
     />
 

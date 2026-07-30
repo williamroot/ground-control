@@ -12,6 +12,7 @@ BRL) é convertido com arredondamento HALF_UP.
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import uuid
 from collections import OrderedDict
 from decimal import ROUND_HALF_UP, Decimal
@@ -26,14 +27,18 @@ from gerti_sidecar.domain.errors import (
     InvoiceAlreadyExists,
     InvoiceError,
 )
+from gerti_sidecar.domain.notification_service import NotificationService
 from gerti_sidecar.models import (
     ConsumptionEvent,
     Contract,
     ContractCycle,
     Invoice,
     InvoiceLine,
+    PortalUserRole,
 )
-from gerti_sidecar.models.enums import CycleStatus, InvoiceStatus
+from gerti_sidecar.models.enums import CycleStatus, InvoiceStatus, PortalRole
+
+logger = logging.getLogger(__name__)
 
 # Default config — número de dias até o vencimento da fatura emitida.
 DEFAULT_DUE_DAYS = 15
@@ -154,7 +159,40 @@ class InvoiceService:
         invoice.subtotal_cents = subtotal
         invoice.total_cents = subtotal  # sem impostos nesta fase
         await self.session.flush()
+
+        # Notificação (Spec #3 V3): best-effort — jamais derruba a fatura já
+        # gravada. Falha na emissão só vira log.
+        try:
+            await self._notify_admins_invoice_issued(invoice)
+        except Exception:
+            logger.exception(
+                "falha ao emitir notificação invoice_issued (invoice_id=%s)", invoice.id
+            )
+
         return invoice
+
+    async def _notify_admins_invoice_issued(self, invoice: Invoice) -> None:
+        admin_logins = (
+            (
+                await self.session.execute(
+                    select(PortalUserRole.customer_login).where(
+                        PortalUserRole.role == PortalRole.admin
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        notifier = NotificationService(self.session)
+        for login in admin_logins:
+            await notifier.emit(
+                recipient_login=login,
+                kind="invoice_issued",
+                title=f"Fatura #{invoice.number:04d} emitida",
+                body=f"Vencimento em {invoice.due_at.date().isoformat()}.",
+                link_path=f"/faturas/{invoice.number}",
+                at=invoice.issued_at,
+            )
 
     async def _next_number(self, tenant_id: uuid.UUID) -> int:
         """Próximo número sequencial por tenant, sob advisory lock transacional.

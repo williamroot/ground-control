@@ -22,3 +22,6 @@ znuny/*.tar.gz
 # Python bytecode
 __pycache__/
 *.py[cod]
+
+# PDFs de documentação são artefato de build, não fonte.
+docs/pdf/out/
