@@ -548,3 +548,42 @@ exige **permissão negada** (não "zero linhas") ao ler e ao escrever pelo papel
 runtime. **Regra geral daqui em diante:** toda tabela operacional sem RLS precisa
 de `REVOKE ALL … FROM gerti_app` explícito na própria migration — os default
 privileges do schema trabalham contra a intenção.
+
+## D21 — O console administra o Znuny pelo GI (corrige o D20)
+
+**O D20 estava parcialmente errado e fica superado nesta parte.** Ele tirou de
+escopo filas, SLAs, estados/tipos de chamado, classes de CI, calendário e gestão
+de agentes alegando "segunda fonte de verdade". Confundiu **administrar** o Znuny
+com **duplicar** o Znuny.
+
+A invariante do projeto é *núcleo Znuny imutável*: não editar o tarball, escrever
+só por overlay `Custom/` + Generic Interface. Ela nunca proibiu administrar o
+Znuny **através** do GI — e o próprio `GertiAdmin` já fazia exatamente isso desde
+o #1G-a, embrulhando `CustomerCompanyAdd`/`CustomerUserAdd`/`SetPassword`. O
+precedente estava no repo; bastava aplicá-lo.
+
+**O que continua valendo do D20:** o risco de segunda fonte de verdade é real. O
+remédio, porém, não é abrir mão da tela — é **não persistir**. Regra do #4: o
+console não guarda um byte de configuração do Znuny. Zero tabela nova, zero cache
+que possa divergir; toda tela lê e escreve ao vivo pelo GI. A única coisa que
+persistimos é a linha de auditoria, que é registro do nosso ato administrativo,
+não cópia do dado. Assim a interface é literalmente uma capa.
+
+**Decisão de forma — operações genéricas com allowlist.** 6 objetos × 4 operações
+dariam 24 módulos Perl, e no `znuny/Dockerfile` cada `.pm` exige uma linha `COPY`
+e uma entrada no loop `perl -c` (esquecer isso já quebrou o projeto duas vezes).
+Optamos por 4 operações genéricas (`AdminObjectList/Get/Add/Update`) dirigidas por
+uma tabela hardcoded em `AdminSpec.pm`. **A requisição nunca nomeia classe ou
+método Perl** — manda uma chave de objeto que o módulo traduz. Campo fora da
+allowlist é erro explícito, nunca descarte silencioso.
+
+**Gradação de risco assumida.** Filas/SLAs/serviços/tipos/estados/prioridades têm
+API limpa e são baixo risco. Classes de CI exigem `DefinitionCheck` antes de
+gravar (definição inválida derruba o CMDB). Permissão de agente audita antes-e-
+depois e proíbe auto-remoção do grupo `admin` (anti-lockout). SysConfig
+(calendário/jornada) é o único bloco que afeta a instância inteira: allowlist
+fechada de settings, validação de forma antes de escrever e liberação garantida do
+`SettingLock` em caso de falha — lock preso trava a administração para todos.
+
+**Sem exclusão real:** o Znuny invalida com `ValidID = 2`. Nenhuma operação desta
+spec apaga registro.
