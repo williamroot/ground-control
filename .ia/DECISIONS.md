@@ -528,3 +528,23 @@ por "fidelidade visual"): `SLABadge` recebendo `time` em vez de `remaining`
 (`count: 1`, semana fixa, "contratos ativos" contando inativos); `statusConfig`
 sem fallback (status desconhecido quebrava a página); `saveError` capturado e
 nunca renderizado; fallback silencioso para o primeiro item em vez de 404.
+
+### D20.1 — "não conceder" não é o mesmo que "revogar" (achado de staging)
+
+A migration da `audit_log` deliberadamente **não** deu `GRANT` a `gerti_app`. A
+verificação ao vivo em staging mostrou que isso não bastou: o init do cluster
+(`infra/compose/postgres/init/001_schemas_and_roles.sql`) tem
+`ALTER DEFAULT PRIVILEGES … GRANT … TO gerti_app` no schema `gerti`, então a
+tabela nasceu com SELECT/INSERT/UPDATE/DELETE para o papel de runtime mesmo assim.
+
+Como `audit_log` é a única tabela do schema **sem RLS**, o efeito prático seria:
+`gerti_sidecar` (membro de `gerti_app`, usado no caminho de cliente) conseguiria
+ler a trilha de auditoria de **todos** os tenants. Nenhum router de cliente
+consulta essa tabela hoje, então não houve vazamento — mas a barreira teria
+passado a ser o código, e o desenho queria que fosse o banco.
+
+Migration `0025_audit_log_revoke_app` faz o `REVOKE ALL` explícito, com teste que
+exige **permissão negada** (não "zero linhas") ao ler e ao escrever pelo papel de
+runtime. **Regra geral daqui em diante:** toda tabela operacional sem RLS precisa
+de `REVOKE ALL … FROM gerti_app` explícito na própria migration — os default
+privileges do schema trabalham contra a intenção.
