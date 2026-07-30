@@ -527,7 +527,7 @@ serviço novo no compose, nenhuma mudança no Znuny. Só migrations + rebuild de
 | Tabela | Escopo | RLS |
 |---|---|---|
 | `gerti.kb_article` | tenant | `FORCE` + policy |
-| `gerti.service_catalog_item` | tenant | `FORCE` + policy |
+| `gerti.catalog_item` | tenant | `FORCE` + policy |
 | `gerti.notification` | tenant (+ filtro por `recipient_login` no service) | `FORCE` + policy |
 | `gerti.user_preference` | tenant, `UNIQUE(tenant_id, user_login)` | `FORCE` + policy |
 | `gerti.audit_log` | **operacional cross-tenant** | **sem RLS**, só `AdminSessionLocal` |
@@ -582,3 +582,8 @@ URL com credencial é exposta.
 contrato, fatura, branding, KB, catálogo, tokens de agente, regras de automação).
 Gravação **best-effort**: nunca derruba a operação auditada; nunca registra
 segredo, token ou corpo de ticket.
+
+> **Nota de nomenclatura.** A tabela do catálogo chama-se `gerti.catalog_item`,
+> não `service_catalog_item`: este último nome **já estava em uso** pelo domínio de
+> billing/consumo (Spec #0 §4, referenciado por FK de `contract_scope` e
+> `consumption`). Colidir teria quebrado o faturamento.
