@@ -587,3 +587,71 @@ segredo, token ou corpo de ticket.
 > não `service_catalog_item`: este último nome **já estava em uso** pelo domínio de
 > billing/consumo (Spec #0 §4, referenciado por FK de `contract_scope` e
 > `consumption`). Colidir teria quebrado o faturamento.
+
+## Capa de administração do Znuny (Spec #4) — `apps/admin` + `apps/sidecar` + `znuny/`
+
+O console passa a administrar o **próprio Znuny** — filas, SLAs, serviços,
+tipos/estados/prioridades, classes de CI, agentes/permissões e calendário/jornada.
+Decisão e correção de rumo em [`DECISIONS.md`](DECISIONS.md) **D21** (supera o D20).
+
+### A regra que define este subsistema
+
+**Zero persistência.** Nenhuma tabela nova, nenhum cache. Toda tela lê e escreve
+ao vivo pelo Generic Interface; o Znuny continua sendo o único armazenamento — a
+interface é uma capa. A única coisa gravada em `gerti` é a linha de
+`audit_log` do nosso ato administrativo, que não é cópia do dado.
+
+```
+Browser → admin:3000 → sidecar:8001 /v1/admin/znuny/* → GertiAdmin GI → Znuny
+                                    └─ audit_log (só o registro do ato)
+```
+
+### Operações genéricas dirigidas por allowlist
+
+6 objetos × 4 operações dariam 24 módulos Perl, e cada `.pm` exige `COPY` no
+Dockerfile **mais** entrada no loop `perl -c`. Em vez disso, **4 operações
+genéricas** (`AdminObjectList/Get/Add/Update`) + o módulo auxiliar `AdminSpec.pm`
+com a tabela hardcoded de objeto → classe Perl, métodos e campos graváveis.
+
+**A requisição nunca nomeia classe ou método Perl** — manda uma chave
+(`Queue`, `SLA`, `Service`, `Type`, `State`, `Priority`) que o módulo traduz.
+Chave desconhecida não carrega nada; campo fora da allowlist é **erro explícito**,
+nunca descarte silencioso. A mesma allowlist é revalidada no sidecar — defesa em
+profundidade, não confiança mútua.
+
+### Os 15 módulos GI (webservice `GertiAdmin`)
+
+| Bloco | Módulos | Risco |
+|---|---|---|
+| A — objetos | `AdminSpec` + `AdminObjectList/Get/Add/Update` | baixo |
+| B — classes de CI | `AdminCiClassList`, `AdminCiClassDefinitionGet/Set` | médio |
+| C — pessoas | `AdminAgentList/Get/Set`, `AdminGroupList`, `AdminAgentGroupSet` | médio-alto |
+| D — SysConfig | `AdminSysConfigGet/Set` | **alto** |
+
+**Sem exclusão em lugar nenhum:** o Znuny invalida com `ValidID = 2`. As telas
+dizem "Invalidar", não "Excluir".
+
+### Guardas por bloco
+
+- **B:** `DefinitionCheck` do Znuny roda **antes** de gravar; definição inválida →
+  422 com a mensagem original, sem gravar. `DefinitionAdd` cria nova versão — o
+  histórico fica no Znuny.
+- **C:** resposta nunca contém `UserPw` nem hash (filtrado no Perl **e** no
+  sidecar). Definir senha é ação separada, nunca efeito colateral de um update de
+  cadastro. **Anti-lockout:** um agente não remove a si mesmo do grupo `admin` —
+  guarda no Perl, não só na tela. Mudança de permissão audita **antes e depois**.
+- **D:** allowlist fechada de settings verificada **antes** de tocar o SysConfig;
+  validação de forma antes de escrever (jornada = `Dia → horas 0–23`; feriado
+  permanente = `Mês → Dia → texto`; feriado pontual = `Ano → Mês → Dia → texto`);
+  fluxo `SettingLock` → `SettingUpdate` → `ConfigurationDeploy` com **liberação
+  garantida do lock em qualquer falha**. Isso não é zelo excessivo: a leitura do
+  fonte da 7.2.3 confirmou que o `SettingUpdate` **não** libera o lock na maioria
+  dos caminhos de erro, e lock preso trava a administração do Znuny para todos.
+  O deploy é escopado ao setting alterado (`DirtySettings`), não global.
+
+### Superfície
+
+`/v1/admin/znuny/objects/{object}[/{id}]` · `/ci-classes[/{id}/definition]` ·
+`/agents[/{id}[/groups]]` · `/groups` · `/calendar` — todos sob `get_admin_session`.
+Telas em `/znuny/filas`, `/sla`, `/servicos`, `/classificacao`, `/classes-ci`,
+`/agentes`, `/calendario`.

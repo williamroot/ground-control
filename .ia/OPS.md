@@ -1193,3 +1193,74 @@ $DC run --rm sidecar-migrate uv run alembic downgrade -1
 > `TimeAccountingSince`. Nota de calibragem: a sonda marcou `ok: true` com esse lag —
 > vale definir um limiar (ex.: `ok` só com lag < 24 h) para o cartão ficar vermelho
 > quando isso acontecer de novo.
+
+### Deploy da capa de administração do Znuny (Spec #4 — profile `gerti` + rebuild Znuny)
+
+**O que muda.** O console passa a administrar o próprio Znuny: filas, SLAs,
+serviços, tipos/estados/prioridades, classes de CI, agentes/permissões e
+calendário/jornada. **15 módulos GI novos** no webservice `GertiAdmin` (rebuild do
+`znuny-web` obrigatório), rotas `/v1/admin/znuny/*` no sidecar e 7 telas no console.
+**Nenhuma migration** — a spec não persiste nada (D21).
+
+**Pré-requisitos:** nenhum segredo novo. Reusa `ZNUNY_ADMIN_WS_URL` e
+`ZNUNY_WS_TOKEN` (`GertiAdmin::AccessToken`), já presentes desde o #1G-a.
+
+```bash
+ssh gc 'cd ~/ground-control && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 1) Znuny: rebuild (bakeia os 15 .pm; perl -c é gate de build) e recria web+daemon.
+#    NOTA: recria o core Znuny (downtime curto). Provisionamento é idempotente (D6).
+ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-daemon"
+
+# 2) CRÍTICO — atualizar o webservice GertiAdmin (já existe em prod desde #1G-a).
+#    Admin::WebService::Update exige --webservice-id (NÃO --name) nesta versão.
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && \
+   WSID=\$(bin/otrs.Console.pl Admin::WebService::List | sed -n \"s/.*GertiAdmin (\\([0-9]\\+\\)).*/\\1/p\"); \
+   bin/otrs.Console.pl Admin::WebService::Update --webservice-id \"\$WSID\" \
+     --source-path /opt/otrs/webservices/GertiAdmin.yml"'
+#   GUARD: os 3 webservices seguem presentes (nenhum pode sumir):
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List | grep -iE \"GertiCustomerAuth|GertiAdmin|GertiTicket\""'
+
+# 3) sidecar + console (SEM migration nova):
+ssh gc "cd ~/ground-control && $DC build sidecar admin && $DC up -d sidecar sidecar-worker admin && $DC ps"
+```
+
+**Verificação — a que importa é a de invariante:**
+
+```bash
+# nenhuma tabela de configuração do Znuny foi criada no schema gerti:
+ssh gc 'cd ~/ground-control && set -a && . ./.env && set +a && \
+  docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c \
+  "select count(*) from information_schema.tables where table_schema='"'"'gerti'"'"' \
+   and table_name like '"'"'znuny%'"'"';"'    # → 0
+
+# endpoints fail-closed sem sessão de agente:
+ssh gc 'cd ~/ground-control && docker compose exec -T sidecar sh -lc \
+  "curl -s -o /dev/null -w \"objects=%{http_code} calendar=%{http_code}\\n\" \
+   http://127.0.0.1:8001/v1/admin/znuny/objects/Queue"'   # → 401
+
+# objeto fora da allowlist é 404, não 500:
+#   GET /v1/admin/znuny/objects/Kernel::System::Ticket  → 404
+```
+
+Mais o e2e no console: abrir `/znuny/filas` e conferir que lista as filas **reais**
+do Znuny; criar uma fila throwaway; invalidá-la (`ValidID=2`); conferir a linha
+correspondente em `/auditoria`; e remover o throwaway pelo painel do Znuny.
+
+> **Cuidado com o Bloco D (calendário).** É o único ponto do console que grava em
+> SysConfig e dispara deploy de configuração. Antes de testar em staging, anote a
+> jornada atual para poder restaurá-la. Se a gravação falhar, o backend libera o
+> `SettingLock` e **nada é aplicado** — pode tentar de novo com segurança.
+
+**Rollback (console/sidecar; Znuny volta pelo rebuild do sha anterior):**
+
+```bash
+$DC stop admin                       # as telas /znuny/* somem
+git checkout <sha-anterior> -- apps/sidecar apps/admin znuny/
+$DC build znuny-web sidecar admin && $DC up -d znuny-web znuny-daemon sidecar admin
+```
+
+Nenhuma migration para reverter. **NUNCA** `make reset`.

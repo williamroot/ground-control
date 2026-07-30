@@ -30,6 +30,8 @@ from gerti_sidecar.routers import (
     admin_system,
     admin_tenants,
     admin_timer,
+    admin_znuny,
+    admin_znuny_people,
     agent,
     agent_dist,
     asaas_hooks,
@@ -138,6 +140,12 @@ def create_app() -> FastAPI:
     # Busca federada (Spec #3 V6) — portal (tenant-scoped) e console (cross-tenant).
     app.include_router(search.router, prefix=settings.api_v1_prefix)
     app.include_router(admin_search.router, prefix=settings.api_v1_prefix)
+    # Console como capa de administração do Znuny (Spec #4, Blocos A/B) — não
+    # persiste config do Znuny, só lê/escreve ao vivo pelo GI + audita.
+    app.include_router(admin_znuny.router, prefix=settings.api_v1_prefix)
+    # Console como capa de administração do Znuny (Spec #4, Blocos C/D) —
+    # agentes/grupos + calendário/jornada; idem, sem persistência local.
+    app.include_router(admin_znuny_people.router, prefix=settings.api_v1_prefix)
     app.add_middleware(TenantMiddleware)
 
     return app

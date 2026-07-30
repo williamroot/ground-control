@@ -147,12 +147,71 @@ COPY Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserAdd.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserAdd.pm
 COPY Custom/Kernel/GenericInterface/Operation/CustomerUser/SetPassword.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/CustomerUser/SetPassword.pm
+# Spec #4 Bloco D — SysConfig (calendar/working hours) admin ops. Highest-risk
+# block in the project: allowlist + shape validation happen in Perl BEFORE any
+# SysConfig call; perl -c below is the build gate, same as every other op.
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminSysConfigGet.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminSysConfigGet.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminSysConfigSet.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminSysConfigSet.pm
+# Spec #4 Bloco A — generic CRUD admin ops for Queue/SLA/Service/Type/State/
+# Priority, driven by the hardcoded allowlist in AdminSpec.pm (not a GI
+# operation itself — no YAML entry — but still baked in + perl -c'd below,
+# since every operation file requires it at compile time).
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminSpec.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminSpec.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminObjectList.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminObjectList.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminObjectGet.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminObjectGet.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminObjectAdd.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminObjectAdd.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminObjectUpdate.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminObjectUpdate.pm
+# Spec #4 Bloco B — ITSM CI classes (GeneralCatalog + ITSMConfigItem::Definition).
+# DefinitionCheck is mandatory before DefinitionSet ever writes — a broken
+# definition takes the whole CMDB down.
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminCiClassList.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminCiClassList.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminCiClassDefinitionGet.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminCiClassDefinitionGet.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminCiClassDefinitionSet.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminCiClassDefinitionSet.pm
+# Spec #4 Bloco C — agents and group permissions (Kernel::System::User +
+# Kernel::System::Group). AdminAgentGet/List NEVER return UserPw; password is
+# a separate op (out of this spec's scope, not a side effect here);
+# AdminAgentGroupSet is anti-lockout guarded against self-removal from admin.
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentList.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentList.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGet.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGet.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentSet.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentSet.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminGroupList.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminGroupList.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGroupSet.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGroupSet.pm
 RUN set -eux; \
     chown -R otrs:www-data ${OTRS_HOME}/Custom; \
     for m in \
         Custom/Kernel/GenericInterface/Operation/CustomerCompany/CustomerCompanyAdd.pm \
         Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserAdd.pm \
-        Custom/Kernel/GenericInterface/Operation/CustomerUser/SetPassword.pm ; \
+        Custom/Kernel/GenericInterface/Operation/CustomerUser/SetPassword.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminSysConfigGet.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminSysConfigSet.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminSpec.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminObjectList.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminObjectGet.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminObjectAdd.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminObjectUpdate.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminCiClassList.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminCiClassDefinitionGet.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminCiClassDefinitionSet.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentList.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGet.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentSet.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminGroupList.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGroupSet.pm ; \
     do \
         perl -I${OTRS_HOME} -I${OTRS_HOME}/Kernel/cpan-lib -I${OTRS_HOME}/Custom \
              -c ${OTRS_HOME}/$m ; \
