@@ -394,3 +394,40 @@ async def test_no_new_table_and_only_audit_log_written(engine, app_session_facto
     changed = {name for name in table_names if after[name] != before[name]}
     assert changed == {"audit_log"}
     assert after["audit_log"] == before["audit_log"] + 3
+
+
+# --------------------------------------------------------------------------- #
+# Leitura de recurso inexistente é 404, não 422.
+#
+# A distinção importa na tela: 422 é a definição INVÁLIDA reprovada pelo
+# DefinitionCheck (no PUT); 404 é "essa classe não existe". Confundir os dois faz
+# o console mostrar erro de validação para um id que simplesmente não está lá.
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_get_ci_class_definition_missing_is_404(
+    engine, app_session_factory, monkeypatch
+) -> None:
+    async def _boom(*_a: object, **_k: object) -> dict[str, object]:
+        raise zao.ZnunyWriteError("class not found")
+
+    monkeypatch.setattr(zao, "ci_class_definition_get", _boom)
+    c = await _client(monkeypatch, engine, app_session_factory)
+    async with c:
+        resp = await c.get("/v1/admin/znuny/ci-classes/999/definition")
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "ci_class_not_found"
+
+
+@pytest.mark.asyncio
+async def test_get_object_missing_is_404(engine, app_session_factory, monkeypatch) -> None:
+    async def _boom(*_a: object, **_k: object) -> dict[str, object]:
+        raise zao.ZnunyWriteError("not found")
+
+    monkeypatch.setattr(zao, "object_get", _boom)
+    c = await _client(monkeypatch, engine, app_session_factory)
+    async with c:
+        resp = await c.get("/v1/admin/znuny/objects/Queue/999")
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "queue_not_found"

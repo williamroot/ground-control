@@ -12,9 +12,13 @@ só nele):
   • `{object}` contra a allowlist `_ALLOWED_OBJECTS` → 404 se fora dela.
   • `{id}` precisa casar `^[0-9]+$` → 404 se malformado (nunca 400/422).
   • `ZnunyUnavailable` (transporte/5xx) → 503.
-  • `ZnunyWriteError` (rejeição limpa do GI, inclusive `DefinitionCheck`
-    reprovando em `AdminCiClassDefinitionSet`) → 422 com a mensagem do Znuny
-    repassada — o operador precisa saber por que o Znuny recusou.
+  • `ZnunyWriteError` numa ESCRITA (rejeição limpa do GI, inclusive
+    `DefinitionCheck` reprovando em `AdminCiClassDefinitionSet`) → 422 com a
+    mensagem do Znuny repassada — o operador precisa saber por que o Znuny
+    recusou.
+  • `ZnunyWriteError` numa LEITURA → 404 (`_call_get`): num GET a recusa limpa
+    significa "não achei". Manter 422 apagaria a distinção que a tela precisa
+    fazer entre "classe não existe" e "definição inválida".
 """
 
 from __future__ import annotations
@@ -60,6 +64,23 @@ async def _call(coro: Awaitable[_T]) -> _T:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+async def _call_get(coro: Awaitable[_T], *, not_found: str) -> _T:
+    """Como `_call`, mas para LEITURA: recurso inexistente vira 404, não 422.
+
+    A convenção do projeto é 404 para "não existe / não é seu". Num GET, o
+    `ZnunyWriteError` significa que o Znuny recusou de forma limpa — para leitura,
+    isso é "não achei". Manter 422 aqui apagaria a distinção que a tela precisa
+    fazer entre "classe não existe" e "definição inválida" (que é o 422 legítimo
+    do `DefinitionCheck`, no PUT).
+    """
+    try:
+        return await coro
+    except zao.ZnunyUnavailable as exc:
+        raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
+    except zao.ZnunyWriteError as exc:
+        raise HTTPException(status_code=404, detail=not_found) from exc
+
+
 def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
@@ -87,7 +108,10 @@ async def get_object(
 ) -> dict[str, Any]:
     _check_object(object)
     object_id = _check_id(id)
-    return await _call(zao.object_get(object, object_id, agent_login=admin["agent_login"]))
+    return await _call_get(
+        zao.object_get(object, object_id, agent_login=admin["agent_login"]),
+        not_found=f"{object.lower()}_not_found",
+    )
 
 
 @router.post("/objects/{object}", status_code=201)
@@ -162,7 +186,10 @@ async def get_ci_class_definition(
     admin: AdminSessionPayload = Depends(get_admin_session),
 ) -> dict[str, Any]:
     class_id = _check_id(id)
-    return await _call(zao.ci_class_definition_get(class_id, agent_login=admin["agent_login"]))
+    return await _call_get(
+        zao.ci_class_definition_get(class_id, agent_login=admin["agent_login"]),
+        not_found="ci_class_not_found",
+    )
 
 
 @router.put("/ci-classes/{id}/definition")
