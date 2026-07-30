@@ -1,8 +1,9 @@
-// Edita um agente do Znuny (Spec #4, Bloco C) — proxy fino, compartilhado por
-// duas ações DISTINTAS da tela: salvar cadastro (UserFirstname/UserLastname/
-// UserEmail/ValidID) e definir senha (NewPassword). A separação é garantida
-// pelo composable (payloads nunca se misturam) — este proxy só encaminha o
-// corpo como veio. Guard numérico no id -> 400 sem chamar o sidecar.
+// Edita o cadastro de um agente do Znuny (Spec #4, Bloco C) — proxy fino.
+// Só cadastro (UserFirstname/UserLastname/UserEmail/ValidID) — NUNCA senha.
+// Definir senha é uma rota separada e explícita:
+// POST /api/admin/znuny/agents/{id}/password (correção pós-revisão
+// adversarial: o endpoint antigo, PUT com `NewPassword`, nunca existiu de
+// verdade no backend). Guard numérico no id -> 400 sem chamar o sidecar.
 export default defineEventHandler(async (event) => {
   const id = getRouterParam(event, 'id')
   if (!isNumericId(id)) { setResponseStatus(event, 400); return null }

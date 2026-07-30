@@ -182,10 +182,11 @@ async def test_get_setting_happy(monkeypatch):
     )
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
 
-    result = await sysconfig.get_setting("TimeWorkingHours")
+    result = await sysconfig.get_setting("TimeWorkingHours", agent_login="william")
 
     assert captured["url"] == _BASE + "/SysConfig/Get"
     assert captured["json"]["Name"] == "TimeWorkingHours"
+    assert captured["json"]["AgentLogin"] == "william"
     assert result.name == "TimeWorkingHours"
     assert result.value == {"Mon": [8, 9, 10]}
 
@@ -196,7 +197,7 @@ async def test_get_setting_missing_in_response_raises_write_error(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
 
     with pytest.raises(sysconfig.ZnunyWriteError):
-        await sysconfig.get_setting("TimeWorkingHours")
+        await sysconfig.get_setting("TimeWorkingHours", agent_login="william")
 
 
 @pytest.mark.asyncio
@@ -242,4 +243,87 @@ async def test_transport_error_raises_unavailable(monkeypatch):
     monkeypatch.setattr(httpx.AsyncClient, "post", boom)
 
     with pytest.raises(sysconfig.ZnunyUnavailable):
-        await sysconfig.get_setting("TimeWorkingHours")
+        await sysconfig.get_setting("TimeWorkingHours", agent_login="william")
+
+
+# --------------------------------------------------------------------------- #
+# is_valid_calendar_suffix / calendar_setting_names (contrato COMPOSTO)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("calendar", ["", "1", "5", "9"])
+def test_is_valid_calendar_suffix_accepts_default_and_1_to_9(calendar):
+    assert sysconfig.is_valid_calendar_suffix(calendar) is True
+
+
+@pytest.mark.parametrize("calendar", ["0", "10", "abc", "Calendar1", "-1", " "])
+def test_is_valid_calendar_suffix_rejects_anything_else(calendar):
+    assert sysconfig.is_valid_calendar_suffix(calendar) is False
+
+
+def test_calendar_setting_names_default_calendar_has_no_suffix():
+    names = sysconfig.calendar_setting_names("")
+    assert names.working_hours == "TimeWorkingHours"
+    assert names.vacation_days == "TimeVacationDays"
+    assert names.vacation_days_one_time == "TimeVacationDaysOneTime"
+
+
+def test_calendar_setting_names_numbered_calendar_has_suffix():
+    names = sysconfig.calendar_setting_names("3")
+    assert names.working_hours == "TimeWorkingHours::Calendar3"
+    assert names.vacation_days == "TimeVacationDays::Calendar3"
+    assert names.vacation_days_one_time == "TimeVacationDaysOneTime::Calendar3"
+
+
+# --------------------------------------------------------------------------- #
+# get_settings (bulk, GI) — GET composto do calendário
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_get_settings_happy_fetches_all_in_one_call(monkeypatch):
+    post, captured = _capturing_post(
+        200,
+        {
+            "Settings": {
+                "TimeWorkingHours": {
+                    "Name": "TimeWorkingHours",
+                    "EffectiveValue": {"Mon": [8, 9]},
+                },
+                "TimeVacationDays": {
+                    "Name": "TimeVacationDays",
+                    "EffectiveValue": {"1": {"1": "Confraternização"}},
+                },
+                "TimeVacationDaysOneTime": {
+                    "Name": "TimeVacationDaysOneTime",
+                    "EffectiveValue": {"2026": {"12": {"25": "Natal"}}},
+                },
+            }
+        },
+    )
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+
+    names = ["TimeWorkingHours", "TimeVacationDays", "TimeVacationDaysOneTime"]
+    result = await sysconfig.get_settings(names, agent_login="william")
+
+    assert captured["url"] == _BASE + "/SysConfig/Get"
+    assert captured["json"]["Names"] == names
+    assert captured["json"]["AgentLogin"] == "william"
+    assert result["TimeWorkingHours"].value == {"Mon": [8, 9]}
+    assert result["TimeVacationDays"].value == {"1": {"1": "Confraternização"}}
+    assert result["TimeVacationDaysOneTime"].value == {"2026": {"12": {"25": "Natal"}}}
+
+
+@pytest.mark.asyncio
+async def test_get_settings_missing_one_in_response_raises_write_error(monkeypatch):
+    post, _ = _capturing_post(
+        200,
+        {
+            "Settings": {
+                "TimeWorkingHours": {"Name": "TimeWorkingHours", "EffectiveValue": {"Mon": [8]}},
+                # TimeVacationDays ausente na resposta.
+            }
+        },
+    )
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+
+    with pytest.raises(sysconfig.ZnunyWriteError):
+        await sysconfig.get_settings(
+            ["TimeWorkingHours", "TimeVacationDays"], agent_login="william"
+        )

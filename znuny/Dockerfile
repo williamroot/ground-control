@@ -187,6 +187,10 @@ COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGet.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGet.pm
 COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentSet.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentSet.pm
+# AdminAgentSetPassword — separate, explicit password op (adversarial review
+# fix): setting a password must NEVER be a side effect of AdminAgentSet.
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentSetPassword.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentSetPassword.pm
 COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminGroupList.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminGroupList.pm
 COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGroupSet.pm \
@@ -210,6 +214,7 @@ RUN set -eux; \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentList.pm \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGet.pm \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentSet.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentSetPassword.pm \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminGroupList.pm \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGroupSet.pm ; \
     do \

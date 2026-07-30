@@ -3,16 +3,19 @@
 // isoladamente (vitest). O diff é o que a tela de confirmação mostra antes de
 // qualquer PUT de permissão — é a ação mais perigosa desta spec.
 //
-// Contrato consumido (sidecar, WIP em paralelo — `docs/superpowers/plans/
+// Contrato consumido (sidecar — `docs/superpowers/plans/
 // 2026-07-30-spec-4-capa-admin-znuny.md`):
 //   GET  /api/admin/znuny/agents                 -> { items: AgentRow[] }  (nunca traz UserPw)
 //   GET  /api/admin/znuny/agents/{id}             -> AgentRow
 //   POST /api/admin/znuny/agents                  body: cadastro (sem senha)
-//   PUT  /api/admin/znuny/agents/{id}              body: cadastro OU { NewPassword } — NUNCA os dois juntos
+//   PUT  /api/admin/znuny/agents/{id}              body: cadastro — NUNCA carrega senha
+//   POST /api/admin/znuny/agents/{id}/password     body: { new_password } — operação SEPARADA e explícita
 //   GET  /api/admin/znuny/groups                  -> { items: GroupRow[] }
 //   PUT  /api/admin/znuny/agents/{id}/groups       body: { GroupIDs: string[] } — audita antes/depois
 // Definir senha é sempre uma chamada separada, com payload que só carrega
-// `NewPassword` — nunca um efeito colateral de salvar o cadastro.
+// `new_password` — nunca um efeito colateral de salvar o cadastro (correção
+// pós-revisão adversarial: o endpoint antigo, PUT com `NewPassword`, nunca
+// existiu de verdade no backend — o botão sempre respondia 422).
 
 export interface AgentRow {
   UserID: string | number
@@ -149,8 +152,8 @@ export function isPasswordValid(password: string, confirmation: string): boolean
 }
 
 /** Payload da troca de senha — SÓ a senha, nunca junto de outros campos de cadastro. */
-export function buildPasswordPayload(password: string): { NewPassword: string } {
-  return { NewPassword: password }
+export function buildPasswordPayload(password: string): { new_password: string } {
+  return { new_password: password }
 }
 
 // --- Grupos/papéis: diff de permissões ---------------------------------------

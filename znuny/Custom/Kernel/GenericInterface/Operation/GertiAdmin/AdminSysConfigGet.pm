@@ -8,6 +8,12 @@
 # HIGH RISK BLOCK: a mistake here touches the whole Znuny instance, not one
 # screen. The allowlist gate runs BEFORE any Kernel::System::SysConfig call —
 # an unknown name is rejected without ever consulting SysConfig.
+#
+# Uniformity fix (adversarial review): every other GertiAdmin read op
+# (AdminObjectList, AdminAgentList, AdminCiClassList) requires AgentLogin and
+# resolves it to a real UserID before doing anything — this one didn't. Same
+# pattern now applies here: an unauthenticated caller must not be able to
+# read SysConfig settings.
 # --
 package Kernel::GenericInterface::Operation::GertiAdmin::AdminSysConfigGet;
 
@@ -77,6 +83,7 @@ Read one, several, or (default) every allowlisted calendar/journey setting.
     my $Result = $OperationObject->Run(
         Data => {
             AccessToken => '...',                          # shared secret (GertiAdmin)
+            AgentLogin  => 'admin',                          # (required) resolved to a real UserID
             Names       => [ 'TimeWorkingHours', 'TimeVacationDays::Calendar1' ],  # optional
             # or
             Name        => 'TimeWorkingHours',              # optional, single-name shorthand
@@ -119,6 +126,26 @@ sub Run {
     return $TokenError if $TokenError;
 
     my $D = $Param{Data};
+
+    for my $Needed (qw(AgentLogin)) {
+        return $Self->ReturnError(
+            ErrorCode    => 'AdminSysConfigGet.MissingParameter',
+            ErrorMessage => "AdminSysConfigGet: $Needed parameter is missing!",
+        ) if !IsStringWithData( $D->{$Needed} );
+    }
+
+    # AgentLogin must resolve to a real Znuny agent (same pattern as
+    # AdminCiClassList/AdminObjectList) — an unauthenticated caller must not
+    # be able to read SysConfig settings.
+    my $UserID = $Kernel::OM->Get('Kernel::System::User')->UserLookup(
+        UserLogin => $D->{AgentLogin}, Silent => 1,
+    );
+    if ( !$UserID ) {
+        return $Self->ReturnError(
+            ErrorCode    => 'AdminSysConfigGet.UnknownAgent',
+            ErrorMessage => 'AdminSysConfigGet: agent login not found.',
+        );
+    }
 
     my @RequestedNames;
     if ( defined $D->{Names} ) {

@@ -135,8 +135,8 @@ async function submitPassword() {
   pwSaving.value = true
   pwError.value = ''
   try {
-    await $fetch(`/api/admin/znuny/agents/${pwTarget.value.UserID}`, {
-      method: 'PUT',
+    await $fetch(`/api/admin/znuny/agents/${pwTarget.value.UserID}/password`, {
+      method: 'POST',
       body: buildPasswordPayload(pwPassword.value),
     })
     toast.add({ title: 'Senha definida', color: 'success' })

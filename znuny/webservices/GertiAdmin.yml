@@ -51,6 +51,9 @@ Provider:
     AdminAgentSet:
       Description: Create or update a Znuny agent cadastro (never touches password) (Spec #4 Bloco C)
       Type: GertiAdmin::AdminAgentSet
+    AdminAgentSetPassword:
+      Description: Set an agent's password — separate, explicit operation, never a side effect of AdminAgentSet (Spec #4 Bloco C)
+      Type: GertiAdmin::AdminAgentSetPassword
     AdminGroupList:
       Description: List Znuny groups (Spec #4 Bloco C)
       Type: GertiAdmin::AdminGroupList
@@ -122,6 +125,10 @@ Provider:
           RequestMethod:
           - POST
           Route: /Agent/Set
+        AdminAgentSetPassword:
+          RequestMethod:
+          - POST
+          Route: /Agent/SetPassword
         AdminGroupList:
           RequestMethod:
           - POST

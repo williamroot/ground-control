@@ -259,6 +259,33 @@ async def test_update_agent_happy_omits_login(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
+# set_agent_password — operação SEPARADA (correção pós-revisão adversarial)
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_set_agent_password_happy(monkeypatch):
+    post, captured = _capturing_post(200, {"Success": 1, "UserID": 5, "UserLogin": "jane"})
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+
+    result = await people.set_agent_password(5, "senha-super-segura", agent_login="william")
+
+    assert captured["url"] == _BASE + "/Agent/SetPassword"
+    body = captured["json"]
+    assert body["TargetUserID"] == 5
+    assert body["NewPassword"] == "senha-super-segura"
+    assert body["AgentLogin"] == "william"
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_set_agent_password_rejection_raises_write_error(monkeypatch):
+    post, _ = _capturing_post(200, {"Error": {"ErrorMessage": "agent not found"}})
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+
+    with pytest.raises(people.ZnunyWriteError, match="agent not found"):
+        await people.set_agent_password(999, "senha-super-segura", agent_login="william")
+
+
+# --------------------------------------------------------------------------- #
 # list_groups
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio

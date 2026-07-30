@@ -101,8 +101,8 @@ describe('senha — ação separada e explícita', () => {
     expect(isPasswordValid('senha-super-segura', 'senha-super-segura')).toBe(true)
   })
 
-  it('payload de senha só tem NewPassword', () => {
-    expect(buildPasswordPayload('senha-super-segura')).toEqual({ NewPassword: 'senha-super-segura' })
+  it('payload de senha só tem new_password', () => {
+    expect(buildPasswordPayload('senha-super-segura')).toEqual({ new_password: 'senha-super-segura' })
   })
 })
 

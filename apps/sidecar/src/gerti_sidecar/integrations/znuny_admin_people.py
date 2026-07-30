@@ -24,6 +24,13 @@ Regra inegociável (Bloco C): **nunca devolver hash de senha**. O Perl já
 filtra `UserPw`/qualquer chave `/pw/i`, mas `_strip_secrets` repete o filtro
 aqui — defesa em profundidade, não confiança mútua.
 
+`set_agent_password` (correção pós-revisão adversarial) é operação SEPARADA
+de `update_agent` — nunca um efeito colateral de salvar o cadastro. Espelha
+`AdminAgentSetPassword.pm` (Route `/Agent/SetPassword`): `AgentLogin` (autor)
++ `TargetUserID` + `NewPassword`. A senha nunca é ecoada de volta (a resposta
+do Perl só traz `{Success, UserID, UserLogin}`) e esta função não a loga nem
+a devolve — só confirma o sucesso.
+
 O sidecar não persiste nada disto (Spec #4): estas funções só leem/escrevem
 o Znuny ao vivo; a única gravação em `gerti` é a linha de auditoria, feita
 pelo router.
@@ -54,6 +61,7 @@ __all__ = [
     "list_agents",
     "list_groups",
     "set_agent_groups",
+    "set_agent_password",
     "update_agent",
 ]
 
@@ -245,6 +253,19 @@ async def update_agent(
     if not isinstance(agent, dict):
         raise ZnunyUnavailable("resposta inesperada do Znuny")
     return _agent_from(agent)
+
+
+async def set_agent_password(agent_id: int, new_password: str, *, agent_login: str) -> None:
+    """Define a senha de um agente — operação SEPARADA e explícita (nunca um
+    efeito colateral de `update_agent`). Espelha `AdminAgentSetPassword.pm`.
+
+    Não devolve nada além de confirmação: a senha nunca é ecoada de volta
+    pelo Perl, e esta função não a repassa, não a loga.
+    """
+    await _post(
+        "/Agent/SetPassword",
+        {"AgentLogin": agent_login, "TargetUserID": agent_id, "NewPassword": new_password},
+    )
 
 
 def _group_from(data: dict[str, Any]) -> Group:

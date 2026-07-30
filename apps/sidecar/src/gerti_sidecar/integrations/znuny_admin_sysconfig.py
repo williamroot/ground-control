@@ -25,8 +25,17 @@ os dois primeiros guards do lado Perl):
 
 O fluxo `SettingLock -> SettingUpdate -> ConfigurationDeploy` (com liberação
 garantida do lock em caso de erro) é responsabilidade da operação Perl
-`AdminSysConfigSet` — o sidecar faz uma única chamada GI e repassa o
-resultado; não orquestra múltiplas chamadas.
+`AdminSysConfigSet` — o sidecar faz uma única chamada GI POR SETTING e
+repassa o resultado; não orquestra lock/update/deploy, só a sequência de
+chamadas.
+
+Contrato do router (`admin_znuny_people.py`) é a forma COMPOSTA: a tela
+`/znuny/calendario` fala em "um calendário" (jornada + feriado recorrente +
+feriado pontual juntos), não em settings avulsos. `get_settings` busca os
+três de uma vez (o Perl aceita `Names` em lista); `set_setting` ainda grava
+um por vez porque `AdminSysConfigSet` só sabe lockar/atualizar/deployar UM
+`Name` por chamada — o router é quem chama três vezes em sequência e lida
+com aplicação parcial se uma delas falhar no meio.
 """
 
 from __future__ import annotations
@@ -46,9 +55,13 @@ __all__ = [
     "ALLOWED_SETTINGS",
     "CalendarSetting",
     "CalendarSettingInvalid",
+    "CalendarSettingNames",
     "ZnunyUnavailable",
     "ZnunyWriteError",
+    "calendar_setting_names",
     "get_setting",
+    "get_settings",
+    "is_valid_calendar_suffix",
     "set_setting",
     "validate_setting_shape",
 ]
@@ -73,6 +86,11 @@ ALLOWED_SETTINGS: frozenset[str] = frozenset(
 
 _WEEKDAYS = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
 
+# Sufixos de calendário aceitos na forma COMPOSTA do contrato (tela
+# `/znuny/calendario`): '' = calendário padrão, '1'..'9' = Calendar1..Calendar9.
+# Espelha exatamente `CALENDAR_OPTIONS` de `useWorkingHours.ts` no console.
+_CALENDAR_SUFFIX_VALUES: frozenset[str] = frozenset(str(n) for n in range(1, 10))
+
 
 class CalendarSettingInvalid(ValueError):
     """Forma de jornada/feriado inválida -> 422 no router, sem tocar no Znuny."""
@@ -82,6 +100,38 @@ class CalendarSettingInvalid(ValueError):
 class CalendarSetting:
     name: str
     value: Any
+
+
+@dataclass(frozen=True)
+class CalendarSettingNames:
+    """Os três nomes de setting do SysConfig que compõem UM calendário na
+    forma composta do contrato (jornada + feriado recorrente + feriado
+    pontual)."""
+
+    working_hours: str
+    vacation_days: str
+    vacation_days_one_time: str
+
+
+def is_valid_calendar_suffix(calendar: str) -> bool:
+    """`calendar` vem da query/body como '' (padrão) ou '1'..'9'
+    (Calendar1..Calendar9). Qualquer outro valor ('0', '10', 'abc', ...) é
+    desconhecido -> 404 no router, ANTES de montar qualquer nome de setting
+    ou tocar no Znuny (mesmo padrão de "recurso desconhecido" das outras
+    rotas do sidecar)."""
+    return calendar == "" or calendar in _CALENDAR_SUFFIX_VALUES
+
+
+def calendar_setting_names(calendar: str) -> CalendarSettingNames:
+    """Traduz o sufixo de calendário ('' ou '1'..'9') nos três nomes de
+    setting do SysConfig. Chamador deve validar com `is_valid_calendar_suffix`
+    antes — esta função não valida, só monta os nomes."""
+    suffix = f"::Calendar{calendar}" if calendar else ""
+    return CalendarSettingNames(
+        working_hours=f"TimeWorkingHours{suffix}",
+        vacation_days=f"TimeVacationDays{suffix}",
+        vacation_days_one_time=f"TimeVacationDaysOneTime{suffix}",
+    )
 
 
 def _resolve_admin_endpoint() -> tuple[str, str]:
@@ -233,8 +283,8 @@ def validate_setting_shape(name: str, value: Any) -> None:
         raise CalendarSettingInvalid(f"setting sem validador de forma: {name}")
 
 
-async def get_setting(name: str) -> CalendarSetting:
-    data = await _post("/SysConfig/Get", {"Name": name})
+async def get_setting(name: str, *, agent_login: str) -> CalendarSetting:
+    data = await _post("/SysConfig/Get", {"Name": name, "AgentLogin": agent_login})
     settings = data.get("Settings") or {}
     setting = settings.get(name)
     if not isinstance(setting, dict):
@@ -242,6 +292,26 @@ async def get_setting(name: str) -> CalendarSetting:
     return CalendarSetting(
         name=str(setting.get("Name") or name), value=setting.get("EffectiveValue")
     )
+
+
+async def get_settings(names: list[str], *, agent_login: str) -> dict[str, CalendarSetting]:
+    """Busca vários settings em UMA chamada GI: `AdminSysConfigGet` aceita
+    `Names` como lista (ver `Run()` em `AdminSysConfigGet.pm`) e devolve todos
+    de uma vez. Usado pelo GET composto do calendário (Bloco D): jornada +
+    feriado recorrente + feriado pontual do MESMO calendário numa única ida
+    ao Znuny, em vez de três.
+    """
+    data = await _post("/SysConfig/Get", {"Names": names, "AgentLogin": agent_login})
+    settings = data.get("Settings") or {}
+    result: dict[str, CalendarSetting] = {}
+    for name in names:
+        setting = settings.get(name)
+        if not isinstance(setting, dict):
+            raise ZnunyWriteError(f"setting '{name}' não encontrado na resposta do Znuny")
+        result[name] = CalendarSetting(
+            name=str(setting.get("Name") or name), value=setting.get("EffectiveValue")
+        )
+    return result
 
 
 async def set_setting(name: str, value: Any, *, agent_login: str) -> CalendarSetting:
