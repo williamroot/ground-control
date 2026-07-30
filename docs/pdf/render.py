@@ -139,6 +139,12 @@ def main() -> None:
             "enrollment, com aprovação, revogação e prova de isolamento.",
         ),
         Doc(
+            Path(".ia/DEMO.md"),
+            "Instância de demonstração",
+            "A operação fictícia usada em apresentação e teste: empresa, agentes, "
+            "clientes, credenciais e como (re)semear.",
+        ),
+        Doc(
             Path(".ia/OVERVIEW.md"),
             "Visão geral da plataforma",
             "O problema que o Ground Control resolve, o escopo e a terminologia.",

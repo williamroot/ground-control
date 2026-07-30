@@ -20,6 +20,11 @@ ação sua ficou registrada na auditoria**.
 | Portal do cliente (Aurora Móveis) | https://aurora.was.dev.br | `eduardo.salvi` / `Aurora@Demo2026` |
 | Portal do cliente (TechNova) | https://technova.was.dev.br | `admin.tech@technova.example` / `TechNova@Demo2026` |
 
+> **Login aceita e-mail ou usuário.** Os dois formatos funcionam nos dois lados —
+> `william` ou `williamalvesroot@gmail.com` no console; `eduardo.salvi` ou
+> `eduardo.salvi@auroramoveis.com.br` no portal. É a mesma conta, não duas.
+
+
 > O TechNova existe aqui por um motivo só: provar que **um cliente nunca vê o
 > conteúdo do outro**. A Parte 6 é a mais importante deste roteiro.
 

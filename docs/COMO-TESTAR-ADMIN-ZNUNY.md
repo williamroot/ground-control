@@ -13,6 +13,11 @@ sendo o único armazenamento.
 | Papel | URL | Login |
 |---|---|---|
 | Console (operador MSP) | https://gerti.was.dev.br | `william` / `Gerti@Demo2026` |
+
+> **Login aceita e-mail ou usuário.** Os dois formatos funcionam nos dois lados —
+> `william` ou `williamalvesroot@gmail.com` no console; `eduardo.salvi` ou
+> `eduardo.salvi@auroramoveis.com.br` no portal. É a mesma conta, não duas.
+
 | Painel nativo do Znuny (para conferir) | https://znuny-dev.was.dev.br | mesmo login |
 
 A conferência cruzada é o ponto deste roteiro: **tudo que você fizer no console

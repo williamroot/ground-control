@@ -12,6 +12,11 @@ entra **sozinho** no inventário do cliente certo (Aurora) — com as travas de 
 |-------|-----|-------|
 | Console (operador MSP) | https://gerti.was.dev.br | `william` / `Gerti@Demo2026` |
 | Portal do cliente (Aurora) | https://aurora.was.dev.br | `eduardo.salvi@auroramoveis.com.br` / `Aurora@Demo2026` |
+
+> **Login aceita e-mail ou usuário.** Os dois formatos funcionam nos dois lados —
+> `william` ou `williamalvesroot@gmail.com` no console; `eduardo.salvi` ou
+> `eduardo.salvi@auroramoveis.com.br` no portal. É a mesma conta, não duas.
+
 | Servidor do agente | https://api-dev.was.dev.br | (sem login — autentica por token) |
 
 **Máquina de teste:** qualquer uma destas serve:
