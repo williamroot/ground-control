@@ -1171,3 +1171,25 @@ $DC run --rm sidecar-migrate uv run alembic downgrade -1
 ```
 
 **NUNCA** `make reset` (destrói o DB Znuny compartilhado).
+
+> **Status (2026-07-30): DEPLOYADO em staging e verificado ao vivo.** Branch
+> `feature/spec-3-paridade-grounddesk` (`43147d9`) na VPS; migrations `0022`→`0025`
+> aplicadas; `sidecar`, `sidecar-worker`, `portal` e `admin` reconstruídos e de pé.
+> **Provas colhidas:** RLS das 4 tabelas de negócio com `relrowsecurity` e
+> `relforcerowsecurity` = `t` (`audit_log` = `f`, por desenho); fail-closed real —
+> `gerti_sidecar` sem o GUC lê **0 linhas** de `kb_article`; `audit_log` responde
+> **`permission denied`** ao papel de runtime (após a `0025`); os 6 endpoints novos
+> respondem **401** sem sessão; login de agente real (`william`) → `/v1/admin/system/health`
+> com sondas reais (db 2 ms, Znuny GI 67 ms `pong`, IA habilitada, Asaas desligado),
+> `/v1/admin/audit-logs?limit=20` **200** e `?limit=500` **422**, `/v1/admin/search` **200**.
+> As 8 páginas novas (5 no portal, 3 no console) respondem **302 → login** sem sessão
+> (rota existe e a guarda funciona). Serviços anteriores intactos: znuny 200,
+> api-dev 200, aurora 302, technova 302, gerti 200, landing 200.
+>
+> **Achado operacional revelado pelo próprio painel novo:** `worker.last_sync_at`
+> está em **2026-06-24** (lag de ~35 dias) — o `sidecar-worker` está de pé mas não
+> reconcilia consumo desde então. É **pré-existente**, não foi introduzido por esta
+> entrega; investigar o cursor `gerti.consumption_sync_cursor` e o GI
+> `TimeAccountingSince`. Nota de calibragem: a sonda marcou `ok: true` com esse lag —
+> vale definir um limiar (ex.: `ok` só com lag < 24 h) para o cartão ficar vermelho
+> quando isso acontecer de novo.
