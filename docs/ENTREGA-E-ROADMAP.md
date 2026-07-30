@@ -235,20 +235,28 @@ demonstra.
 O que está descrito aqui está **instalado e verificado em homologação**, incluindo
 teste pelo navegador de cada tela nova, com os dois perfis (equipe e cliente).
 
-Três pontos honestos sobre o ambiente:
+Dois pontos honestos sobre o ambiente, mais um que já foi resolvido:
 
 1. A página pública de contratação está construída e funcional, mas ainda **não
    tem endereço publicado** — depende de uma configuração de DNS e da chave da
    operadora de pagamento.
-2. O painel de saúde reportava o processamento de consumo como parado desde 24 de
-   junho. **Investigado: não estava.** A última hora lançada no sistema é
-   justamente daquela data, e o processamento já a havia consumido — não havia
-   nada pendente. O que o painel media era "quando processou algo pela última
-   vez", e num ambiente sem movimento isso é indistinguível de estar travado.
-   Estamos corrigindo a medição para separar **prova de vida** de **último
-   processamento**, que são coisas diferentes.
+2. O painel de saúde chegou a reportar o processamento de consumo como parado
+   desde 24 de junho. **Investigamos e corrigimos: ele nunca esteve parado.** A
+   última hora lançada no ambiente é daquela mesma data e já havia sido
+   processada — não havia nada pendente. O que o painel media era "quando
+   processou algo pela última vez", e num ambiente sem movimento isso é
+   indistinguível de estar travado.
+
+   O processamento agora registra sinal de vida a cada ciclo, com trabalho ou sem,
+   e o painel separa duas perguntas que estavam embaralhadas: **está funcionando?**
+   e **quando processou algo pela última vez?**. Verificado no ambiente: ciclos
+   sucessivos a cada dois minutos, sem erro, com o painel reportando corretamente
+   "sem lançamentos novos para processar".
+
+   Registramos aqui porque a lição vale além do caso: um alarme falso é pior que
+   nenhum alarme — ele ensina quem opera a ignorar o painel.
 3. Um caminho de falha específico do calendário (interrupção no meio da gravação)
    foi validado por análise e por teste automatizado, mas **ainda não exercitado
    contra o sistema real**.
 
-Nenhum dos três impede o uso do que foi entregue.
+Nenhum deles impede o uso do que foi entregue.
