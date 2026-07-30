@@ -146,11 +146,15 @@ cliente, e contratação self-service com pagamento.
 
 | Ambiente | Endereço | Para quem |
 |---|---|---|
-| Console da operação | `gerti.was.dev.br` | Equipe do provedor |
-| Portal — Aurora Móveis | `aurora.was.dev.br` | Cliente final (exemplo 1) |
-| Portal — TechNova | `technova.was.dev.br` | Cliente final (exemplo 2) |
-| Painel técnico do Znuny | `znuny-dev.was.dev.br` | Conferência técnica |
-| Site institucional | `groundcontrol.was.dev.br` | Público |
+| Console da operação | <https://gerti.was.dev.br> | Equipe do provedor |
+| Portal — Aurora Móveis | <https://aurora.was.dev.br> | Cliente final (exemplo 1) |
+| Portal — TechNova | <https://technova.was.dev.br> | Cliente final (exemplo 2) |
+| Painel técnico do Znuny | <https://znuny-dev.was.dev.br> | Conferência técnica |
+| Site institucional | <https://groundcontrol.was.dev.br> | Público |
+
+Os endereços acima são clicáveis neste PDF. Os dois portais são o **mesmo
+sistema** visto por clientes diferentes — é isso que a marca própria de cada um
+demonstra.
 
 ### Equipe do provedor — console
 
@@ -180,19 +184,20 @@ cliente, e contratação self-service com pagamento.
 
 ### Um roteiro curto de demonstração
 
-1. Entre no console como `william` e abra **Znuny → Filas**. Crie uma fila.
-2. Abra o painel técnico do Znuny em *Admin → Filas*: a fila está lá. **Essa é a
-   prova de que o console administra o sistema de verdade, e não mantém um
-   cadastro paralelo.**
+1. Entre no console — <https://gerti.was.dev.br> — como `william` e abra
+   **Znuny → Filas**. Crie uma fila.
+2. Abra o painel técnico do Znuny — <https://znuny-dev.was.dev.br> — em
+   *Admin → Filas*: a fila está lá. **Essa é a prova de que o console administra o
+   sistema de verdade, e não mantém um cadastro paralelo.**
 3. No console, vá em **Clientes → Aurora Móveis → Conhecimento** e publique um
    artigo.
-4. Entre no portal da Aurora como `eduardo.salvi` e veja o artigo em **Base de
-   Conhecimento**.
+4. Entre no portal da Aurora — <https://aurora.was.dev.br> — como `eduardo.salvi`
+   e veja o artigo em **Base de Conhecimento**.
 5. Abra **Catálogo**, clique em **Solicitar**: o chamado nasce preenchido.
 6. **O teste que mais importa:** copie o endereço do artigo da Aurora e troque o
-   domínio para o da TechNova. A resposta é "não encontrado" — o conteúdo de um
-   cliente não alcança o outro, e o sistema sequer confirma que aquele registro
-   existe.
+   domínio para <https://technova.was.dev.br>. A resposta é "não encontrado" — o
+   conteúdo de um cliente não alcança o outro, e o sistema sequer confirma que
+   aquele registro existe.
 
 ---
 
@@ -235,9 +240,13 @@ Três pontos honestos sobre o ambiente:
 1. A página pública de contratação está construída e funcional, mas ainda **não
    tem endereço publicado** — depende de uma configuração de DNS e da chave da
    operadora de pagamento.
-2. O processamento automático de consumo está **parado desde 24 de junho** no
-   ambiente de homologação. É anterior a esta entrega e foi justamente o novo
-   painel de saúde que tornou isso visível — o que é o próprio painel funcionando.
+2. O painel de saúde reportava o processamento de consumo como parado desde 24 de
+   junho. **Investigado: não estava.** A última hora lançada no sistema é
+   justamente daquela data, e o processamento já a havia consumido — não havia
+   nada pendente. O que o painel media era "quando processou algo pela última
+   vez", e num ambiente sem movimento isso é indistinguível de estar travado.
+   Estamos corrigindo a medição para separar **prova de vida** de **último
+   processamento**, que são coisas diferentes.
 3. Um caminho de falha específico do calendário (interrupção no meio da gravação)
    foi validado por análise e por teste automatizado, mas **ainda não exercitado
    contra o sistema real**.

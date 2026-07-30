@@ -587,3 +587,29 @@ fechada de settings, validação de forma antes de escrever e liberação garant
 
 **Sem exclusão real:** o Znuny invalida com `ValidID = 2`. Nenhuma operação desta
 spec apaga registro.
+
+## D22 — Heartbeat do worker é distinto do cursor de sincronização
+
+A sonda de saúde do worker de consumo (`/v1/admin/system/health`, campo
+`worker`) usava só `consumption_sync_cursor.updated_at` como sinal de vida. Isso
+é enganoso: o cursor **só avança quando o worker reconcilia algo**; o
+`jobs/worker.py` é silencioso por desenho (só loga em reconciliação ou erro).
+Um worker vivo e ocioso (sem lançamentos novos no Znuny) e um worker travado
+ficam **indistinguíveis** por esse sinal — achado em staging (`OPS.md`,
+"Achado operacional… e o falso alarme que ele gerou"): cursor de 24/06 (~35
+dias de "lag" aparente) enquanto o último lançamento real no `time_accounting`
+do Znuny era exatamente daquela data — o cursor estava à frente, não havia
+nada pendente.
+
+**Decisão:** separar as duas noções em tabelas diferentes. `worker_heartbeat`
+(migration `0026`, mesmo padrão operacional sem-RLS/`REVOKE ALL FROM gerti_app`
+de D20.1) grava uma linha a CADA tick — com trabalho ou sem, sucesso ou falha
+— e é isso que a sonda passa a avaliar (`ok` = heartbeat mais novo que 3× o
+intervalo configurado). `consumption_sync_cursor` continua existindo e sendo
+reportado (`last_sync_at`), mas como métrica de "última reconciliação de
+fato", não de "está vivo".
+
+**Regra de mensagem:** cursor velho + heartbeat fresco tem que dizer "sem
+lançamentos novos para processar", nunca "atraso" — foi essa palavra errada
+que gerou o alarme falso original. Heartbeat ausente (worker nunca subiu com
+esta versão) é `ok: false` explícito, nunca "saudável por omissão".

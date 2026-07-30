@@ -126,6 +126,7 @@ Estado atual (ponto de convergência — item aberto):
 | #1B: `reconciliation_service` (pull GI → `consumption_event` idempotente via uuid5; conversão hour_bank/credit_brl/shared; cross-tenant BYPASSRLS read + per-tenant RLS write; avança cursor) | **Pronto, gateado; deploy per runbook** |
 | #1B: `cycle_closer` (fecha ciclos vencidos por tenant via `CycleService.close`, 1×/dia) | **Pronto, gateado; deploy per runbook** |
 | #1B: `sidecar-worker` (serviço compose; loop asyncio: reconcile + close cycles) | **Pronto, gateado; deploy per runbook** |
+| #3: migration `0026_worker_heartbeat` (`gerti.worker_heartbeat`, prova de vida a cada tick — distinta do cursor, D22) + sonda `/v1/admin/system/health.worker` reescrita para usá-la | **Pronto, gateado; deploy per runbook** |
 | Console de Administração #1G-a: auth de agente (`/v1/admin/auth/*`, cookie `gsid_adm`), onboarding (`POST /v1/admin/tenants` → GI + tenant/branding/papéis), criar contrato (`POST /v1/admin/tenants/{id}/contracts`), app `apps/admin/` | **Pronto + DEPLOYADO em prod** (verificado ao vivo; ingress público `gerti.was.dev.br` pendente de CF API token — ADR D19) |
 | Znuny GI custom (#1G-a, Opção A): webservice `GertiAdmin` + ops `CustomerCompanyAdd`/`CustomerUserAdd`/`SetPassword` (idempotentes, `AccessToken` fail-closed) em `znuny/Custom/...` | **Pronto, provado ao vivo** |
 | Time tracker do agente (#1J): GI op `TimeAccountingAdd` (artigo interno + `TicketAccountTime`, resolve UserID do agente) | **Pronto, gateado; deploy per runbook** |

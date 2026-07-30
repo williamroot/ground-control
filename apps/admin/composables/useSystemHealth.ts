@@ -3,14 +3,22 @@
 // o campo vira {ok:false, message}); "asaas" pode nem trazer "ok" quando
 // enabled=false. Ver contrato em
 // docs/superpowers/plans/2026-07-30-spec-3-paridade-grounddesk.md, V6.
+//
+// Sonda "worker": avaliada pelo HEARTBEAT (last_tick_at = prova de vida a
+// cada tick), não pelo cursor de sincronização (last_sync_at = última
+// reconciliação de fato, só avança quando há trabalho). Cursor velho com
+// heartbeat fresco é OCIOSO, não travado — a `message` já vem em português
+// dizendo isso; a tela não pode reinterpretar isso como "atraso".
 
 export interface ProbeResult {
   ok?: boolean
   enabled?: boolean
   latency_ms?: number
   message?: string
+  last_tick_at?: string
   last_sync_at?: string
-  lag_seconds?: number
+  ticks?: number
+  last_error?: string
 }
 
 export interface SystemHealth {
@@ -72,8 +80,12 @@ export function formatLatency(ms: number | null | undefined): string | null {
   return `${ms} ms`
 }
 
-export function formatLagSeconds(seconds: number | null | undefined): string | null {
-  if (seconds == null || !Number.isFinite(seconds)) return null
-  if (seconds < 60) return `${Math.round(seconds)} s de atraso`
-  return `${Math.round(seconds / 60)} min de atraso`
+// Formata um timestamp ISO da sonda (last_tick_at/last_sync_at) em pt-BR.
+// Não confundir com "atraso": quem decide se é ocioso ou travado é o `ok`
+// da sonda + a `message` que o backend já manda pronta.
+export function formatDateTime(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleString('pt-BR')
 }

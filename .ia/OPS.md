@@ -1186,13 +1186,24 @@ $DC run --rm sidecar-migrate uv run alembic downgrade -1
 > (rota existe e a guarda funciona). Serviços anteriores intactos: znuny 200,
 > api-dev 200, aurora 302, technova 302, gerti 200, landing 200.
 >
-> **Achado operacional revelado pelo próprio painel novo:** `worker.last_sync_at`
-> está em **2026-06-24** (lag de ~35 dias) — o `sidecar-worker` está de pé mas não
-> reconcilia consumo desde então. É **pré-existente**, não foi introduzido por esta
-> entrega; investigar o cursor `gerti.consumption_sync_cursor` e o GI
-> `TimeAccountingSince`. Nota de calibragem: a sonda marcou `ok: true` com esse lag —
-> vale definir um limiar (ex.: `ok` só com lag < 24 h) para o cartão ficar vermelho
-> quando isso acontecer de novo.
+> **Achado operacional revelado pelo próprio painel novo, e o falso alarme que ele
+> gerou.** `worker.last_sync_at` (então única leitura da sonda) estava em
+> **2026-06-24** — lag de ~35 dias — sugerindo worker travado. Investigação ao
+> vivo mostrou o oposto: o cursor `gerti.consumption_sync_cursor` estava **à
+> frente** do lançamento de horas mais recente no Znuny (`time_accounting`);
+> não havia nada pendente. O worker é silencioso por desenho (só loga quando
+> reconcilia algo ou em erro) — um worker vivo e ocioso ficava indistinguível de
+> um travado, porque `updated_at` do cursor significa "última vez que
+> reconciliou", não "última vez que verificou".
+>
+> **Correção (migration `0026_worker_heartbeat`):** o worker agora grava
+> `gerti.worker_heartbeat` a CADA tick, com trabalho ou sem. A sonda passou a
+> avaliar essa prova de vida (`last_tick_at`, `ok` = heartbeat mais novo que 3×
+> `reconcile_interval_seconds`) em vez do cursor, e devolve os dois tempos
+> (`last_tick_at`/`last_sync_at`) com nomes honestos — cursor velho + heartbeat
+> fresco agora reporta `ok: true` com a mensagem "sem lançamentos novos para
+> processar", em vez de soar como travamento. Detalhe do contrato em
+> [`ARCHITECTURE.md`](ARCHITECTURE.md) "Saúde do sistema".
 
 ### Deploy da capa de administração do Znuny (Spec #4 — profile `gerti` + rebuild Znuny)
 
@@ -1329,8 +1340,13 @@ Nenhuma migration para reverter. **NUNCA** `make reset`.
 > verificado por leitura de código e teste mockado, não contra Znuny vivo — Parte 6
 > do `COMO-TESTAR-ADMIN-ZNUNY`; (b) `contratar.was.dev.br` é **NXDOMAIN** desde a
 > Spec #2 (ingress nunca criado, falta token Cloudflare) — o serviço `checkout`
-> responde 200 internamente; (c) o `sidecar-worker` não reconcilia consumo desde
-> 2026-06-24, pré-existente, revelado pelo painel de saúde novo.
+> responde 200 internamente; (c) ~~o `sidecar-worker` não reconcilia consumo desde
+> 2026-06-24, pré-existente, revelado pelo painel de saúde novo~~ — **falso
+> alarme, investigado e corrigido**: não havia lançamentos novos a reconciliar
+> (cursor já estava à frente do `time_accounting` do Znuny), o worker seguia
+> vivo e ocioso. A sonda antiga confundia isso com travamento por olhar só o
+> cursor; ver correção via `worker_heartbeat` (migration `0026`) no achado
+> logo acima.
 
 > **Login por e-mail ou usuário (2026-07-30) — DEPLOYADO e verificado.** Os dois
 > lados aceitam ambos os formatos. **Prova ao vivo:** console com

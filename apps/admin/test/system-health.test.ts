@@ -1,7 +1,7 @@
 // Spec #3, V6 — formatação pura das sondas de GET /admin/system/health.
 import { describe, expect, it } from 'vitest'
 import {
-  formatLagSeconds,
+  formatDateTime,
   formatLatency,
   HEALTH_CARDS,
   probeStatus,
@@ -54,17 +54,17 @@ describe('formatLatency', () => {
   })
 })
 
-describe('formatLagSeconds', () => {
-  it('segundos abaixo de 1 minuto', () => {
-    expect(formatLagSeconds(42)).toBe('42 s de atraso')
+describe('formatDateTime', () => {
+  it('formata ISO em pt-BR quando presente', () => {
+    expect(formatDateTime('2026-06-24T21:29:46Z')).toBe(
+      new Date('2026-06-24T21:29:46Z').toLocaleString('pt-BR'),
+    )
   })
 
-  it('minutos quando >= 60s', () => {
-    expect(formatLagSeconds(180)).toBe('3 min de atraso')
-  })
-
-  it('ausente não formata', () => {
-    expect(formatLagSeconds(undefined)).toBeNull()
+  it('null/undefined/inválido não formatam', () => {
+    expect(formatDateTime(null)).toBeNull()
+    expect(formatDateTime(undefined)).toBeNull()
+    expect(formatDateTime('not-a-date')).toBeNull()
   })
 })
 

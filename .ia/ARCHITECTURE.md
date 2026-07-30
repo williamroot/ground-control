@@ -343,6 +343,15 @@ sidecar-worker
 
 - **Cursor:** tabela operacional `gerti.consumption_sync_cursor` (migration `0013`;
   watermark por instância Znuny; não é tabela de tenant — lida com BYPASSRLS).
+  `updated_at` só avança quando há algo a reconciliar — **não é prova de vida**,
+  é "última vez que reconciliou algo". Um worker vivo e ocioso (sem lançamentos
+  novos) fica com esse campo velho, e isso não é falha (ver heartbeat abaixo).
+- **Heartbeat:** tabela operacional `gerti.worker_heartbeat` (migration `0026`,
+  mesmo padrão sem-RLS/sem-GRANT-a-`gerti_app` de `audit_log`) grava uma linha
+  a CADA tick — com trabalho ou sem, sucesso ou falha (`last_tick_at`, `ticks`,
+  `last_success_at`, `last_error`). É essa gravação incondicional que separa
+  "ocioso" de "travado" na sonda de saúde (`/v1/admin/system/health`); ver
+  seção "Saúde do sistema".
 - **Segurança multi-tenant:** leitura cross-tenant via `BYPASSRLS` (busca entradas
   de todos os tenants de uma vez); escrita de `consumption_event` por tenant via
   `tenant_session_scope(id)` (RLS-subject) — preserva as invariantes #1C.
@@ -570,11 +579,35 @@ abre o formulário em branco, sem erro ruidoso.
 
 ### Saúde do sistema
 
-`GET /v1/admin/system/health` agrega sondas de banco, Znuny GI, worker de consumo
-(lag do `consumption_sync_cursor`), IA e Asaas. Cada sonda tem timeout ≤3 s e
-**falha isolada** — sonda vermelha vira `{"ok": false, "message": …}` e o HTTP
-continua 200, para que o painel diga *o que* caiu em vez de cair junto. Nenhuma
-URL com credencial é exposta.
+`GET /v1/admin/system/health` agrega sondas de banco, Znuny GI, worker de consumo,
+IA e Asaas. Cada sonda tem timeout ≤3 s e **falha isolada** — sonda vermelha vira
+`{"ok": false, "message": …}` e o HTTP continua 200, para que o painel diga *o
+que* caiu em vez de cair junto. Nenhuma URL com credencial é exposta.
+
+**Sonda do worker (`worker`) — heartbeat, não cursor.** A sonda avalia
+`gerti.worker_heartbeat.last_tick_at` (prova de vida gravada a cada tick, com
+ou sem trabalho), não `consumption_sync_cursor.updated_at` (que só avança com
+reconciliação de fato). `ok` = heartbeat mais novo que 3× o
+`reconcile_interval_seconds` configurado. A resposta devolve os dois tempos
+com nomes honestos:
+
+```json
+// worker vivo, ocioso — SEM lançamentos novos (não é alarme)
+{"ok": true, "last_tick_at": "2026-07-30T12:00:00Z",
+ "last_sync_at": "2026-06-24T21:29:46Z", "ticks": 43821,
+ "message": "sem lançamentos novos para processar"}
+
+// worker sem sinal de vida — travado de verdade
+{"ok": false, "last_tick_at": "2026-07-30T09:10:00Z",
+ "last_sync_at": "2026-06-24T21:29:46Z", "ticks": 43800,
+ "message": "sem sinal de vida há 630s (esperado a cada 120s) — worker pode estar travado"}
+```
+
+Se `worker_heartbeat` não tem linha ainda (worker nunca subiu com esta versão),
+a sonda reporta `ok: false` com mensagem explicando — nunca assume saudável por
+omissão. **Cursor antigo com heartbeat fresco não é problema**, é sistema
+ocioso; foi exatamente essa confusão (ver achado de 2026-07-30 em
+[`OPS.md`](OPS.md)) que motivou separar as duas noções.
 
 ### Auditoria
 

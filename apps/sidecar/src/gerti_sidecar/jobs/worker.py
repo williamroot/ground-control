@@ -3,6 +3,11 @@
 Loop asyncio: reconcilia consumo a cada RECONCILE_INTERVAL_SECONDS; fecha ciclos
 vencidos 1x/dia. Cada iteracao e isolada (try/except + log); nunca derruba o processo.
 Idempotente - seguro reiniciar a qualquer momento.
+
+Cada tick grava um heartbeat (`domain/worker_heartbeat.py`), com trabalho ou
+sem, sucesso ou falha — e um sistema ocioso (sem lancamentos novos) nao pode
+ficar indistinguivel de um sistema travado (Spec #3). A gravacao do heartbeat
+em si e failure-soft: nunca derruba o loop.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from gerti_sidecar.config import get_settings
 from gerti_sidecar.domain.cycle_closer import CycleCloser
 from gerti_sidecar.domain.invoice_overdue import InvoiceOverdueMarker
 from gerti_sidecar.domain.reconciliation_service import ReconciliationService
+from gerti_sidecar.domain.worker_heartbeat import WORKER_CONSUMPTION, record_heartbeat
 from gerti_sidecar.integrations import znuny_ticket
 
 log = structlog.get_logger()
@@ -29,14 +35,16 @@ class WorkerState:
 
 
 async def tick(state: WorkerState, *, today: dt.date | None = None) -> None:
-    """Uma iteracao: reconcilia sempre; fecha ciclos 1x/dia."""
+    """Uma iteracao: reconcilia sempre; fecha ciclos 1x/dia; grava heartbeat sempre."""
     day = today or dt.datetime.now(dt.UTC).date()
+    error: str | None = None
     try:
         n = await ReconciliationService(gi=znuny_ticket).reconcile()
         if n:
             log.info("reconcile.done", events=n)
     except Exception as exc:
         log.warning("reconcile.error", error=str(exc))
+        error = f"reconcile: {exc}"
 
     if state.last_close_date != day:
         try:
@@ -46,6 +54,7 @@ async def tick(state: WorkerState, *, today: dt.date | None = None) -> None:
                 log.info("cycles.closed", count=closed)
         except Exception as exc:
             log.warning("close_cycles.error", error=str(exc))
+            error = error or f"close_cycles: {exc}"
 
         # Faturas vencidas: open → overdue (cross-tenant, 1x/dia). Failure-soft.
         try:
@@ -54,6 +63,14 @@ async def tick(state: WorkerState, *, today: dt.date | None = None) -> None:
                 log.info("invoices.overdue", count=overdue)
         except Exception as exc:
             log.warning("mark_overdue.error", error=str(exc))
+            error = error or f"mark_overdue: {exc}"
+
+    # Prova de vida: grava sempre, com trabalho ou sem. Falha ao gravar
+    # heartbeat nunca derruba o loop.
+    try:
+        await record_heartbeat(WORKER_CONSUMPTION, error=error)
+    except Exception as exc:
+        log.warning("heartbeat.error", error=str(exc))
 
 
 async def run() -> None:

@@ -33,6 +33,7 @@ from gerti_sidecar.models.tenant import Tenant
 from gerti_sidecar.models.tenant_branding import TenantBranding
 from gerti_sidecar.models.ticket_link import TicketContractLink
 from gerti_sidecar.models.user_preference import UserPreference
+from gerti_sidecar.models.worker_heartbeat import WorkerHeartbeat
 from gerti_sidecar.models.znuny_instance import ZnunyInstance
 
 __all__ = [
@@ -72,5 +73,6 @@ __all__ = [
     "TenantBranding",
     "TicketContractLink",
     "UserPreference",
+    "WorkerHeartbeat",
     "ZnunyInstance",
 ]

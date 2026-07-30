@@ -4,7 +4,7 @@
 // Uma sonda vermelha não derruba a tela; só o endpoint inteiro falhando vira
 // card de erro (nunca tela branca).
 import {
-  formatLagSeconds,
+  formatDateTime,
   formatLatency,
   HEALTH_CARDS,
   probeStatus,
@@ -108,10 +108,17 @@ const lastCheckedLabel = computed(() =>
         <p v-if="formatLatency(health[card.key].latency_ms)" class="text-xs text-muted">
           latência: {{ formatLatency(health[card.key].latency_ms) }}
         </p>
-        <p v-if="formatLagSeconds(health[card.key].lag_seconds)" class="text-xs text-muted">
-          {{ formatLagSeconds(health[card.key].lag_seconds) }}
+        <p v-if="formatDateTime(health[card.key].last_tick_at)" class="text-xs text-muted">
+          última verificação: {{ formatDateTime(health[card.key].last_tick_at) }}
         </p>
-        <p v-if="health[card.key].message" class="text-xs text-error">
+        <p v-if="formatDateTime(health[card.key].last_sync_at)" class="text-xs text-muted">
+          última sincronização: {{ formatDateTime(health[card.key].last_sync_at) }}
+        </p>
+        <p
+          v-if="health[card.key].message"
+          class="text-xs"
+          :class="probeStatus(health[card.key]) === 'error' ? 'text-error' : 'text-muted'"
+        >
           {{ health[card.key].message }}
         </p>
       </UCard>
