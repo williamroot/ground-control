@@ -1300,3 +1300,34 @@ Nenhuma migration para reverter. **NUNCA** `make reset`.
 > calendário que falha no meio) foi verificado por leitura de código e por teste
 > com GI mockado, **não** contra um Znuny real. Exercitar pelo roteiro
 > `docs/COMO-TESTAR-ADMIN-ZNUNY.md`, Parte 6.
+
+> **Status (2026-07-30, atualização): MERGEADO NA `main` e rodando a partir dela.**
+> `main` em `58cd6d3`; o host de staging saiu do branch e está na `main`. Todos os
+> serviços Healthy. **Verificação final dos quatro blocos, autenticada:**
+> Bloco A — `Queue`/`SLA`/`Service`/`Type`/`State`/`Priority` todos **200**;
+> Bloco B — classes de CI **200** listando as 5 nativas (Computer, Hardware,
+> Location, Network, Software) e a definição da `Computer` **200** com o YAML real;
+> Bloco C — agentes e grupos **200**; Bloco D — calendário **200** (padrão e
+> `Calendar3`). **Guardas:** classe Perl arbitrária → **404**, classe de CI
+> inexistente → **404**, sufixo de calendário inválido → **404**, senha curta →
+> **422**.
+>
+> **Três bugs achados só na verificação ao vivo** (todos os gates estavam verdes):
+> 1. Quatro caminhos GI do cliente Python divergiam das rotas do `GertiAdmin.yml`
+>    — classes de CI davam **500** no Znuny. Os testes não pegaram porque
+>    **codificavam o caminho errado**. Fechado com `test_gi_routes_match_webservice.py`,
+>    que lê o `RouteOperationMapping` e confronta com os caminhos realmente usados,
+>    nos dois sentidos.
+> 2. `AdminCiClassList` devolve `Classes`, o cliente lia `Items` — a lista vinha
+>    **vazia com 200**, modo de falha mais traiçoeiro que o 500: o operador
+>    concluiria que o CMDB está vazio.
+> 3. Leitura de recurso inexistente devolvia **422**, o mesmo código do
+>    `DefinitionCheck` reprovando — indistinguível de "definição inválida". Agora é
+>    404 com o recurso nomeado.
+>
+> **Pendências declaradas:** (a) o caminho de falha do `SettingLock` segue
+> verificado por leitura de código e teste mockado, não contra Znuny vivo — Parte 6
+> do `COMO-TESTAR-ADMIN-ZNUNY`; (b) `contratar.was.dev.br` é **NXDOMAIN** desde a
+> Spec #2 (ingress nunca criado, falta token Cloudflare) — o serviço `checkout`
+> responde 200 internamente; (c) o `sidecar-worker` não reconcilia consumo desde
+> 2026-06-24, pré-existente, revelado pelo painel de saúde novo.
