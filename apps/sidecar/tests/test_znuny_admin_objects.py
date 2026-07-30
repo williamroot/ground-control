@@ -166,7 +166,7 @@ async def test_object_update_happy(monkeypatch):
 # --------------------------------------------------------------------------- #
 @pytest.mark.asyncio
 async def test_ci_class_list_happy(monkeypatch):
-    post, captured = _capturing_post(200, {"Items": [{"ID": 1, "Name": "Computer"}]})
+    post, captured = _capturing_post(200, {"Classes": [{"ID": 1, "Name": "Computer"}]})
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
 
     out = await zao.ci_class_list(agent_login="william")

@@ -114,7 +114,10 @@ async def object_update(
 
 async def ci_class_list(*, agent_login: str) -> list[dict[str, Any]]:
     data = await _post("/CiClass/List", {"AgentLogin": agent_login})
-    return list(data.get("Items") or [])
+    # O Perl devolve `Data => { Classes => [...] }` — NÃO `Items`, que é a
+    # chave do AdminObjectList. Ler a chave errada devolvia lista vazia em
+    # silêncio, com o Znuny cheio de classes.
+    return list(data.get("Classes") or [])
 
 
 async def ci_class_definition_get(class_id: int, *, agent_login: str) -> dict[str, Any]:
