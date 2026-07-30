@@ -1231,11 +1231,19 @@ ssh gc "cd ~/ground-control && $DC build sidecar admin && $DC up -d sidecar side
 **Verificação — a que importa é a de invariante:**
 
 ```bash
-# nenhuma tabela de configuração do Znuny foi criada no schema gerti:
+# nenhuma tabela de configuração do Znuny foi criada no schema gerti.
+# CUIDADO: `znuny_instance` existe desde a migration 0001 — é o registro de
+# instâncias do modelo multi-tenant, NÃO configuração. Por isso ela é excluída.
 ssh gc 'cd ~/ground-control && set -a && . ./.env && set +a && \
   docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t -c \
   "select count(*) from information_schema.tables where table_schema='"'"'gerti'"'"' \
-   and table_name like '"'"'znuny%'"'"';"'    # → 0
+   and table_name in ('"'"'znuny_queue'"'"','"'"'znuny_sla'"'"','"'"'znuny_service'"'"', \
+                      '"'"'znuny_state'"'"','"'"'znuny_priority'"'"','"'"'znuny_agent'"'"', \
+                      '"'"'znuny_ci_class'"'"','"'"'znuny_calendar'"'"');"'   # → 0
+
+# e a prova mais forte: a cabeça da cadeia de migrations não mudou com a #4.
+ssh gc 'cd ~/ground-control && docker compose run --rm sidecar-migrate \
+  uv run alembic current 2>&1 | tail -2'      # → 0025_audit_log_revoke_app
 
 # endpoints fail-closed sem sessão de agente:
 ssh gc 'cd ~/ground-control && docker compose exec -T sidecar sh -lc \
@@ -1264,3 +1272,31 @@ $DC build znuny-web sidecar admin && $DC up -d znuny-web znuny-daemon sidecar ad
 ```
 
 Nenhuma migration para reverter. **NUNCA** `make reset`.
+
+> **Status (2026-07-30): DEPLOYADO em staging e verificado ao vivo.** Branch
+> `feature/spec-3-paridade-grounddesk` (`1bc0f2f`); imagem Znuny rebuildada com os
+> **16 módulos GI** (`perl -c` verde), `znuny-web`/`znuny-daemon` recriados
+> (Healthy); `GertiAdmin` atualizado por `--webservice-id 2` com os 3 webservices
+> intactos (`GertiCustomerAuth` 1 + `GertiAdmin` 2 + `GertiTicket` 3);
+> `sidecar`+`admin` rebuildados e Healthy. **Sem migration** — a cabeça da cadeia
+> segue `0025`.
+>
+> **Provas colhidas:** zero tabelas de configuração do Znuny no schema `gerti`;
+> os 5 grupos de endpoint respondem **401** sem `gsid_adm`; login de agente real
+> (`william`) → `GET /objects/Queue` devolve as **filas reais da instância**
+> (Postmaster, Raw, Junk…), `GET /calendar` devolve a **jornada real**
+> (`TimeWorkingHours` seg–sex 8–20); `objects/Kernel::System::Ticket` → **404**
+> (o dispatcher não pode ser induzido a carregar classe Perl arbitrária);
+> `?calendar=99` → **404**. As 7 telas respondem 302→login. Serviços anteriores
+> intactos: znuny 200, api-dev 200, aurora 302, technova 302, console 200,
+> landing 200.
+>
+> **Duas quebras de integração corrigidas antes do deploy** (achadas pela revisão
+> adversarial, nunca chegaram a subir): o contrato do calendário divergia entre
+> tela e router — a tela do Bloco D estava 100% não-funcional; e "Definir senha"
+> era tela sem backend, sempre 422. Ambas fechadas em `6946a44`.
+>
+> **Pendente de e2e manual:** o caminho de falha do `SettingLock` (gravação de
+> calendário que falha no meio) foi verificado por leitura de código e por teste
+> com GI mockado, **não** contra um Znuny real. Exercitar pelo roteiro
+> `docs/COMO-TESTAR-ADMIN-ZNUNY.md`, Parte 6.
