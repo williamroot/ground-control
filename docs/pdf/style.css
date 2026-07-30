@@ -1,0 +1,282 @@
+/* Folha de estilo da documentação em PDF do Ground Control.
+ *
+ * Objetivo: um documento que alguém consegue seguir com o notebook numa mão e o
+ * console na outra. Por isso: coluna estreita, código sempre distinguível do
+ * texto, e o "resultado esperado" com peso visual próprio — é a linha que a
+ * pessoa procura quando volta ao papel depois de executar um passo.
+ */
+
+@page {
+  size: A4;
+  margin: 22mm 20mm 20mm 20mm;
+
+  @top-left {
+    content: string(doc-title);
+    font-family: "DejaVu Sans", sans-serif;
+    font-size: 7.5pt;
+    color: #6b7280;
+    padding-bottom: 3mm;
+  }
+  @bottom-right {
+    content: counter(page) " / " counter(pages);
+    font-family: "DejaVu Sans", sans-serif;
+    font-size: 7.5pt;
+    color: #6b7280;
+    padding-top: 3mm;
+  }
+  @bottom-left {
+    content: "Ground Control";
+    font-family: "DejaVu Sans", sans-serif;
+    font-size: 7.5pt;
+    color: #9ca3af;
+    padding-top: 3mm;
+  }
+}
+
+/* A capa não leva cabeçalho nem rodapé. */
+@page :first {
+  margin: 0;
+  @top-left { content: none; }
+  @bottom-right { content: none; }
+  @bottom-left { content: none; }
+}
+
+html {
+  font-family: "DejaVu Sans", "Liberation Sans", sans-serif;
+  font-size: 10pt;
+  line-height: 1.55;
+  color: #111827;
+}
+
+body { margin: 0; }
+
+/* ---------- Capa ---------- */
+
+.cover {
+  page: first;
+  height: 297mm;
+  box-sizing: border-box;
+  padding: 45mm 24mm 24mm 24mm;
+  background: linear-gradient(160deg, #0b1020 0%, #131a33 55%, #1b2246 100%);
+  color: #ffffff;
+  page-break-after: always;
+  position: relative;
+}
+
+.cover__mark {
+  font-size: 8pt;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: #7dd3c0;
+  margin-bottom: 14mm;
+}
+
+.cover__title {
+  font-size: 30pt;
+  line-height: 1.15;
+  font-weight: 700;
+  margin: 0 0 6mm 0;
+  letter-spacing: -0.01em;
+}
+
+.cover__subtitle {
+  font-size: 11.5pt;
+  line-height: 1.5;
+  color: #c7cde0;
+  margin: 0;
+  max-width: 118mm;
+}
+
+.cover__meta {
+  position: absolute;
+  bottom: 24mm;
+  left: 24mm;
+  right: 24mm;
+  font-size: 8.5pt;
+  color: #9aa4c4;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  padding-top: 5mm;
+}
+
+.cover__meta strong { color: #e5e9f5; font-weight: 600; }
+
+/* ---------- Sumário ---------- */
+
+.toc { page-break-after: always; }
+.toc h2 {
+  font-size: 13pt;
+  margin: 0 0 6mm 0;
+  padding-bottom: 2mm;
+  border-bottom: 2px solid #111827;
+}
+.toc ul { list-style: none; padding-left: 0; margin: 0; }
+.toc ul ul { padding-left: 6mm; }
+.toc li { margin: 1.6mm 0; font-size: 9.5pt; }
+.toc a { text-decoration: none; color: #111827; }
+.toc a::after {
+  content: " · " target-counter(attr(href), page);
+  color: #6b7280;
+  font-size: 8.5pt;
+}
+.toc > ul > li > a { font-weight: 600; }
+
+/* ---------- Texto ---------- */
+
+h1 {
+  string-set: doc-title content();
+  font-size: 18pt;
+  line-height: 1.2;
+  margin: 0 0 5mm 0;
+  padding-bottom: 2.5mm;
+  border-bottom: 2px solid #111827;
+  page-break-after: avoid;
+}
+
+h2 {
+  font-size: 13.5pt;
+  margin: 9mm 0 3mm 0;
+  padding-top: 2mm;
+  border-top: 1px solid #e5e7eb;
+  page-break-after: avoid;
+}
+
+h3 {
+  font-size: 11pt;
+  margin: 6mm 0 2mm 0;
+  color: #1f2937;
+  page-break-after: avoid;
+}
+
+p { margin: 0 0 3mm 0; orphans: 2; widows: 2; }
+
+a { color: #1d4ed8; text-decoration: none; }
+
+strong { font-weight: 600; }
+
+hr {
+  border: 0;
+  border-top: 1px solid #e5e7eb;
+  margin: 7mm 0;
+}
+
+ul { margin: 0 0 3mm 0; padding-left: 6mm; }
+li { margin: 1.2mm 0; }
+
+/* Numeração contínua dos passos.
+ *
+ * Nos runbooks cada passo é seguido de um "✓ Esperado: …", que interrompe a
+ * lista ordenada do markdown — o resultado seria um documento em que todo passo
+ * é "1.", inútil para quem segue o roteiro com o console aberto. O atributo
+ * `start` do HTML não resolve (o WeasyPrint não o honra aqui), então a
+ * numeração vem de um contador CSS que atravessa os blocos e **reinicia a cada
+ * título** — que é a semântica certa: os passos são por seção. */
+main { counter-reset: step; }
+h1, h2, h3 { counter-reset: step; }
+
+ol {
+  margin: 0 0 3mm 0;
+  padding-left: 8mm;
+  list-style: none;
+}
+
+ol > li {
+  counter-increment: step;
+  position: relative;
+}
+
+ol > li::before {
+  content: counter(step) ".";
+  position: absolute;
+  left: -8mm;
+  width: 6mm;
+  text-align: right;
+  color: #374151;
+  font-weight: 600;
+}
+
+/* ---------- Código ---------- */
+
+code {
+  font-family: "DejaVu Sans Mono", monospace;
+  font-size: 8.5pt;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 2px;
+  padding: 0.3mm 1mm;
+}
+
+pre {
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 3px;
+  padding: 3.5mm 4mm;
+  margin: 3mm 0 4mm 0;
+  font-size: 8pt;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  page-break-inside: avoid;
+}
+
+pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font-size: 8pt;
+}
+
+/* ---------- Tabelas ---------- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 3mm 0 5mm 0;
+  font-size: 8.5pt;
+  page-break-inside: avoid;
+}
+
+thead th {
+  background: #111827;
+  color: #ffffff;
+  text-align: left;
+  font-weight: 600;
+  padding: 2mm 2.5mm;
+}
+
+tbody td {
+  border-bottom: 1px solid #e5e7eb;
+  padding: 1.8mm 2.5mm;
+  vertical-align: top;
+}
+
+tbody tr:nth-child(even) { background: #f9fafb; }
+
+/* ---------- Destaques ---------- */
+
+blockquote {
+  margin: 4mm 0;
+  padding: 3mm 4mm;
+  background: #fffbeb;
+  border-left: 3px solid #d97706;
+  color: #78350f;
+  page-break-inside: avoid;
+}
+
+blockquote p:last-child { margin-bottom: 0; }
+
+/* "Esperado:" — a linha que a pessoa procura ao voltar ao documento. */
+.ok {
+  display: inline-block;
+  min-width: 4.2mm;
+  color: #047857;
+  font-weight: 700;
+}
+
+p:has(> .ok) {
+  background: #ecfdf5;
+  border-left: 3px solid #059669;
+  padding: 2.2mm 3mm;
+  margin: 2.5mm 0 3.5mm 0;
+  page-break-inside: avoid;
+}
