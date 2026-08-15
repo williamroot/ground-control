@@ -1336,9 +1336,12 @@ Nenhuma migration para reverter. **NUNCA** `make reset`.
 >    `DefinitionCheck` reprovando — indistinguível de "definição inválida". Agora é
 >    404 com o recurso nomeado.
 >
-> **Pendências declaradas:** (a) o caminho de falha do `SettingLock` segue
+> **Pendências declaradas:** (a) ~~o caminho de falha do `SettingLock` segue
 > verificado por leitura de código e teste mockado, não contra Znuny vivo — Parte 6
-> do `COMO-TESTAR-ADMIN-ZNUNY`; (b) `contratar.was.dev.br` é **NXDOMAIN** desde a
+> do `COMO-TESTAR-ADMIN-ZNUNY`~~ — **BAIXADA em 2026-08-15**: exercitada contra o
+> Znuny vivo do staging no deploy da Onda 0 (T-R13.1), com falha injetada de
+> verdade na 2ª das 3 gravações; ver a seção da Onda 0 no fim deste arquivo;
+> (b) `contratar.was.dev.br` é **NXDOMAIN** desde a
 > Spec #2 (ingress nunca criado, falta token Cloudflare) — o serviço `checkout`
 > responde 200 internamente; (c) ~~o `sidecar-worker` não reconcilia consumo desde
 > 2026-06-24, pré-existente, revelado pelo painel de saúde novo~~ — **falso
@@ -1361,3 +1364,212 @@ Nenhuma migration para reverter. **NUNCA** `make reset`.
 > `type="email"`, e o navegador barrava o envio do login curto **antes de qualquer
 > requisição sair** — sem erro de servidor, sem log, sem nada para investigar.
 > Guards nos dois apps (`test/login-field.test.ts`) travam a regressão.
+
+### Deploy da Onda 0 da campanha "Recursos Administrativos" (profile `gerti` + rebuild Znuny)
+
+**O que muda.** Cinco defeitos que já estavam quebrados e apareceram ao cruzar os
+requisitos do vídeo do Kleber com o código
+([`../docs/CAMPANHA-RECURSOS-ADMINISTRATIVOS.md`](../docs/CAMPANHA-RECURSOS-ADMINISTRATIVOS.md)):
+
+| Camada | O que muda | Ação de deploy |
+|---|---|---|
+| **Znuny** | 4 módulos GI alterados: `GertiAdmin/AdminSpec.pm`, `GertiAdmin/AdminObjectList.pm`, `GertiTicket/TicketGet.pm`, `GertiTicket/TicketReply.pm` | **rebuild obrigatório da imagem** — os `.pm` entram por `COPY` em build time; sem rebuild a criação de fila continua quebrada e a guarda de posse não vale |
+| **sidecar** | fatura de contrato não-crédito, ciclo, `domain/ticket_scope.py` (novo), busca, listas de apoio, dependência `reportlab` | rebuild + up |
+| **admin** | tela de filas com os 4 campos obrigatórios da fila | rebuild + up |
+| **portal** | nada | **não** precisa recriar |
+
+**Nenhuma migration** — nenhuma tabela nova; `totals` é JSONB e as chaves novas
+são aditivas. A cabeça da cadeia segue `0026_worker_heartbeat`; se `alembic
+heads` apontar outra coisa, **pare e investigue**.
+
+**Nenhuma operação GI nova e nenhum `.pm` novo** — os webservices
+`GertiAdmin`/`GertiTicket` **não** precisam de re-import (`Admin::WebService::Update`).
+Ainda assim, confira como guarda que os **três** seguem presentes.
+
+**Pré-requisitos (humano):** nenhum. Nenhum segredo novo, `.env.prod` intocado,
+nenhum hostname novo (ingress Cloudflare **não** se mexe nesta onda).
+
+```bash
+ssh gc 'cd ~/ground-control && git fetch origin && git checkout campanha/onda-0-defeitos && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 0) guarda ANTES de subir: nenhuma migration pendente.
+ssh gc "cd ~/ground-control && $DC run --rm sidecar-migrate uv run alembic current | tail -1"
+ssh gc "cd ~/ground-control && $DC run --rm sidecar-migrate uv run alembic heads   | tail -1"
+#    → os dois devem dizer 0026_worker_heartbeat (head)
+
+# 1) Znuny: rebuild (bakeia os 4 .pm; perl -c é gate de build) e recria web+daemon.
+#    NOTA: recria o core Znuny (DOWNTIME CURTO). Provisionamento é idempotente (D6) —
+#    conferir no log do boot a linha que prova que não houve re-init destrutivo.
+ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-daemon"
+ssh gc 'cd ~/ground-control && docker compose logs znuny-web --since 10m | grep -i "schema already present"'
+#    → [entrypoint:web] Znuny schema already present — skipping DB init (idempotent).
+
+# 2) GUARD (não há re-import; só conferência): os 3 webservices seguem presentes.
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List | grep -iE \"GertiCustomerAuth|GertiAdmin|GertiTicket\""'
+
+# 3) sidecar + console (SEM migration nova). O portal NÃO é recriado.
+ssh gc "cd ~/ground-control && $DC build sidecar admin && $DC run --rm sidecar-migrate && \
+        $DC up -d sidecar sidecar-worker admin && $DC ps"
+
+# 4) reportlab (T-R0.6) precisa existir NO VENV — `uv run`, nunca o python base:
+ssh gc 'cd ~/ground-control && docker compose exec -T sidecar uv run python -c \
+  "import reportlab, weasyprint; print(reportlab.Version, weasyprint.__version__)"'
+```
+
+**Verificação — serviços anteriores intactos:**
+
+```bash
+curl -fsS https://znuny-dev.was.dev.br/znuny/index.pl | grep -qi login && echo ZNUNY_OK
+curl -fsS https://api-dev.was.dev.br/v1/health && echo SIDECAR_OK
+curl -fsSL https://aurora.was.dev.br/ | grep -qi 'Aurora' && echo AURORA_OK
+curl -fsSL https://technova.was.dev.br/ | grep -qi 'TechNova' && echo TECHNOVA_OK
+curl -fsS https://gerti.was.dev.br/login | grep -qi 'login' && echo ADMIN_OK
+curl -fsS https://groundcontrol.was.dev.br >/dev/null && echo LANDING_OK
+```
+
+> **Pegadinha das duas verificações de portal:** `aurora`/`technova` respondem
+> **302 → /login** na raiz; sem `-L` o `grep` do branding não casa e parece falha.
+> Use `curl -fsSL`.
+
+**Verificação — o que esta onda corrigiu (e2e ao vivo):**
+
+1. **Criar fila pelo console.** Login no console → `GET
+   /api/admin/znuny/objects/Queue` tem que trazer `support.SystemAddressList`,
+   `SalutationList` e `SignatureList` **preenchidas** (se vierem vazias, o deploy
+   do sidecar não pegou — `_SUPPORT_LIST_KEYS` é filtro, não documentação) →
+   `POST` da fila com os 4 ids obrigatórios → **201** → conferir no painel nativo
+   (`AdminQueue;Subaction=Change;QueueID=<id>`) que os selects vieram marcados.
+   Contraprova: `POST` sem os campos → **422** nomeando os que faltam.
+2. **Guarda de posse do chamado.** Usuário de papel `helpdesk` pedindo
+   `/tickets/<id>` de colega da mesma empresa → **404** (nunca 403, nunca o
+   chamado); a busca do portal **não** devolve o chamado do colega; o papel
+   `admin` do portal continua vendo a empresa inteira. `reply` e `csat` do
+   chamado alheio → **404** também.
+3. **T-R13.1 — caminho de falha da trava de calendário.** Ver o bloco abaixo.
+
+> **Como forçar a falha da 2ª das 3 gravações do calendário, com segurança.**
+> `PUT /v1/admin/znuny/calendar` grava **três** settings em sequência
+> (`TimeWorkingHours` → `TimeVacationDays` → `TimeVacationDaysOneTime`) e não
+> existe transação que abranja os três. Para exercitar a falha **depois** do
+> `SettingLock` (que é onde mora o risco de trava presa), o caminho mais cirúrgico
+> é um **trigger de injeção** no Postgres, escopado por NOME de setting, sobre um
+> **calendário não usado** (confira antes: `select calendar_name from queue` /
+> `from sla` — nenhum pode apontar para o alvo):
+>
+> ```sql
+> CREATE OR REPLACE FUNCTION gerti_tr131_inject() RETURNS trigger AS $$
+> BEGIN
+>   IF NEW.name = 'TimeVacationDays::Calendar9' THEN
+>     RAISE EXCEPTION 'falha injetada na 2a gravacao';
+>   END IF;
+>   RETURN NEW;
+> END; $$ LANGUAGE plpgsql;
+> CREATE TRIGGER gerti_tr131_inject_trg BEFORE INSERT OR UPDATE ON sysconfig_modified
+>   FOR EACH ROW EXECUTE FUNCTION gerti_tr131_inject();
+> ```
+>
+> `ModifiedSettingAdd` insere em `sysconfig_modified` **antes** de
+> `sysconfig_modified_version`, então a exceção aborta cedo e **não deixa órfão**.
+> Depois do teste: `DROP TRIGGER`/`DROP FUNCTION` e devolva o calendário ao estado
+> original com `SettingReset` (lock → reset → unlock → deploy), que apaga a linha
+> de `sysconfig_modified` e restaura o default de fábrica — mais limpo que
+> regravar o valor antigo.
+
+**Rollback (escrito antes de subir; sha anterior do staging = `214842b`):**
+
+```bash
+$DC stop admin                                        # as telas novas somem
+git checkout 214842b -- apps/sidecar apps/admin znuny/    # (ou: git checkout main)
+$DC build znuny-web sidecar admin
+$DC up -d znuny-web znuny-daemon sidecar sidecar-worker admin
+```
+
+**Nenhuma migration a desfazer** (a cabeça não mudou: `0026_worker_heartbeat`);
+nenhum webservice a reimportar; `.env.prod` e o ingress Cloudflare não foram
+tocados. **NUNCA** `make reset`.
+
+> **Status (2026-08-15): DEPLOYADO em staging e verificado ao vivo.** Branch
+> `campanha/onda-0-defeitos` (`42d38af`) no host — **não** mergeada na `main`.
+> Imagem Znuny rebuildada com os 4 `.pm` (`perl -c` verde dentro do container —
+> note que `AdminObjectList.pm` precisa de `-ICustom` no `perl -c` manual, porque
+> carrega o `AdminSpec` irmão do overlay), `znuny-web`/`znuny-daemon` recriados e
+> Healthy, boot com `Znuny schema already present — skipping DB init (idempotent)`
+> (sem re-init destrutivo). `sidecar`, `sidecar-worker` e `admin` recriados e
+> Healthy; `portal` **não** foi tocado (nada mudou nele) e seguiu de pé o tempo
+> todo. `alembic current` = `heads` = **`0026_worker_heartbeat`** antes e depois.
+> Os 3 webservices intactos (`GertiCustomerAuth` 1 + `GertiAdmin` 2 + `GertiTicket` 3).
+> `reportlab 5.0.0` + `weasyprint 69.0` importam no venv.
+>
+> **Prova (a) — criar fila pelo console, o defeito principal.** `GET
+> objects/Queue` trouxe `support` com as **7** listas, incluindo as três que o
+> sidecar descartava: `SystemAddressList {1: Znuny System <znuny@localhost>}`,
+> `SalutationList {1: …}`, `SignatureList {1: …}`. `POST` da fila
+> `ZZ-TESTE-ONDA0` → **201** (`ID 10`, com `SystemAddressID/SalutationID/
+> SignatureID = 1`). No **painel nativo** (`AdminQueue`) a fila aparece na lista e
+> o formulário de edição traz os selects marcados: `SystemAddressID →
+> znuny@localhost`, `SalutationID → system standard salutation (en)`,
+> `SignatureID → system standard signature (en)`. Contraprova no mesmo endpoint,
+> sem os campos: **422** `AdminObjectAdd: required field(s) missing for 'Queue':
+> SystemAddressID, SalutationID, SignatureID, FollowUpID` — é exatamente o erro
+> que a tela batia antes, agora impossível de emitir pela UI.
+>
+> **Prova (b) — guarda de posse.** Chamado **49** ("Outlook travando ao anexar
+> arquivos grandes", dono `carla.dorneles`, empresa AURORA). Como
+> `helpdesk@auroramoveis.com.br` (papel `helpdesk`): `GET /tickets/49` → **404**;
+> busca `?q=Outlook` → `{"tickets":[]}`. Controle positivo com `carla.dorneles`
+> (também `helpdesk`, dona do 49): busca devolve **só** o 49 e **não** o 36 do
+> colega; `GET /tickets/49` → **200**, `GET /tickets/36` → **404**;
+> `POST /tickets/36/reply` e `POST /tickets/36/csat` → **404**
+> `ticket_not_found` (nada foi escrito no chamado alheio). Regressão do admin:
+> `eduardo.salvi@auroramoveis.com.br` (papel `admin`) lista os **22** chamados da
+> AURORA e abre o 49 → **200**.
+>
+> **Prova (c) — T-R13.1, o caminho de falha do `SettingLock`, contra o Znuny
+> real.** Falha injetada na **2ª** das 3 gravações (trigger escopado a
+> `TimeVacationDays::Calendar9`, calendário não referenciado por nenhuma fila/SLA).
+> `PUT /calendar` → **422** com o corpo nomeando os dois lados:
+> `{"applied":["TimeWorkingHours::Calendar9"],"failed_setting":
+> "TimeVacationDays::Calendar9"}`. `gerti.audit_log` registrou a aplicação
+> parcial: *"calendário 9: aplicação PARCIAL (1/3) — falhou em
+> TimeVacationDays::Calendar9"*, com `applied`, `failed_setting` e `error` no
+> metadata. **E a asserção que importa:** o `SettingLock` do setting que falhou
+> ficou **LIBERADO** — `exclusive_lock_guid = '0'`, `exclusive_lock_user_id` e
+> `exclusive_lock_expiry_time` nulos; zero locks presos em **toda** a
+> `sysconfig_default`. A 1ª gravação ficou aplicada e deployada (`is_dirty=0`) e a
+> 3ª nem foi tentada, como o contrato manda. Throwaways desfeitos: trigger e
+> função removidos, `Calendar9` devolvido ao default por `SettingReset` (o `GET`
+> do calendário voltou **byte a byte igual** ao snapshot pré-teste; o calendário
+> **padrão** nunca foi tocado, também conferido por diff).
+>
+> **Limpeza:** fila `ZZ-TESTE-ONDA0` **invalidada** (`ValidID=2`) pelo console —
+> o Znuny invalida, não exclui, então ela **fica** na base como fila inválida
+> (id 10), que é o estado terminal esperado. Nenhum chamado de teste foi criado.
+> As linhas de `gerti.audit_log` do teste permanecem (a trilha é append-only por
+> desenho). O `Calendar9` voltou ao estado de fábrica.
+>
+> **Dois achados que só a execução ao vivo revelou (nenhum é regressão desta
+> onda; ambos são pré-existentes e ficam registrados como dívida):**
+>
+> 1. **A gravação do calendário estoura o timeout do cliente.** Uma chamada
+>    `AdminSysConfigSet` neste staging leva **~12 s** (medido: `tempo=11.98s`,
+>    `http=200`, `Deployed=1`), contra o `_TIMEOUT = 10.0` de
+>    `znuny_admin_sysconfig.py`. Resultado: o console devolve **503** com
+>    `{"applied":[],"failed_setting":"TimeWorkingHours::Calendar9"}` e **mensagem
+>    vazia** (o `str()` de um `httpx.ReadTimeout` é vazio) numa gravação que o
+>    Znuny pode estar concluindo do outro lado. É o modo de falha que a própria
+>    tela existe para evitar — "não apliquei nada" quando talvez tenha aplicado.
+>    Nas três repetições observadas nada chegou a ser gravado (`change_time`
+>    inalterado) e **nenhum lock ficou preso**, mas isso é dependente de tempo,
+>    não garantido. Correção óbvia: subir o timeout dessa chamada (a operação faz
+>    `ConfigurationDeploy`, é lenta por natureza) e nunca deixar a mensagem vazia.
+> 2. **O papel do portal é resolvido pela string exata do login.**
+>    `gerti.portal_user_role` guarda `eduardo.salvi@auroramoveis.com.br`; quem
+>    entra como `eduardo.salvi` (login curto, aceito desde a correção de
+>    2026-07-30) cai no papel **default** `helpdesk` e passa a ver só os próprios
+>    chamados — a mesma pessoa enxerga coisas diferentes conforme o formato do
+>    login que digitou. Confirmado ao vivo: `/api/portal/me` devolve
+>    `role: "helpdesk"` para `eduardo.salvi` e `role: "admin"` para o e-mail
+>    completo. O console já canonicaliza o login do agente; o portal não faz o
+>    equivalente para o papel.

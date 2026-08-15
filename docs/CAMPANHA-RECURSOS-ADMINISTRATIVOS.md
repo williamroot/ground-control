@@ -12,17 +12,29 @@ Uma linha por tarefa: estado, gate, evidência de aceite, sha deployado.
 
 Branch `campanha/onda-0-defeitos`, a partir de `main @ 50fb3c9`.
 
+**Sha deployado em staging: `42d38af`** (2026-08-15) — branch rodando no host, **não**
+mergeada na `main`. Runbook, provas e rollback em
+[`../.ia/OPS.md`](../.ia/OPS.md), seção "Deploy da Onda 0". Sha anterior do
+staging: `214842b`.
+
 ### Tarefas
 
-| Tarefa | O que corrigiu | Estado | Evidência |
+| Tarefa | O que corrigiu | Estado | Sha deployado | Evidência |
+|---|---|---|---|---|
+| **T-R15.4** | Fatura de contrato não-crédito saía R$ 0,00 | ✅ | `42d38af` | `test_invoice_service.py` — banco de horas 12 h sobre franquia de 10 h a R$ 200/h → **R$ 400,00** (antes: 0) |
+| **T-R9.2 + T-R9.3** (= T-R10.1) | Criar fila pelo console falhava sempre | ✅ | `42d38af` | `znuny-object.test.ts` — 51 casos; paridade Perl↔Python em `test_admin_znuny_router.py`. **Ao vivo no staging:** listas de apoio preenchidas, `POST` da fila → **201**, fila visível no painel nativo com o endereço de sistema escolhido; sem os campos → **422** nomeando-os |
+| **T-R2.4** | Detalhe de chamado mais permissivo que a lista | ✅ | `42d38af` | `test_tickets_router.py` — helpdesk pedindo chamado de colega → **404**. **Ao vivo:** helpdesk → 404 no chamado do colega, **200** no próprio; admin do portal vê os 22 da empresa |
+| **T-R2.4 (extensão)** | `reply` e `submit_csat` tinham a mesma falha | ✅ | `42d38af` | 4 testes novos; admin do portal preservado (201). **Ao vivo:** `reply` e `csat` em chamado alheio → **404** `ticket_not_found` |
+| **T-R3.1** | Catálogo de contratos sem teste-guarda | ✅ | `42d38af` | `test_admin_contracts.py`, `test_enums.py` |
+| **T-R0.6** | Fallback ReportLab era código morto | ✅ | `42d38af` | Dependência declarada; a suíte fecha no macOS sem as libs nativas do WeasyPrint. **Ao vivo:** `reportlab 5.0.0` importa no venv do sidecar |
+| **T-R13.1** | Trava de calendário nunca exercitada contra o Znuny real | ✅ | `42d38af` | **Exercitada no staging contra o Znuny real (2026-08-15)** com falha injetada de verdade na 2ª das 3 gravações: resposta **422** nomeando `applied` e `failed_setting`, `audit_log` com "aplicação PARCIAL (1/3)", e o `SettingLock` do setting que falhou **LIBERADO** (`exclusive_lock_guid='0'`, sem lock preso em toda a `sysconfig_default`). Procedimento e saída em `../.ia/OPS.md` |
+
+### Achados do deploy (pré-existentes, não são regressão desta onda)
+
+| Achado | Gravidade | Onde | Onda |
 |---|---|---|---|
-| **T-R15.4** | Fatura de contrato não-crédito saía R$ 0,00 | ✅ | `test_invoice_service.py` — banco de horas 12 h sobre franquia de 10 h a R$ 200/h → **R$ 400,00** (antes: 0) |
-| **T-R9.2 + T-R9.3** (= T-R10.1) | Criar fila pelo console falhava sempre | ✅ | `znuny-object.test.ts` — 51 casos; paridade Perl↔Python em `test_admin_znuny_router.py` |
-| **T-R2.4** | Detalhe de chamado mais permissivo que a lista | ✅ | `test_tickets_router.py` — helpdesk pedindo chamado de colega → **404** |
-| **T-R2.4 (extensão)** | `reply` e `submit_csat` tinham a mesma falha | ✅ | 4 testes novos; admin do portal preservado (201) |
-| **T-R3.1** | Catálogo de contratos sem teste-guarda | ✅ | `test_admin_contracts.py`, `test_enums.py` |
-| **T-R0.6** | Fallback ReportLab era código morto | ✅ | Dependência declarada; a suíte fecha no macOS sem as libs nativas do WeasyPrint |
-| **T-R13.1** | Trava de calendário nunca exercitada contra o Znuny real | ⏳ | Manual, no staging, depois do deploy |
+| **A gravação do calendário estoura o timeout do cliente.** `AdminSysConfigSet` leva ~12 s no staging (faz `ConfigurationDeploy`) contra `_TIMEOUT = 10.0` do cliente; o console devolve **503 com mensagem vazia** e `applied: []` numa gravação que o Znuny pode estar concluindo — exatamente o "aplicação parcial silenciosa" que o Bloco D existe para evitar | alto | `integrations/znuny_admin_sysconfig.py` | a definir |
+| **O papel do portal é resolvido pela string exata do login.** `eduardo.salvi` cai em `helpdesk` (papel default) e `eduardo.salvi@auroramoveis.com.br` em `admin` — a mesma pessoa vê coisas diferentes conforme o formato que digitou. O console já canonicaliza o login do agente; o portal não faz o equivalente para o papel | alto | resolução de papel do portal (`portal_user_role`) | a definir |
 
 ### Achados que a onda não previu
 
