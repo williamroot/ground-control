@@ -69,7 +69,24 @@ _TIMEOUT = 15.0
 
 # Listas de apoio que o AdminObjectList pode devolver junto dos itens (a UI
 # precisa delas para montar selects — senão o console teria que adivinhar ids).
-_SUPPORT_LIST_KEYS = ("GroupList", "StateTypeList", "ValidList", "CalendarList")
+#
+# ATENÇÃO ao manter esta tupla em dia com o `AdminObjectList.pm`: ela é um FILTRO,
+# não uma documentação. Lista que o Perl devolve e não está aqui é **descartada em
+# silêncio** e nunca chega ao console. Foi exatamente o que aconteceu com as três
+# últimas (T-R9.3): o Perl já as mandava, o sidecar as jogava fora, e criar fila
+# pelo console seguia impossível — com os selects vazios e sem erro nenhum.
+#
+# As três últimas são obrigatórias na criação de fila (`AdminSpec.pm`,
+# `RequiredOnAdd`), então sem elas a tela não tem como montar o formulário.
+_SUPPORT_LIST_KEYS = (
+    "GroupList",
+    "StateTypeList",
+    "ValidList",
+    "CalendarList",
+    "SystemAddressList",
+    "SalutationList",
+    "SignatureList",
+)
 
 
 @dataclass(frozen=True)

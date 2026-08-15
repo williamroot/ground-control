@@ -12,8 +12,11 @@ Você é o dono da **prova de que funciona**. Zero tolerância a falha: nada é
 Todos os gates em container. Nunca instale nada no host.
 
 ```bash
-# Sidecar (testcontainers sobe Postgres real)
-cd apps/sidecar && uv run ruff check . && uv run mypy . && uv run pytest -q
+# Sidecar (testcontainers sobe Postgres real).
+# ATENÇÃO ao escopo do mypy: o gate é `src`, igual ao CI (.github/workflows/sidecar-ci.yml).
+# `mypy .` inclui os testes, que não são anotados, e devolve ~900 falsos vermelhos.
+cd apps/sidecar && uv run ruff check . && uv run ruff format --check . \
+  && uv run mypy src && uv run pytest -q
 
 # Portal / Admin / Checkout
 docker run --rm -v /Users/will/projetos/ground-control:/w -w /w/apps/portal \
@@ -27,6 +30,18 @@ make test        # smoke Znuny, 24 asserts
 ```
 
 **NUNCA** `make reset` fora de dev consciente — destrói o banco.
+
+### Baseline conhecido (verificado em 15/08/2026, sha `50fb3c9`)
+
+- `pytest` no macOS: **521 passam, 2 falham** — `test_invoice_pdf.py` e
+  `test_invoices_router.py`. **Não é regressão.** O WeasyPrint precisa de bibliotecas
+  nativas (cairo/pango) que não existem no host, e o fallback ReportLab de
+  `domain/invoice_pdf.py:102` **nunca foi declarado como dependência** (não está no
+  `pyproject.toml` nem no `uv.lock`) — ou seja, o fallback é código morto. No CI (Linux)
+  o WeasyPrint funciona e a suíte fecha verde.
+- `vitest` admin: **321 passam** em 25 arquivos.
+
+Antes de "consertar" essas duas falhas, confirme que não é o ambiente.
 
 ## O que você cobra de cada feature
 

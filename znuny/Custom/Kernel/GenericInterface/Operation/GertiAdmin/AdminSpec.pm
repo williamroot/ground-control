@@ -4,11 +4,12 @@
 # AdminObjectList/Get/Add/Update generic GI operations. This is NOT a GI
 # operation itself (no Run(), never appears in a webservice YAML) — it is the
 # single hardcoded map from an object KEY the request may send (Queue, SLA,
-# Service, Type, State, Priority) to the real Znuny Perl class/methods/fields.
+# Service, Type, State, Priority, SystemAddress) to the real Znuny Perl
+# class/methods/fields.
 #
 # Why this file exists: the dispatcher guard is "the request never names a
 # Perl class or method" — only this table may do that translation, and only
-# for the six keys below. An unknown key must error before anything is
+# for the seven keys below. An unknown key must error before anything is
 # loaded; a field outside an object's Fields list must error explicitly,
 # never be silently dropped (see plan Bloco A guards).
 #
@@ -42,8 +43,16 @@ For each object key:
                     7.2 core: the only name that differs from the row key is
                     the id itself, handled via Get/UpdateIDParam above)
     RequiredOnAdd - subset of Fields that AdminObjectAdd must reject as
-                    missing (ValidID is intentionally excluded here: it
-                    defaults to 1, same convention as CustomerCompanyAdd)
+                    missing. Convention: ValidID is normally excluded here,
+                    because AdminObjectAdd defaults it to 1 when the caller
+                    omits it (same convention as CustomerCompanyAdd).
+                    EXCEPTION - SystemAddress lists ValidID explicitly:
+                    Kernel::System::SystemAddress::SystemAddressAdd itself
+                    hard-rejects without it ("Need ValidID!", verified in
+                    7.2.3 core), unlike QueueAdd & friends. Listing it does
+                    not break a caller that omits it (AdminObjectAdd fills
+                    the default BEFORE MissingRequired runs); it documents
+                    the native contract instead of hiding it.
 
 =cut
 
@@ -141,6 +150,32 @@ our %ObjectSpec = (
         UpdateIDParam => 'PriorityID',
         Fields        => [qw(Name ValidID)],
         RequiredOnAdd => [qw(Name)],
+    },
+
+    # T-R9.2 — the queue's reply address. Without this key the console had no
+    # way to discover a valid SystemAddressID, and Queue's RequiredOnAdd
+    # (above) made creating a queue impossible.
+    #
+    # Signature verified against 7.2.3 core (/opt/otrs/Kernel/System/
+    # SystemAddress.pm inside the znuny-web image):
+    #   SystemAddressAdd    - needs Name, ValidID, Realname, QueueID, UserID
+    #   SystemAddressGet    - needs ID; the returned row keys the id as ID
+    #   SystemAddressUpdate - needs ID, Name, ValidID, Realname, QueueID, UserID
+    #   SystemAddressList   - Valid => 0 lists invalid rows too
+    # Note SystemAddressUpdate refuses to set ValidID > 1 while the address is
+    # still referenced by a queue or auto response — that rejection surfaces as
+    # AdminObjectUpdate.UpdateError, which is the native (and correct) behaviour.
+    SystemAddress => {
+        Module        => 'Kernel::System::SystemAddress',
+        ListMethod    => 'SystemAddressList',
+        GetMethod     => 'SystemAddressGet',
+        AddMethod     => 'SystemAddressAdd',
+        UpdateMethod  => 'SystemAddressUpdate',
+        GetIDParam    => 'ID',
+        GetIDField    => 'ID',
+        UpdateIDParam => 'ID',
+        Fields        => [qw(Name Realname Comment ValidID QueueID)],
+        RequiredOnAdd => [qw(Name Realname ValidID QueueID)],
     },
 );
 

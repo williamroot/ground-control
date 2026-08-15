@@ -10,6 +10,7 @@ Sessão admin via cookie gsid_adm (encode_admin_session); host gerti.was.dev.br.
 from __future__ import annotations
 
 import uuid
+from typing import Literal, get_args, get_origin
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -21,6 +22,8 @@ from gerti_sidecar.auth.admin_session import encode_admin_session
 from gerti_sidecar.config import get_settings
 from gerti_sidecar.main import create_app
 from gerti_sidecar.models import Tenant, ZnunyInstance
+from gerti_sidecar.models.enums import ContractType
+from gerti_sidecar.routers.admin_contracts import ContractTypeIn
 
 _HOST = {"host": "gerti.was.dev.br"}  # casa o bypass admin do TenantMiddleware
 
@@ -213,3 +216,71 @@ async def test_duplicate_code_per_tenant_is_4xx(
             json=_base_body("DUP-1", "credit_brl"),
         )
     assert 400 <= second.status_code < 500, second.text
+
+
+# --- V-R3.1: o catálogo de tipos de contrato é fechado -----------------------
+
+
+@pytest.mark.asyncio
+async def test_unknown_contract_type_is_422_and_persists_nothing(
+    engine, app_session_factory, session, monkeypatch
+) -> None:
+    """Tipo fora do catálogo é recusado na borda, ANTES de tocar o banco.
+
+    O 422 sozinho não provaria nada: um router que gravasse e só depois
+    recusasse devolveria o mesmo status. Por isso a contagem de linhas em
+    `gerti.contract` (sob o GUC do tenant) tem de continuar zero.
+    """
+    st = _settings(monkeypatch)
+    tenant_id = await _seed_tenant(session, subdomain="unknown-type")
+    _wire(monkeypatch, engine, app_session_factory)
+
+    transport = ASGITransport(app=create_app())
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        c.cookies.set("gsid_adm", encode_admin_session("william", st))
+        r = await c.post(
+            f"/v1/admin/tenants/{tenant_id}/contracts",
+            headers=_HOST,
+            json=_base_body("BAD-TYPE", "intercambio"),
+        )
+    assert r.status_code == 422, r.text
+    # O 422 tem de ser do campo `type`, não de outro campo do corpo.
+    assert any("type" in (d.get("loc") or ()) for d in r.json()["detail"]), r.text
+
+    # Nenhuma linha gravada para este tenant (RLS: GUC = tenant do teste).
+    async with app_session_factory() as s:
+        async with s.begin():
+            await s.execute(
+                text("SELECT set_config('app.current_tenant', :tid, true)"),
+                {"tid": str(tenant_id)},
+            )
+            total = await s.scalar(text("SELECT count(*) FROM gerti.contract"))
+            by_code = await s.scalar(
+                text("SELECT count(*) FROM gerti.contract WHERE code = :code"),
+                {"code": "BAD-TYPE"},
+            )
+    assert total == 0, "router recusou o tipo mas gravou contrato"
+    assert by_code == 0
+
+
+def test_contract_type_in_is_a_closed_literal_matching_the_enum() -> None:
+    """Guarda de contrato de tipo: `ContractTypeIn` é `Literal` == `ContractType`.
+
+    Por que inspecionar o símbolo em vez de só mandar um tipo inválido:
+      • trocar `Literal[...]` por `str` no router abriria o catálogo, e um
+        teste que só afirma "422 para tipo desconhecido" não diz *onde* a
+        recusa aconteceu nem que ela continua sendo de validação de schema;
+      • o defeito real que se previne é a **divergência silenciosa** entre o
+        enum do domínio e o `Literal` da borda — acrescentar um tipo em
+        `ContractType` e esquecer do router (ou o contrário) deixaria a API e
+        o domínio discordando sobre o que é um contrato válido.
+    Se este teste quebrar, alinhe os dois lados; não relaxe o assert.
+    """
+    assert get_origin(ContractTypeIn) is Literal, (
+        f"ContractTypeIn deixou de ser Literal (virou {ContractTypeIn!r}) — "
+        "o catálogo de tipos de contrato ficou aberto"
+    )
+    args = get_args(ContractTypeIn)
+    assert set(args) == {e.value for e in ContractType}
+    assert len(args) == len(set(args)) == 6  # os seis tipos, sem repetição
+    assert all(isinstance(a, str) for a in args)

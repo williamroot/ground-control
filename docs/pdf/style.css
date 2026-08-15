@@ -25,7 +25,7 @@
     padding-top: 3mm;
   }
   @bottom-left {
-    content: "Ground Control";
+    content: "Ground Control · WAS Soluções em Tecnologia";
     font-family: "DejaVu Sans", sans-serif;
     font-size: 7.5pt;
     color: #9ca3af;
@@ -56,20 +56,71 @@ body { margin: 0; }
   page: first;
   height: 297mm;
   box-sizing: border-box;
-  padding: 45mm 24mm 24mm 24mm;
-  background: linear-gradient(160deg, #0b1020 0%, #131a33 55%, #1b2246 100%);
+  padding: 30mm 24mm 24mm 24mm;
+  /* Paleta da marca: o "void" da landing (#070A12) abrindo para o azul da estação. */
+  background: linear-gradient(160deg, #070a12 0%, #131a33 55%, #1b2246 100%);
   color: #ffffff;
   page-break-after: always;
   position: relative;
+}
+
+/* Lockup da marca: o crosshair do Ground Control + a assinatura da WAS no rodapé
+ * da capa. É a mesma identidade da landing — uma marca só, não duas. */
+.cover__brand {
+  margin-bottom: 22mm;
+  padding-bottom: 5mm;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.cover__logo {
+  width: 11mm;
+  height: 11mm;
+  vertical-align: middle;
+}
+
+.cover__lockup {
+  display: inline-block;
+  vertical-align: middle;
+  padding-left: 4mm;
+}
+
+.cover__wordmark {
+  display: block;
+  font-size: 13pt;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #ffffff;
+}
+
+.cover__tagline {
+  display: block;
+  font-size: 7pt;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #8a93a6;
+  padding-top: 1.2mm;
 }
 
 .cover__mark {
   font-size: 8pt;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: #7dd3c0;
-  margin-bottom: 14mm;
+  color: #ff6b1a;
+  margin-bottom: 5mm;
 }
+
+.cover__was {
+  margin-top: 4mm;
+  padding-top: 3mm;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 8pt;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #8a93a6;
+}
+
+.cover__was strong { color: #ff6b1a; font-weight: 700; }
 
 .cover__title {
   font-size: 30pt;
@@ -264,6 +315,46 @@ blockquote {
 }
 
 blockquote p:last-child { margin-bottom: 0; }
+
+/* ---------- Imagens e legendas ---------- */
+
+main img {
+  max-width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 3px;
+  page-break-inside: avoid;
+}
+
+/* Still de vídeo: largura contida, para não roubar a página do texto. */
+main img[src*="assets/"] {
+  width: 78mm;
+  display: block;
+  margin: 3mm 0 1.5mm 0;
+}
+
+.legenda {
+  font-size: 8pt;
+  color: #6b7280;
+  border-left: 2px solid #ff6b1a;
+  padding-left: 3mm;
+  margin: 0 0 5mm 0;
+  max-width: 120mm;
+}
+
+.legenda strong { color: #374151; }
+
+/* ---------- Estado de cobertura (levantamento de requisitos) ---------- */
+
+.estado-coberto,
+.estado-parcial,
+.estado-ausente {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.estado-coberto { color: #047857; }
+.estado-parcial { color: #b45309; }
+.estado-ausente { color: #b91c1c; }
 
 /* "Esperado:" — a linha que a pessoa procura ao voltar ao documento. */
 .ok {

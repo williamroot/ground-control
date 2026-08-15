@@ -64,7 +64,9 @@ async def _seed_tenant(session) -> Tenant:
 
 
 def _wire(monkeypatch, engine, app_session_factory, *, state: str = "closed successful"):
-    async def fake_get_ticket(*, znuny_ticket_id: int, customer_id: str) -> _FakeTicket:
+    async def fake_get_ticket(
+        *, znuny_ticket_id: int, customer_id: str, customer_user: str | None = None
+    ) -> _FakeTicket:
         return _FakeTicket(znuny_ticket_id=znuny_ticket_id, state=state)
 
     monkeypatch.setattr(znuny_ticket, "get_ticket", fake_get_ticket)

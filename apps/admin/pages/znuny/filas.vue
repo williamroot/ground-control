@@ -10,7 +10,10 @@ import {
   extractItemId,
   extractItems,
   extractSupport,
+  followUpOptions,
   formatMinutes,
+  missingQueueSupportLists,
+  optionsWithCurrent,
   queueDraftFromItem,
   toOptions,
   validateQueueDraft,
@@ -21,18 +24,8 @@ import {
 
 definePageMeta({ middleware: 'admin-auth' })
 
-interface QueueRow {
+interface QueueRow extends QueueDraft {
   id: string
-  Name: string
-  GroupID: string
-  Comment: string
-  ValidID: string
-  FirstResponseTime: string
-  UpdateTime: string
-  SolutionTime: string
-  Calendar: string
-  FollowUpID: string
-  UnlockTimeout: string
 }
 
 const headers = useRequestHeaders(['cookie'])
@@ -55,6 +48,11 @@ const support = computed(() => extractSupport(raw.value))
 const groupOptions = computed(() => toOptions(support.value.GroupList))
 const validOptions = computed(() => toOptions(support.value.ValidList))
 const calendarOptions = computed(() => toOptions(support.value.CalendarList))
+// Listas de apoio dos campos obrigatórios da fila (endereço de resposta,
+// saudação, assinatura) — vêm do mesmo `support` da listagem.
+const systemAddressOptions = computed(() => toOptions(support.value.SystemAddressList))
+const missingSupport = computed(() =>
+  pending.value || loadFailed.value ? [] : missingQueueSupportLists(support.value))
 
 function groupName(id: string): string {
   return groupOptions.value.find(o => o.id === id)?.name ?? id ?? '—'
@@ -62,6 +60,10 @@ function groupName(id: string): string {
 function validName(id: string): string {
   const raw = validOptions.value.find(o => o.id === id)?.name ?? id
   return validLabelPt(raw)
+}
+function systemAddressName(id: string): string {
+  if (!id) return '—'
+  return systemAddressOptions.value.find(o => o.id === id)?.name ?? `#${id}`
 }
 
 // --- Criar / editar -----------------------------------------------------
@@ -85,6 +87,20 @@ function openEdit(row: QueueRow) {
 }
 
 const formErrors = computed(() => validateQueueDraft(draft))
+
+// Selects dos quatro campos que o Znuny exige na criação. `optionsWithCurrent`
+// mantém o valor da fila em edição na lista mesmo quando ele não veio no
+// `support` — abrir a edição não pode apagar o endereço de resposta da fila.
+function selectItems(options: { id: string, name: string }[]) {
+  return options.map(o => ({ label: o.name, value: o.id }))
+}
+const systemAddressItems = computed(() =>
+  selectItems(optionsWithCurrent(support.value.SystemAddressList, draft.SystemAddressID)))
+const salutationItems = computed(() =>
+  selectItems(optionsWithCurrent(support.value.SalutationList, draft.SalutationID)))
+const signatureItems = computed(() =>
+  selectItems(optionsWithCurrent(support.value.SignatureList, draft.SignatureID)))
+const followUpItems = computed(() => selectItems(followUpOptions(draft.FollowUpID)))
 
 async function submit() {
   formError.value = ''
@@ -174,6 +190,19 @@ async function confirmInvalidate() {
       class="mb-6"
     />
 
+    <!-- Sem endereço de resposta / saudação / assinatura o Znuny recusa criar
+         qualquer fila. Dizer isso é melhor que um select vazio sem explicação. -->
+    <UAlert
+      v-if="missingSupport.length > 0"
+      color="error"
+      variant="soft"
+      icon="i-lucide-alert-triangle"
+      title="Não dá para criar fila agora"
+      :description="`O Znuny não devolveu ${missingSupport.join(', ')}. Cadastre esses itens no Znuny (ou verifique a integração) antes de criar uma fila — a criação exige os três.`"
+      class="mb-6"
+      data-testid="queue-missing-support"
+    />
+
     <div class="mb-6 flex justify-end">
       <UButton color="primary" icon="i-lucide-plus" @click="openCreate">
         Nova fila
@@ -224,7 +253,10 @@ async function confirmInvalidate() {
         </thead>
         <tbody>
           <tr v-for="row in rows" :key="row.id" class="border-t border-default">
-            <td class="px-4 py-3 font-semibold text-highlighted">{{ row.Name }}</td>
+            <td class="px-4 py-3">
+              <span class="font-semibold text-highlighted">{{ row.Name }}</span>
+              <span class="block text-xs text-dimmed">responde como {{ systemAddressName(row.SystemAddressID) }}</span>
+            </td>
             <td class="px-4 py-3 text-muted">{{ groupName(row.GroupID) }}</td>
             <td class="px-4 py-3">
               <UBadge :color="validBadgeColor(row.ValidID)" variant="soft" size="sm">
@@ -314,14 +346,57 @@ async function confirmInvalidate() {
             </UFormField>
           </div>
 
+          <!-- Obrigatórios do Znuny na criação (RequiredOnAdd da Queue): sem os
+               quatro, o QueueAdd recusa. Ids vêm das listas de apoio da própria
+               listagem — o operador escolhe pelo nome, nunca digita id. -->
           <div class="grid gap-4 sm:grid-cols-2">
-            <UFormField label="Follow-up (id)" help="Id numérico do tipo de follow-up.">
-              <UInput v-model="draft.FollowUpID" type="number" min="0" class="w-full" />
+            <UFormField label="Endereço de resposta" required help="E-mail com que esta fila responde.">
+              <USelect
+                v-model="draft.SystemAddressID"
+                :items="systemAddressItems"
+                placeholder="Selecione o endereço"
+                class="w-full"
+              />
             </UFormField>
-            <UFormField label="Timeout de desbloqueio (min)" :help="formatMinutes(draft.UnlockTimeout)">
-              <UInput v-model="draft.UnlockTimeout" type="number" min="0" class="w-full" />
+            <UFormField label="Saudação" required help="Abertura padrão das respostas da fila.">
+              <USelect
+                v-model="draft.SalutationID"
+                :items="salutationItems"
+                placeholder="Selecione a saudação"
+                class="w-full"
+              />
             </UFormField>
           </div>
+
+          <div class="grid gap-4 sm:grid-cols-2">
+            <UFormField label="Assinatura" required help="Fechamento padrão das respostas da fila.">
+              <USelect
+                v-model="draft.SignatureID"
+                :items="signatureItems"
+                placeholder="Selecione a assinatura"
+                class="w-full"
+              />
+            </UFormField>
+            <UFormField label="Follow-up" required help="O que fazer quando o cliente responde um chamado fechado.">
+              <USelect
+                v-model="draft.FollowUpID"
+                :items="followUpItems"
+                placeholder="Selecione o tratamento"
+                class="w-full"
+              />
+            </UFormField>
+          </div>
+
+          <UFormField label="Timeout de desbloqueio (min)" :help="formatMinutes(draft.UnlockTimeout)">
+            <UInput v-model="draft.UnlockTimeout" type="number" min="0" class="w-full" />
+          </UFormField>
+
+          <!-- Botão desabilitado sem explicação trava o operador — a primeira
+               pendência fica visível enquanto ela existir. -->
+          <p v-if="formErrors.length > 0" class="text-xs text-muted" data-testid="queue-form-pending">
+            Antes de salvar: {{ formErrors[0] }}
+            <span v-if="formErrors.length > 1">(+{{ formErrors.length - 1 }} pendência(s))</span>
+          </p>
         </div>
       </template>
 

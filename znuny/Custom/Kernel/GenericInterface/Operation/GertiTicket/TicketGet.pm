@@ -1,6 +1,9 @@
 # znuny/Custom/Kernel/GenericInterface/Operation/GertiTicket/TicketGet.pm
 # Detalhe + thread de artigos visíveis ao cliente. Guarda de posse: o ticket
-# DEVE pertencer ao CustomerID informado, senão NotFound.
+# DEVE pertencer ao CustomerID informado, senão NotFound. CustomerUserID é
+# OPCIONAL (T-R2.4): quando informado, o ticket também precisa ser do próprio
+# usuário — alinha o detalhe ao escopo `own` que a lista já usa no papel
+# `helpdesk`. Ausente => escopo de empresa (papel `admin` do portal).
 package Kernel::GenericInterface::Operation::GertiTicket::TicketGet;
 
 use strict;
@@ -38,8 +41,22 @@ sub Run {
     my $TicketObject = $Kernel::OM->Get('Kernel::System::Ticket');
     my %T = $TicketObject->TicketGet( TicketID => $D->{TicketID}, DynamicFields => 1, UserID => 1 );
 
-    # Posse: ticket inexistente OU de outra empresa => NotFound (não vaza existência).
-    if ( !%T || ( $T{CustomerID} // '' ) ne $D->{CustomerID} ) {
+    # Posse (empresa): ticket inexistente OU de outra empresa => NotFound.
+    my $NotFound = !%T || ( $T{CustomerID} // '' ) ne $D->{CustomerID};
+
+    # T-R2.4 — posse por USUÁRIO, guarda ADICIONAL (nunca substitui a de
+    # empresa acima). O detalhe era mais permissivo que a lista: a lista usa
+    # escopo `own` para o papel `helpdesk`, o detalhe conferia só a empresa —
+    # um helpdesk que adivinhasse o id abria chamado de colega (IDOR).
+    # CustomerUserID ausente ou vazio => comportamento de antes, escopo de
+    # empresa (papel `admin` do portal continua vendo a empresa inteira).
+    if ( !$NotFound && IsStringWithData( $D->{CustomerUserID} ) ) {
+        $NotFound = ( $T{CustomerUserID} // '' ) ne $D->{CustomerUserID};
+    }
+
+    # Sempre o MESMO NotFound: nunca 403, nunca erro distinto — não pode vazar
+    # a existência do chamado nem para a empresa errada nem para o colega.
+    if ($NotFound) {
         return $Self->ReturnError(
             ErrorCode => 'TicketGet.NotFound', ErrorMessage => 'ticket not found',
         );

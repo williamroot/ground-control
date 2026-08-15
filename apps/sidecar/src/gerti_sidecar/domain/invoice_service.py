@@ -5,12 +5,37 @@ agrega em linhas por source_kind, numera sequencialmente por tenant sob lock, e
 grava 1 fatura `open` (idempotente por ciclo via UNIQUE → InvoiceAlreadyExists).
 Transições: mark_paid/mark_void (terminais), mark_overdue_due (batch p/ worker).
 
+Além do consumo, a fatura reflete o que foi **contratado** (T-R15.4):
+
+- `closed_value` / `saas_product` → linha de **mensalidade** com o valor fixo
+  contratado (`contract.initial_amount_brl`), que é o campo que a UI rotula
+  "Valor inicial (R$)" e que `contract_service._REQUIRED` exige nesses tipos;
+- `hour_bank` → as horas do ciclo aparecem **partidas em duas linhas que somam o
+  consumido**: `Horas dentro da franquia` (quantidade = `min(consumido, franquia
+  efetiva)`, R$ 0,00) e `Horas excedentes` (o que passou da franquia, precificado).
+  Emitir a linha de consumo com o total consumido **e** a de excedente somaria as
+  horas duas vezes na cara do cliente (12 h consumidas viravam 12 h + 2 h = 14 h).
+  Ambos os números saem de `cycle.totals` (`CycleService.close`) — fonte única.
+  Dentro da franquia não há linha de excedente (fatura zerada aí é legítima).
+
+Antes disso, só o consumo era somado — e o worker (`reconciliation_service`) só
+precifica tipos de crédito, então `hour_bank`/`closed_value`/`saas_product`
+faturavam R$ 0,00 sem erro nem alarme.
+
+**`service_count` continua faturando R$ 0,00 — de propósito, por ora.** Contrato
+por limite de atendimento não gera nenhuma linha aqui: não há mensalidade fixa
+(o tipo não exige `initial_amount_brl`) nem excedente calculado no fechamento, e
+o consumo desses contratos não é precificado pelo worker. Fazer `service_count`
+consumir e cobrar de verdade é a tarefa **T-R3.3 (Onda 5)**; até lá, a fatura
+desse tipo sai zerada e isso é conhecido, não um defeito silencioso.
+
 Valores monetários da fatura ficam em centavos (int). billable_amount_brl (Numeric
 BRL) é convertido com arredondamento HALF_UP.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import logging
 import uuid
@@ -36,23 +61,37 @@ from gerti_sidecar.models import (
     InvoiceLine,
     PortalUserRole,
 )
-from gerti_sidecar.models.enums import CycleStatus, InvoiceStatus, PortalRole
+from gerti_sidecar.models.enums import ContractType, CycleStatus, InvoiceStatus, PortalRole
 
 logger = logging.getLogger(__name__)
 
 # Default config — número de dias até o vencimento da fatura emitida.
 DEFAULT_DUE_DAYS = 15
 
+# Kinds sintéticos (não vêm de consumption_event; derivam do contrato/ciclo).
+KIND_MONTHLY_FEE = "monthly_fee"
+KIND_HOUR_BANK_OVERAGE = "hour_bank_overage"
+KIND_HOUR_BANK_INCLUDED = "hour_bank_included"
+
+# Tipos de contrato que faturam um valor fixo contratado por ciclo.
+_FIXED_FEE_TYPES = (ContractType.closed_value, ContractType.saas_product)
+
 # Rótulos amigáveis por source_kind (cai no próprio kind se ausente).
 _KIND_LABELS = {
     "ticket_work": "Atendimento (horas)",
     "travel": "Deslocamento",
+    KIND_MONTHLY_FEE: "Mensalidade",
+    KIND_HOUR_BANK_INCLUDED: "Horas dentro da franquia",
+    KIND_HOUR_BANK_OVERAGE: "Horas excedentes",
 }
 
 # Unidade exibida por source_kind.
 _KIND_UNIT = {
     "ticket_work": "h",
     "travel": "serviço",
+    KIND_MONTHLY_FEE: "mês",
+    KIND_HOUR_BANK_INCLUDED: "h",
+    KIND_HOUR_BANK_OVERAGE: "h",
 }
 
 
@@ -60,6 +99,100 @@ def _brl_to_cents(value: Decimal | float) -> int:
     """Converte um valor BRL para centavos com arredondamento bancário HALF_UP."""
     dec = Decimal(str(value)) if not isinstance(value, Decimal) else value
     return int((dec * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+@dataclasses.dataclass(slots=True)
+class _LineSpec:
+    """Uma linha da fatura antes de virar InvoiceLine (valores ainda em BRL)."""
+
+    kind: str
+    quantity: Decimal
+    amount_brl: Decimal
+
+
+def _hours(minutes: Decimal) -> Decimal:
+    return (minutes / Decimal(60)).quantize(Decimal("0.01"))
+
+
+def _fixed_fee_lines(contract: Contract) -> list[_LineSpec]:
+    """Mensalidade contratada de closed_value/saas_product (1 por ciclo faturado).
+
+    O valor vem de `contract.initial_amount_brl` — o único campo do modelo que
+    carrega o valor fixo contratado nesses dois tipos (exigido por
+    `contract_service._REQUIRED`, rotulado "Valor inicial (R$)" na UI).
+    """
+    if contract.type not in _FIXED_FEE_TYPES:
+        return []
+    amount = Decimal(str(contract.initial_amount_brl or 0))
+    if amount <= 0:
+        return []
+    return [_LineSpec(kind=KIND_MONTHLY_FEE, quantity=Decimal(1), amount_brl=amount)]
+
+
+def _franchise_minutes(contract: Contract, cycle: ContractCycle) -> Decimal | None:
+    """Franquia EFETIVA do ciclo (base + acúmulo), do snapshot do fechamento.
+
+    `None` quando não se aplica (contrato não é `hour_bank`) ou quando o ciclo não
+    tem `totals` — sem snapshot também não há linha de excedente, então a linha de
+    consumo não pode ser recortada (recortar esconderia horas da fatura).
+    """
+    if contract.type != ContractType.hour_bank:
+        return None
+    totals = cycle.totals or {}
+    raw = totals.get("franchise_minutes")
+    if not isinstance(raw, int | float):
+        return None
+    return max(Decimal(0), Decimal(str(raw)))
+
+
+def _consumption_lines(
+    contract: Contract, cycle: ContractCycle, agg: OrderedDict[str, dict[str, Decimal]]
+) -> list[_LineSpec]:
+    """Linhas de consumo agregadas por source_kind.
+
+    Em `hour_bank`, as linhas medidas em horas viram `Horas dentro da franquia`
+    com a quantidade **recortada na franquia efetiva** — o que passa dela é a
+    linha de excedente (`_overage_lines`). Assim consumo + excedente somam
+    exatamente o consumido; sem o recorte, o cliente lia as horas duas vezes.
+    """
+    franchise_left = _franchise_minutes(contract, cycle)
+    specs: list[_LineSpec] = []
+    for kind, bucket in agg.items():
+        unit = _KIND_UNIT.get(kind, "R$")
+        if unit == "h" and franchise_left is not None:
+            included = min(bucket["minutes"], franchise_left)
+            franchise_left -= included
+            if included <= 0:
+                continue
+            specs.append(
+                _LineSpec(
+                    kind=KIND_HOUR_BANK_INCLUDED,
+                    quantity=_hours(included),
+                    amount_brl=bucket["amount"],
+                )
+            )
+            continue
+        # quantity em horas p/ kinds medidos em tempo; senão 1 (nº de eventos como proxy).
+        quantity = _hours(bucket["minutes"]) if unit == "h" else Decimal(1)
+        specs.append(_LineSpec(kind=kind, quantity=quantity, amount_brl=bucket["amount"]))
+    return specs
+
+
+def _overage_lines(contract: Contract, cycle: ContractCycle) -> list[_LineSpec]:
+    """Excedente de banco de horas, tal como calculado no fechamento do ciclo.
+
+    Fonte única da verdade: `cycle.totals` (CycleService.close). Não recalculamos
+    aqui — recalcular divergiria do snapshot do fechamento. Ciclo sem totals
+    (fechado por versão antiga, ou ciclo de faturamento) → sem linha.
+    """
+    if contract.type != ContractType.hour_bank:
+        return []
+    totals = cycle.totals or {}
+    amount = Decimal(str(totals.get("overage_amount_brl") or 0))
+    minutes = Decimal(str(totals.get("overage_minutes") or 0))
+    if amount <= 0:
+        return []
+    return [_LineSpec(kind=KIND_HOUR_BANK_OVERAGE, quantity=_hours(minutes), amount_brl=amount)]
 
 
 class InvoiceService:
@@ -131,25 +264,25 @@ class InvoiceService:
             await sp.rollback()
             raise InvoiceAlreadyExists("ciclo já possui fatura") from exc
 
+        # Ordem da fatura: mensalidade contratada → consumo → excedente do ciclo.
+        specs: list[_LineSpec] = _fixed_fee_lines(contract)
+        specs.extend(_consumption_lines(contract, cycle, agg))
+        specs.extend(_overage_lines(contract, cycle))
+
         subtotal = 0
-        for position, (kind, bucket) in enumerate(agg.items()):
-            amount_cents = _brl_to_cents(bucket["amount"])
-            minutes = bucket["minutes"]
-            unit = _KIND_UNIT.get(kind, "R$")
-            # quantity em horas p/ ticket_work; senão nº de eventos como proxy.
-            if unit == "h":
-                quantity = (minutes / Decimal(60)).quantize(Decimal("0.01"))
-            else:
-                quantity = Decimal(1)
-            unit_price_cents = int(Decimal(amount_cents) / quantity) if quantity else amount_cents
+        for position, spec in enumerate(specs):
+            amount_cents = _brl_to_cents(spec.amount_brl)
+            unit_price_cents = (
+                int(Decimal(amount_cents) / spec.quantity) if spec.quantity else amount_cents
+            )
             subtotal += amount_cents
             self.session.add(
                 InvoiceLine(
                     invoice_id=invoice.id,
                     tenant_id=contract.tenant_id,
-                    description=_KIND_LABELS.get(kind, kind),
-                    quantity=quantity,
-                    unit=unit,
+                    description=_KIND_LABELS.get(spec.kind, spec.kind),
+                    quantity=spec.quantity,
+                    unit=_KIND_UNIT.get(spec.kind, "R$"),
                     unit_price_cents=unit_price_cents,
                     amount_cents=amount_cents,
                     position=position,

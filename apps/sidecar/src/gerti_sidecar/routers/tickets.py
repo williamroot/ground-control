@@ -1,9 +1,15 @@
 # apps/sidecar/src/gerti_sidecar/routers/tickets.py
 """Tickets do portal (Spec #1E): criar / listar / detalhe / responder.
 
-Auth = get_current_session (qualquer papel logado). Escopo de listagem por papel
-(#1H): helpdesk => 'own'; admin => 'company'. Guarda de posse anti-IDOR no
-detalhe/reply (o GI valida CustomerID; ZnunyWriteError 'not found' => 404).
+Auth = get_current_session (qualquer papel logado). Escopo por papel (#1H),
+decidido em `domain.ticket_scope` (PONTO ÚNICO, compartilhado com a busca do
+portal): helpdesk => 'own'; admin => 'company' — a MESMA decisão vale para a
+lista, o detalhe, a resposta, o CSAT e `/v1/search` (T-R2.4: quando divergiram,
+o detalhe deixava um helpdesk abrir chamado de colega da mesma empresa; a
+resposta e o CSAT deixavam ele escrever/avaliar nesse chamado; a busca ainda
+listava esse chamado). Guarda de posse anti-IDOR no detalhe/reply/csat (o GI
+valida CustomerID e, no escopo 'own', o CustomerUserID; ZnunyWriteError
+'not found' => 404, nunca 403).
 Anexos via multipart no POST. RLS por tenant para gravar o link.
 """
 
@@ -24,6 +30,7 @@ from gerti_sidecar.domain.csat_service import (
     CsatService,
     TicketNotClosed,
 )
+from gerti_sidecar.domain.ticket_scope import own_login, ticket_scope
 from gerti_sidecar.domain.ticketing_service import (
     ContractChoiceRequired,
     NoActiveContract,
@@ -33,7 +40,6 @@ from gerti_sidecar.domain.ticketing_service import (
 from gerti_sidecar.integrations import znuny_ticket
 from gerti_sidecar.integrations.znuny_customer_admin import ZnunyUnavailable, ZnunyWriteError
 from gerti_sidecar.models import Tenant
-from gerti_sidecar.models.enums import PortalRole
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
@@ -142,10 +148,9 @@ async def list_tickets(
     request: Request,
     session_payload: SessionPayload = Depends(get_current_session),
 ) -> list[dict[str, object]]:
-    scope = "company" if session_payload["role"] == PortalRole.admin.value else "own"
     try:
         rows = await znuny_ticket.search_tickets(
-            scope=scope,
+            scope=ticket_scope(session_payload),
             customer_user=session_payload["znuny_login"],
             customer_id=_customer_id(request),
         )
@@ -171,8 +176,12 @@ async def get_ticket(
     session_payload: SessionPayload = Depends(get_current_session),
 ) -> dict[str, object]:
     try:
+        # Mesma decisão de escopo da lista: papel != admin => só o próprio
+        # chamado (o GI devolve 'ticket not found' => 404, nunca 403).
         d = await znuny_ticket.get_ticket(
-            znuny_ticket_id=ticket_id, customer_id=_customer_id(request)
+            znuny_ticket_id=ticket_id,
+            customer_id=_customer_id(request),
+            customer_user=own_login(session_payload),
         )
     except ZnunyWriteError as exc:
         raise HTTPException(status_code=404, detail="ticket_not_found") from exc
@@ -215,11 +224,16 @@ async def reply_ticket(
     session_payload: SessionPayload = Depends(get_current_session),
 ) -> dict[str, object]:
     try:
+        # Mesma decisão de escopo da lista/detalhe: papel != admin => só responde
+        # o próprio chamado. `customer_user` é o AUTOR da resposta (sempre o
+        # logado); `customer_user_id` é a GUARDA de posse (None no escopo de
+        # empresa). O GI devolve 'ticket not found' => 404, nunca 403.
         await znuny_ticket.reply_ticket(
             znuny_ticket_id=ticket_id,
             customer_user=session_payload["znuny_login"],
             customer_id=_customer_id(request),
             body=payload.body,
+            customer_user_id=own_login(session_payload),
         )
     except ZnunyWriteError as exc:
         raise HTTPException(status_code=404, detail="ticket_not_found") from exc
@@ -247,6 +261,9 @@ async def submit_csat(
     session: AsyncSession = Depends(get_tenant_session),
 ) -> CsatOut:
     try:
+        # Mesma decisão de escopo da lista/detalhe: papel != admin só avalia o
+        # próprio chamado. `customer_login` é quem assina a avaliação;
+        # `customer_user` é a GUARDA de posse (None no escopo de empresa).
         row = await CsatService(session, znuny_ticket).submit(
             tenant_id=_tenant_id(request),
             znuny_ticket_id=ticket_id,
@@ -254,6 +271,7 @@ async def submit_csat(
             customer_id=_customer_id(request),
             score=payload.score,
             comment=payload.comment,
+            customer_user=own_login(session_payload),
         )
     except TicketNotClosed as exc:
         raise HTTPException(status_code=422, detail="ticket_not_closed") from exc

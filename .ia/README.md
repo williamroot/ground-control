@@ -13,6 +13,14 @@
 - `INTEGRATION.md` — como o **sidecar Python** (`apps/sidecar`: fundação + #1C T1) e o domínio de contratos integram com a stack Znuny: layout do monorepo, schema `gerti` compartilhado, RLS multi-tenant, webhooks HMAC, construído vs pendente, como rodar/testar
 - `DEMO.md` — instância de **demonstração**: empresa fictícia, credenciais, inventário, roteiro de apresentação e como (re)semear/resetar
 - `DECISIONS.md` — ADRs: por que cada decisão (PG18, base image, Redis, OpenSearch, gaps, consolidação do monorepo)
+- `../docs/REQUISITOS-RECURSOS-ADMINISTRATIVOS.md` — os 18 requisitos do vídeo do Kleber
+  (administração/configuração), com estado no código, termos de aceite e testes; análise
+  técnica em `../docs/levantamento/`, campanha de execução em
+  `../docs/superpowers/plans/2026-08-15-recursos-administrativos.md`
+- `../docs/SUPOSICOES-A-VALIDAR.md` — as seis leituras do vídeo que assumimos sem
+  confirmação, cada uma com a **chave** que a controla e o procedimento de virada. Toda
+  suposição nasce configurável e com teste nos dois estados — leia antes de cravar
+  qualquer default vindo do vídeo
 - `../docs/decisions/0001-stack.md` — ADR técnico canônico (inglês, gerado no build)
 
 ## Como atualizar

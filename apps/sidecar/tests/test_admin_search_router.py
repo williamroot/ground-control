@@ -78,3 +78,62 @@ async def test_admin_search(engine, app_session_factory, session, monkeypatch):
         assert len(body["tenants"]) == 1
         assert body["tenants"][0]["path"] == f"/clientes/{t.id}"
         assert body["tickets"] == []
+
+
+@pytest.mark.asyncio
+async def test_admin_search_tickets_stay_cross_tenant(
+    engine, app_session_factory, session, monkeypatch
+):
+    """Regressão: o console é do agente da Gerti (gsid_adm) — cross-tenant por design.
+
+    Diferente de `/v1/search` (portal), a busca do console NÃO ganha escopo de
+    usuário/empresa: usa `agent_search` sem `CustomerID` e devolve chamados de
+    todos os tenants.
+    """
+    monkeypatch.setenv("SESSION_SECRET", "test-secret-32-chars-minimum-xxxx")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    get_settings.cache_clear()
+
+    calls: list[str | None] = []
+
+    async def fake_agent_search(*, query, customer_id):
+        calls.append(customer_id)
+        return [
+            znuny_ticket.AgentTicketSummary(
+                znuny_ticket_id=1,
+                ticket_number="1001",
+                title="Impressora da Ana travou",
+                state="open",
+                customer_id="ACME",
+                owner="agente",
+                created="2026-01-01",
+            ),
+            znuny_ticket.AgentTicketSummary(
+                znuny_ticket_id=3,
+                ticket_number="1003",
+                title="Impressora da Globex",
+                state="open",
+                customer_id="GLOBEX",
+                owner="agente",
+                created="2026-01-01",
+            ),
+        ]
+
+    monkeypatch.setattr(znuny_ticket, "agent_search", fake_agent_search)
+    monkeypatch.setattr(
+        db,
+        "AdminSessionLocal",
+        async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession),
+    )
+    monkeypatch.setattr(db, "SessionLocal", app_session_factory)
+
+    app = create_app()
+    st = get_settings()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        c.cookies.set("gsid_adm", encode_admin_session("william", st))
+        ok = await c.get("/v1/admin/search", headers=_HOST, params={"q": "impressora"})
+        assert ok.status_code == 200
+        tickets = ok.json()["tickets"]
+        assert sorted(t["id"] for t in tickets) == ["1", "3"]
+        assert [t["path"] for t in tickets] == ["/atendimento/1", "/atendimento/3"]
+        assert calls == [None], "console não deve filtrar por CustomerID"

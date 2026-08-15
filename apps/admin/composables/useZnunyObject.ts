@@ -41,6 +41,18 @@ export function toOptions(input: unknown): ZnunyOption[] {
   return []
 }
 
+// Opções de um select alimentado por lista de apoio, preservando o valor ATUAL
+// do rascunho quando ele não aparece na lista — fila apontando para um id que
+// foi invalidado/removido no Znuny, ou lista de apoio que o backend não
+// devolveu. Sem isso, abrir a edição de uma fila mostraria o campo em branco e
+// salvar trocaria silenciosamente o valor dela.
+export function optionsWithCurrent(list: unknown, current: string = ''): ZnunyOption[] {
+  const options = toOptions(list)
+  const value = String(current ?? '').trim()
+  if (value === '' || options.some(o => o.id === value)) return options
+  return [...options, { id: value, name: `#${value} (definido no Znuny)` }]
+}
+
 // Extrai a lista de itens da resposta de AdminObjectList, tolerando um
 // envelope `{ items: [...] }`, `{ <Objeto>: [...] }` ou a lista solta.
 export function extractItems(data: unknown, objectKey: string): Record<string, unknown>[] {
@@ -128,6 +140,18 @@ function percentFieldError(value: string, label: string): string | null {
 
 // --- Fila (Queue) ------------------------------------------------------------
 
+// `SystemAddressID`/`SalutationID`/`SignatureID`/`FollowUpID` são o
+// `RequiredOnAdd` da Queue no `AdminSpec.pm`: sem os quatro, o `QueueAdd` do
+// Znuny recusa a criação. O `SystemAddressID` é o endereço de e-mail com que a
+// fila responde ("na fila de suporte usa esse endereço") — campo de negócio,
+// não decoração.
+//
+// Eles também precisam sobreviver à EDIÇÃO: o `AdminObjectUpdate` mescla o que
+// chega sobre a linha atual usando `exists` — chave ausente preserva o valor
+// atual, chave presente com valor vazio SOBRESCREVE. Por isso
+// `queueDraftFromItem` hidrata os quatro a partir do item do Znuny (senão
+// salvar uma fila existente apagaria o endereço de resposta dela) e
+// `buildQueuePayload` omite a chave em vez de mandar vazio.
 export interface QueueDraft {
   Name: string
   GroupID: string
@@ -137,6 +161,9 @@ export interface QueueDraft {
   UpdateTime: string
   SolutionTime: string
   Calendar: string
+  SystemAddressID: string
+  SalutationID: string
+  SignatureID: string
   FollowUpID: string
   UnlockTimeout: string
 }
@@ -151,6 +178,9 @@ export function emptyQueueDraft(): QueueDraft {
     UpdateTime: '',
     SolutionTime: '',
     Calendar: '',
+    SystemAddressID: '',
+    SalutationID: '',
+    SignatureID: '',
     FollowUpID: '',
     UnlockTimeout: '',
   }
@@ -167,10 +197,40 @@ export function queueDraftFromItem(item: Record<string, unknown>): QueueDraft {
     UpdateTime: str(item.UpdateTime),
     SolutionTime: str(item.SolutionTime),
     Calendar: str(item.Calendar),
+    SystemAddressID: str(item.SystemAddressID),
+    SalutationID: str(item.SalutationID),
+    SignatureID: str(item.SignatureID),
     FollowUpID: str(item.FollowUpID),
     UnlockTimeout: str(item.UnlockTimeout),
   }
 }
+
+// Os quatro ids obrigatórios da fila (`RequiredOnAdd` do AdminSpec.pm), com a
+// mensagem de ausência e a de formato. Bloquear aqui é o que impede o payload
+// de sair sem eles — sem essa guarda o Znuny recusa a criação com um 422 que o
+// operador não sabe traduzir.
+const REQUIRED_QUEUE_IDS: { field: keyof QueueDraft, missing: string, invalid: string }[] = [
+  {
+    field: 'SystemAddressID',
+    missing: 'Selecione o endereço de resposta da fila.',
+    invalid: 'Endereço de resposta deve ser um id numérico.',
+  },
+  {
+    field: 'SalutationID',
+    missing: 'Selecione a saudação.',
+    invalid: 'Saudação deve ser um id numérico.',
+  },
+  {
+    field: 'SignatureID',
+    missing: 'Selecione a assinatura.',
+    invalid: 'Assinatura deve ser um id numérico.',
+  },
+  {
+    field: 'FollowUpID',
+    missing: 'Selecione o tratamento de follow-up.',
+    invalid: 'Follow-up deve ser um id numérico.',
+  },
+]
 
 export function validateQueueDraft(draft: QueueDraft): string[] {
   const errors: string[] = []
@@ -188,8 +248,10 @@ export function validateQueueDraft(draft: QueueDraft): string[] {
     const err = minutesFieldError(value, label)
     if (err) errors.push(err)
   }
-  if (draft.FollowUpID.trim() !== '' && !/^\d+$/.test(draft.FollowUpID.trim())) {
-    errors.push('Follow-up deve ser um id numérico.')
+  for (const { field, missing, invalid } of REQUIRED_QUEUE_IDS) {
+    const value = String(draft[field] ?? '').trim()
+    if (value === '') errors.push(missing)
+    else if (!/^\d+$/.test(value)) errors.push(invalid)
   }
   return errors
 }
@@ -207,10 +269,20 @@ export interface QueuePayload {
   UpdateTime?: number
   SolutionTime?: number
   Calendar?: string
+  SystemAddressID?: number
+  SalutationID?: number
+  SignatureID?: number
   FollowUpID?: number
   UnlockTimeout?: number
 }
 
+// Os quatro ids obrigatórios são tipados como opcionais de propósito: um
+// rascunho válido (ver `validateQueueDraft`) SEMPRE os carrega como número, e
+// quando falta valor a chave é omitida (`undefined` some no JSON.stringify) em
+// vez de virar `null`. Isso importa por causa do merge do `AdminObjectUpdate`:
+// chave ausente preserva o valor atual da fila; chave presente com `null`
+// apagaria/derrubaria o update. Na criação, chave ausente vira um 422 explícito
+// do Znuny ("missing required field"), que é o erro honesto.
 export function buildQueuePayload(draft: QueueDraft): QueuePayload {
   const int = (v: string) => (v.trim() === '' ? undefined : Number(v))
   return {
@@ -222,6 +294,9 @@ export function buildQueuePayload(draft: QueueDraft): QueuePayload {
     UpdateTime: int(draft.UpdateTime),
     SolutionTime: int(draft.SolutionTime),
     Calendar: draft.Calendar.trim() || undefined,
+    SystemAddressID: int(draft.SystemAddressID),
+    SalutationID: int(draft.SalutationID),
+    SignatureID: int(draft.SignatureID),
     FollowUpID: int(draft.FollowUpID),
     UnlockTimeout: int(draft.UnlockTimeout),
   }
@@ -231,6 +306,39 @@ export function buildQueuePayload(draft: QueueDraft): QueuePayload {
 // só isso. Mantém os demais campos do rascunho intactos.
 export function buildInvalidateQueuePayload(draft: QueueDraft): QueuePayload {
   return buildQueuePayload({ ...draft, ValidID: '2' })
+}
+
+// Tratamento de follow-up: a tabela `follow_up_possible` do Znuny é semeada na
+// instalação com estes três ids fixos (1 possible / 2 reject / 3 new ticket) e
+// não há lista de apoio para ela no `AdminObjectList`. Se a fila em edição
+// apontar para um id fora dos três (instalação que criou um tipo próprio), ele
+// é preservado como opção extra — nunca sumir da tela, senão salvar trocaria o
+// tratamento da fila sem o operador perceber.
+const FOLLOW_UP_OPTIONS: ZnunyOption[] = [
+  { id: '1', name: 'Permitir follow-up no mesmo chamado' },
+  { id: '2', name: 'Rejeitar follow-up' },
+  { id: '3', name: 'Abrir novo chamado' },
+]
+
+export function followUpOptions(current: string = ''): ZnunyOption[] {
+  const value = current.trim()
+  if (value === '' || FOLLOW_UP_OPTIONS.some(o => o.id === value)) return [...FOLLOW_UP_OPTIONS]
+  return [...FOLLOW_UP_OPTIONS, { id: value, name: `Tratamento #${value} (definido no Znuny)` }]
+}
+
+// Listas de apoio sem as quais não dá para criar fila nenhuma. Se o Znuny não
+// devolve nenhum endereço de e-mail (ou saudação, ou assinatura), o operador
+// precisa LER isso — um select vazio só o deixaria travado sem entender.
+const QUEUE_SUPPORT_LISTS: { key: string, label: string }[] = [
+  { key: 'SystemAddressList', label: 'endereço de resposta (endereços de e-mail)' },
+  { key: 'SalutationList', label: 'saudação' },
+  { key: 'SignatureList', label: 'assinatura' },
+]
+
+export function missingQueueSupportLists(support: Record<string, unknown>): string[] {
+  return QUEUE_SUPPORT_LISTS
+    .filter(({ key }) => toOptions(support?.[key]).length === 0)
+    .map(({ label }) => label)
 }
 
 // --- SLA -----------------------------------------------------------------

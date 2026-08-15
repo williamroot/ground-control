@@ -1,18 +1,24 @@
 # znuny/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminObjectList.pm
 # --
 # Gerti — Spec #4 (Bloco A), ADR D21. Lists every row of one allowlisted
-# object (Queue/SLA/Service/Type/State/Priority), reading the native Znuny
-# API live — the console persists nothing, this operation is the read side
-# of that contract. Also returns the support lists (GroupList/StateTypeList/
-# ValidList/CalendarList) so the console can render selects without a second
-# round trip. The request sends an object KEY, never a Perl class/method —
-# see AdminSpec.pm for the allowlist that translates it.
+# object (Queue/SLA/Service/Type/State/Priority/SystemAddress), reading the
+# native Znuny API live — the console persists nothing, this operation is the
+# read side of that contract. Also returns the support lists (GroupList/
+# StateTypeList/ValidList/CalendarList/SystemAddressList/SalutationList/
+# SignatureList) so the console can render selects without a second round
+# trip. The request sends an object KEY, never a Perl class/method — see
+# AdminSpec.pm for the allowlist that translates it.
+#
+# T-R9.2: the last three support lists exist because Queue's RequiredOnAdd
+# demands SystemAddressID/SalutationID/SignatureID and the console had no way
+# to discover valid ids — creating a queue failed every time.
 #
 # Request:
 #   { AccessToken, AgentLogin, Object }
 # Response:
 #   { Object, Items: [ { ID, <Fields...> }, ... ],
-#     GroupList, StateTypeList, ValidList, CalendarList }
+#     GroupList, StateTypeList, ValidList, CalendarList,
+#     SystemAddressList, SalutationList, SignatureList }
 # --
 package Kernel::GenericInterface::Operation::GertiAdmin::AdminObjectList;
 
@@ -95,8 +101,50 @@ sub Run {
             },
             ValidList    => { $Kernel::OM->Get('Kernel::System::Valid')->ValidList() },
             CalendarList => $Self->_CalendarList(),
+
+            # T-R9.2 — the three lists a queue form needs. Valid => 0 for the
+            # same reason as above: admin screens must see (and be able to
+            # re-validate) invalidated rows. Both SalutationList and
+            # SignatureList take Valid only (no UserID) in 7.2.3 core.
+            SystemAddressList => $Self->_SystemAddressList(),
+            SalutationList    => {
+                $Kernel::OM->Get('Kernel::System::Salutation')->SalutationList( Valid => 0 )
+            },
+            SignatureList => {
+                $Kernel::OM->Get('Kernel::System::Signature')->SignatureList( Valid => 0 )
+            },
         },
     };
+}
+
+# Native SystemAddressList labels each row with the bare e-mail (value0) only,
+# so an operator picking "which address does this queue answer from" sees no
+# human name at all. We keep the exact { id => label } shape of every other
+# support list and only enrich the LABEL, composing it from the two columns
+# SystemAddressGet already returns (Realname + Name) — no invented field, no
+# extra key, nothing persisted. Falls back to the bare e-mail when Realname is
+# empty or identical to it.
+sub _SystemAddressList {
+    my ($Self) = @_;
+
+    my $SystemAddressObject = $Kernel::OM->Get('Kernel::System::SystemAddress');
+
+    # Valid => 0 lists invalid rows too (7.2.3: any defined-but-false Valid).
+    my %Ids = $SystemAddressObject->SystemAddressList( Valid => 0 );
+
+    my %List;
+    for my $ID ( keys %Ids ) {
+        my %Row = $SystemAddressObject->SystemAddressGet( ID => $ID );
+
+        my $Email    = ( defined $Row{Name} && length $Row{Name} ) ? $Row{Name} : $Ids{$ID};
+        my $Realname = $Row{Realname} // '';
+
+        $List{$ID} = ( length $Realname && $Realname ne $Email )
+            ? "$Realname <$Email>"
+            : $Email;
+    }
+
+    return \%List;
 }
 
 sub _ItemFromRow {

@@ -1,0 +1,183 @@
+Falo eu! Boa tarde, tudo bem?
+Cara, conforme prometido aqui, eu vou trazer pra você os pontos que são mais importantes pra gente como administrador da plataforma aqui, tá?
+O Vinícius gravou lá pra você a parte da gestão dos tickets, né?
+Aí depois a gente pode até esclarecer dúvidas, se você tiver visto já o vídeo dele, a gente marca uma sessão e esclarece algumas dúvidas.
+E aqui eu vou te passar toda a parte de configuração da plataforma, né?
+Como que a gente trabalha hoje.
+Primeiro assim, toda vez, qual que é o fluxo da Gert, né?
+Toda vez que entra um contrato novo, que a gente inicia um cadastro,
+mandei uma proposta, fechei um contrato.
+A primeira coisa que eu vou fazer é cadastrar o cliente aqui.
+Então essa tela é uma das telas mais importantes.
+Eu vou meter o botãozinho cliente aqui, ele tem um passo a passo de cadastro do cliente, tá?
+E aí ao final do cadastro do cliente, ele vai me levar pra uma telinha de edição aqui da parada.
+O que a gente configura aqui?
+Se a gente quiser, pode colocar logo, nome fantasia, os dados cadastrados da empresa, endereço, contato, tal, tal, tal.
+Aqui a gente tem os usuários do cliente, e isso é uma coisa bem ruim da plataforma Teiflux,
+porque é o seguinte, usuários que eu quero dar acesso ao portal, eu tenho uma tabela, um cadastro específico.
+Então eu tenho que vir aqui e colocar novo usuário, cadastro o cara.
+Usuários que eu quero que sejam solicitantes, que podem solicitar e-mail,
+eu tenho que vir aqui e cadastrar também o cara como solicitante.
+E aqui embaixo, eu libero tickets por e-mail, tá?
+Normalmente, o que que dá de Zika?
+A pessoa que tá cadastrada no portal, quando ela abre os chamados,
+ele identifica os tickets que foram abertos pelo portal.
+Quando a pessoa manda e-mail, os tickets que ela mandou por e-mail não vai pro portal.
+Então, isso é um defeito na plataforma que a gente já falou diversas vezes.
+Cara, por que que você tem vários cadastros?
+Não é melhor a gente cadastrar um usuário único e dar acesso ao portal,
+deixar esse cara, todo o usuário do cliente já é automaticamente um solicitante, entendeu?
+Então a gente sempre fala isso pra ter fluxo, mas os caras nunca melhoraram o fluxo, tá?
+Então aqui a gente tem um cadastro de cliente, normal, nome, e-mail, telefone e ramal.
+Não tem muito segredo e se o cara tá ativo ou não ativo.
+Basicamente é isso.
+Tem uma função de autorização de tickets, de aprovação, mas a gente não usa.
+Na verdade, na DataStone a gente utiliza, todo ticket passa,
+quando essa chave tá habilitada, todo ticket passa por aqui e vai pra um aprovador.
+Então, no caso aí de vocês, o Pedro tem que aprovar.
+Ele tem acesso ao portal, quando vem um ticket ele recebe um e-mail pra aprovar,
+ele entra lá no portal e aprova ou não aprova o ticket, tá?
+Aqui tem uma visão geral dos tickets de cada cliente, né?
+Que tá cadastrado pra cada cliente.
+Os contratos, aqui a gente já começa a linkar com a proposta que a gente fechou com o cliente,
+a gente vai cadastrar, se vai ser um contrato, entra no fluxo de cadastro do contrato, né?
+Livre, crédito, crédito compartilhado, limite de horas, contrato de SaaS,
+contrato com limite de atendimento.
+E eu criei um tipo de contrato aqui chamado intercâmbio.
+A Teinflux permite personalizar os contratos, mas eu não acho legal isso aqui, cara.
+Acho que a plataforma tem que ter os modelos e o contrato tem que funcionar conforme os fluxos estabelecidos na plataforma.
+Aí a gente segue o passo a passo aqui e cadastra o contrato.
+A partir do momento que a gente cadastrou o contrato, ele vai aparecer aqui pro cliente como um contrato cadastrado.
+Aqui tem uma integração com os recursos dos computadores dos clientes.
+Não necessário pra iniciar agora, né?
+Mas no futuro pode-se ter.
+Os relacionamentos.
+Aqui a gente vai falar quais filas de atendimento o cara vai ter acesso, tá?
+Então a gente tem uma fila padrão.
+Tudo que entra por e-mail vem pra essa fila.
+E aí o analista no nível 1, ele classifica se é uma solicitação, se é um incidente.
+Ou se é uma fila de chamados preventivos, tá?
+E aí a gente tem uma outra fila aqui também chamada de iMac, que é pra movimentação de dispositivos.
+Então isso aqui é personalizável.
+Você pode criar novas filas nas configurações.
+Pode associar quais pessoas vão estar...
+Quais técnicos vão atender cada fila.
+Tem toda uma estratégia de permissionamento lá.
+E aí a parte de faturamento do cliente, que são algumas configurações pra enviar SMS, pra enviar e-mail, né?
+Com detalhamento.
+Se tiver integração com sistemas financeiros, aparece aqui.
+Tem algumas coisinhas assim, tá?
+Isso aqui é a parte de cadastro do cliente.
+Isso é a primeira coisa que a gente faz, tá?
+Quando um cliente entra.
+A outra tela que é importante pra gente é isso aqui, ó.
+Que aqui são as configurações padrão da plataforma.
+Aqui tem algumas configurações gerais da plataforma.
+Que aí, assim, não adianta a gente entrar no detalhe aqui.
+Porque o Zune vai ser de...
+Ele é de um jeito.
+Ele traz algumas configurações ali que são importantes, né?
+Então acho que a gente tem que ter configurações ali focadas no Zune aqui, tá?
+Aqui o que a gente traz de principal, né?
+Tem as importações que a gente pode eventualmente fazer.
+Então, ó.
+Quero importar cadastros, quero importar cliente, quero importar usuário do cliente, quero importar, sei lá.
+Algumas outras coisas.
+Eles têm algumas informações de importação.
+Aqui a gente configura os e-mails também, que vão ser...
+Que vai ter o recebimento, né?
+De...
+Das filas.
+Então, quando enviar para esse e-mail, vai para a fila X.
+Quando enviar para esse e-mail, vai para a fila Y.
+Ou pode ser tudo para diversas filas também.
+Aí é uma questão de estratégia no fluxo.
+A parte de configurações, de autorização dos clientes que recebe.
+Toda vez que cadastra um domínio lá no cliente, ele aparece aqui.
+Mas aqui a gente consegue ver tudo centralizado.
+E os endereços de resposta.
+Então, por exemplo, nas filas de DPO, a gente usa esse.
+Na fila de suporte, usa esse.
+Na fila do administrativo, usa esse.
+Então, tem a entrada do e-mail e a saída do e-mail.
+Se entrou pelo suporte, tem que sair pelo suporte.
+Se entrou pelo financeiro, tem que sair pelo financeiro.
+Entendeu?
+Se entrou por um DPO, que é a fila de encarregado de dados, tem que voltar também pelo encarregado de dados.
+E aqui a gente tem até personalizações para alguns clientes.
+Então, por exemplo, esses caras aqui, quando a gente recebe uma solicitação dele, volta o e-mail por ele também.
+Então, tem essa entrada e saída sempre sincronizada pelo mesmo e-mail.
+Aqui a gente configura as mesas de serviços e atividades agendadas.
+Então, tickets recorrentes.
+Isso aqui a gente tem uma visão, a gente tem atividades que são recorrentes.
+Então, verificação de backup, verificação de pets, vulnerabilidades, atualização de servidor.
+Tem várias atividades aqui que são recorrentes, que acontecem uma vez, que acontecem toda semana, que acontecem todo mês.
+Então, é uma agenda.
+E a gente pode programar recorrência, tá?
+Isso é importante também, porque é o dia a dia dos técnicos, né?
+Então, a gente configura aqui essas agendas.
+Aí tem catálogo de serviço, que a gente pode configurar aqui.
+O que eu vou ter no tipo de solicitação?
+Aí tem aqui acesso à identidade, comunicação e colaboração, backup e recuperação de dados.
+Aqui a gente cadastra o item e o sub-item.
+Aqui só dá dois níveis, tá?
+A parte do catálogo de serviços também é importante.
+Mesas de serviço, que são as filas.
+Então, fila do suporte, fila de solicitação, fila de requisição, fila do DPO, fila para assuntos administrativos.
+O OTRS aqui trata como mesa, mas no Zune é tratado como fila.
+Temos aqui configurações de feriados, checklists personalizáveis.
+Então, tem algumas configurações do sistema.
+Aqui a parte de usuários da plataforma, os grupos de atendente, as permissões.
+Isso é importante também.
+Configurações de recursos, nesse momento não essencial, porque a gente não vai ter integração agora.
+Então, vai ter que deixar para um segundo momento.
+E aqui a parte financeiro, né?
+Que são lá os tipos de contrato, os serviços avulsos, se forem cadastrados aqui, quanto que a gente cobra por hora, tal.
+Para quando o cliente não tem contrato, entrou um serviço avulso, a gente bilheta também aquele cliente e manda nota fiscal e boleto por atendimento.
+E valores extras, caso a gente tenha aqui valor de deslocamento, valor de, sei lá, alguma personalização de contrato para um cliente específico.
+Entendeu?
+Então, essas informações aqui de configuração da plataforma são importantes.
+E aqui a gente coloca a configuração do licenciamento também, tá?
+Esse quadrinho aqui à direita, são o que a gente tem de direito.
+Então, hoje tem sete usuários ativos, a gente tem um total de nove, né?
+Está faltando dois recursos no time, que está em reposição.
+Total de clientes cadastrados, 60.
+Contratos ativos, 43.
+Traz algumas informações.
+Mas, no geral aqui, a gente acaba no usuário cadastrando aqui qual tipo de licença ele tem.
+Então, toda a parte de segurança, nome do usuário, telefone, autenticação MFA, qual licença, qual módulo esse cara vai ter ativo,
+se ele vai poder falar no WhatsApp, se ele vai poder fazer acesso remoto ou não.
+Então, a Georgia aqui, por exemplo, ela só usa tickets e ela não tem acesso remoto.
+Então, ela não vai lá, ela não vê o inventário.
+Agora, por exemplo, o Vinícius, como ele é um cara que tem acesso remoto, ele tem uma integração aqui com o Splash Top e ele acaba tendo essa licença atribuída ao perfil dele.
+Isso aqui impacta no faturamento da plataforma para a gente.
+Então, esses recursos, eu acho que são os mais importantes para a administração que vai ditar o fluxo do sistema.
+Aí, outras coisas que a gente tem aqui, né, que não necessariamente agora, mas que é interessante ter.
+A FAQ, o OTRS já tem, o Zuni já tem uma FAQ, é feinha, mas tem.
+A gente consegue ver também os relatórios.
+Isso aqui, todo mês, a gente manda.
+O que a gente tem aqui, né?
+A gente tem o gráfico de apontamentos do faturamento, né?
+Então, por exemplo, se eu quero saber qual o consumo de cada cliente, eu venho aqui e pego esse cara aqui e vejo nos últimos três meses qual foi o ciclo de utilização dele nos últimos três meses, tá vendo?
+Quando é contrato de hora, é hora, aparece em formato de hora.
+Quando é contrato de grana, aparece em formato de grana, tá vendo?
+Então, isso é importante.
+E tem aqui os relatórios, que a gente chama de relatório executivo.
+Esse aqui, todo mês, a gente manda para os clientes.
+Então, eu tenho um report executivo mensal aqui, que eu vou pegar, por exemplo, maio.
+Vou pegar aqui a data stone, por exemplo.
+Vou exibir isso aqui, ó.
+Aí, isso aqui eu consigo fazer em PDF.
+Ele me dá um resumo de como foi o mês de maio, por exemplo, para o cliente data stone.
+Aí, eu exporto esse relatório e mando essa informação para o cliente, para ele saber quanto gastou, quanto consumiu, quais foram os principais tipos de ticket, né?
+Acho um relatório bem feinho da Teiflux, mas, cara, são indicadores que a gente mostra para o cliente.
+No final, a gente põe a listona de chamados, tá vendo?
+De tudo que foi consumido aí, tá?
+Então, esses pontos, acho que são os mais importantes para a gente poder operar a plataforma, tá?
+Eu acho que é isso, cara.
+Se ficar alguma dúvida, você me avisa.
+Mas eu acho que, em teoria, é isso.
+O cadastro do cliente, o cadastro do contrato do cliente e as configurações padrões do sistema,
+que é fila, SLA, catálogo de serviço, os valores que vão ser cobrados de cada cliente, essas coisas.
+A princípio, eu acho que é isso.
+Beleza?
