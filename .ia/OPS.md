@@ -1491,7 +1491,9 @@ nenhum webservice a reimportar; `.env.prod` e o ingress Cloudflare não foram
 tocados. **NUNCA** `make reset`.
 
 > **Status (2026-08-15): DEPLOYADO em staging e verificado ao vivo.** Branch
-> `campanha/onda-0-defeitos` (`42d38af`) no host — **não** mergeada na `main`.
+> `campanha/onda-0-defeitos` no host — **não** mergeada na `main`. O **código**
+> deployado (imagens construídas) é o de `42d38af`; o host ficou em `318c7ac`, que
+> é este próprio documento e não altera uma linha de código.
 > Imagem Znuny rebuildada com os 4 `.pm` (`perl -c` verde dentro do container —
 > note que `AdminObjectList.pm` precisa de `-ICustom` no `perl -c` manual, porque
 > carrega o `AdminSpec` irmão do overlay), `znuny-web`/`znuny-daemon` recriados e
