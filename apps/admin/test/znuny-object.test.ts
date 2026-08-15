@@ -13,8 +13,11 @@ import {
   extractItems,
   extractSupport,
   formatMinutes,
+  followUpOptions,
   isQueueDraftValid,
   isSlaDraftValid,
+  missingQueueSupportLists,
+  optionsWithCurrent,
   queueDraftFromItem,
   slaDraftFromItem,
   toOptions,
@@ -135,6 +138,23 @@ describe('validLabelPt / validBadgeColor', () => {
   })
 })
 
+// Rascunho mínimo que o Znuny aceitaria criar: além de nome e grupo, os quatro
+// ids do `RequiredOnAdd` da Queue no `AdminSpec.pm` (endereço de resposta,
+// saudação, assinatura, follow-up). Sem eles o `QueueAdd` recusa — era esse o
+// defeito: o console mandava o payload sem os três primeiros e criar fila
+// falhava sempre.
+function baseQueueDraft() {
+  return {
+    ...emptyQueueDraft(),
+    Name: 'Suporte N1',
+    GroupID: '1',
+    SystemAddressID: '1',
+    SalutationID: '1',
+    SignatureID: '1',
+    FollowUpID: '1',
+  }
+}
+
 describe('Fila (Queue) — draft/validação/payload', () => {
   it('emptyQueueDraft começa válida como "valid" (ValidID=1)', () => {
     expect(emptyQueueDraft().ValidID).toBe('1')
@@ -170,24 +190,59 @@ describe('Fila (Queue) — draft/validação/payload', () => {
   })
 
   it('tempos vazios são válidos (opcionais)', () => {
-    const draft = { ...emptyQueueDraft(), Name: 'Suporte N1', GroupID: '1' }
+    const draft = baseQueueDraft()
+    expect(draft.FirstResponseTime).toBe('')
+    expect(draft.UpdateTime).toBe('')
+    expect(draft.SolutionTime).toBe('')
+    expect(draft.UnlockTimeout).toBe('')
     expect(isQueueDraftValid(draft)).toBe(true)
   })
 
   it('aceita um rascunho completo válido', () => {
     const draft = {
-      ...emptyQueueDraft(),
-      Name: 'Suporte N1',
-      GroupID: '1',
+      ...baseQueueDraft(),
       Comment: 'fila padrão',
       ValidID: '1',
       FirstResponseTime: '30',
       UpdateTime: '60',
       SolutionTime: '240',
       Calendar: '1',
-      FollowUpID: '1',
       UnlockTimeout: '15',
     }
+    expect(isQueueDraftValid(draft)).toBe(true)
+  })
+
+  // Regressão do defeito T-R9.3: criar fila falhava sempre porque o console
+  // mandava o payload sem SystemAddressID/SalutationID/SignatureID, que o
+  // AdminSpec.pm exige em RequiredOnAdd. Rascunho sem qualquer um dos quatro
+  // ids NÃO pode ser considerado válido — é o que impede o payload de sair
+  // incompleto de novo.
+  it.each([
+    ['SystemAddressID', 'endereço de resposta'],
+    ['SalutationID', 'saudação'],
+    ['SignatureID', 'assinatura'],
+    ['FollowUpID', 'follow-up'],
+  ] as const)('rejeita rascunho com %s vazio', (field, termo) => {
+    const draft = { ...baseQueueDraft(), [field]: '' }
+    expect(isQueueDraftValid(draft)).toBe(false)
+    expect(validateQueueDraft(draft).some(e => e.toLowerCase().includes(termo))).toBe(true)
+  })
+
+  it('rejeita id obrigatório que não é número', () => {
+    const draft = { ...baseQueueDraft(), SystemAddressID: 'suporte@empresa.com' }
+    expect(isQueueDraftValid(draft)).toBe(false)
+    expect(validateQueueDraft(draft).some(e => e.includes('id numérico'))).toBe(true)
+  })
+
+  it('hidrata os quatro ids obrigatórios ao editar uma fila existente', () => {
+    const draft = queueDraftFromItem({
+      Name: 'Suporte N1', GroupID: 2, ValidID: 1,
+      SystemAddressID: 3, SalutationID: 4, SignatureID: 5, FollowUpID: 1,
+    })
+    expect(draft.SystemAddressID).toBe('3')
+    expect(draft.SalutationID).toBe('4')
+    expect(draft.SignatureID).toBe('5')
+    // editar não pode derrubar o que o Znuny já tem gravado
     expect(isQueueDraftValid(draft)).toBe(true)
   })
 
@@ -201,11 +256,109 @@ describe('Fila (Queue) — draft/validação/payload', () => {
     expect(payload.Comment).toBeUndefined()
   })
 
+  // A outra metade da regressão: validar não basta, o payload precisa SAIR com
+  // os quatro ids — e como número, porque o Znuny os trata como inteiros.
+  it('buildQueuePayload manda os quatro ids obrigatórios como número', () => {
+    const payload = buildQueuePayload({
+      ...baseQueueDraft(),
+      SystemAddressID: '3',
+      SalutationID: '4',
+      SignatureID: '5',
+      FollowUpID: '1',
+    })
+    expect(payload.SystemAddressID).toBe(3)
+    expect(payload.SalutationID).toBe(4)
+    expect(payload.SignatureID).toBe(5)
+    expect(payload.FollowUpID).toBe(1)
+    for (const value of [payload.SystemAddressID, payload.SalutationID, payload.SignatureID, payload.FollowUpID]) {
+      expect(typeof value).toBe('number')
+    }
+  })
+
+  // Chave ausente (undefined) e não `null`: o AdminObjectUpdate mescla por
+  // `exists`, então mandar null apagaria o campo da fila.
+  it('buildQueuePayload omite o id obrigatório vazio em vez de mandar null', () => {
+    const payload = buildQueuePayload({ ...baseQueueDraft(), SystemAddressID: '' })
+    expect(payload.SystemAddressID).toBeUndefined()
+    expect(JSON.stringify(payload)).not.toContain('SystemAddressID')
+  })
+
   it('buildInvalidateQueuePayload força ValidID=2 mantendo os demais campos', () => {
     const draft = { ...emptyQueueDraft(), Name: 'Suporte N1', GroupID: '1', ValidID: '1' }
     const payload = buildInvalidateQueuePayload(draft)
     expect(payload.ValidID).toBe(2)
     expect(payload.Name).toBe('Suporte N1')
+  })
+
+  it('buildInvalidateQueuePayload não perde os ids obrigatórios da fila', () => {
+    const payload = buildInvalidateQueuePayload({
+      ...baseQueueDraft(),
+      ValidID: '1',
+      SystemAddressID: '3',
+      SalutationID: '4',
+      SignatureID: '5',
+      FollowUpID: '2',
+    })
+    expect(payload.ValidID).toBe(2)
+    expect(payload.SystemAddressID).toBe(3)
+    expect(payload.SalutationID).toBe(4)
+    expect(payload.SignatureID).toBe(5)
+    expect(payload.FollowUpID).toBe(2)
+  })
+})
+
+// Listas que alimentam os selects da tela de filas (`pages/znuny/filas.vue`) a
+// partir do bloco `support` de AdminObjectList.
+describe('Fila (Queue) — opções dos selects', () => {
+  it('missingQueueSupportLists aponta cada lista de apoio ausente', () => {
+    expect(missingQueueSupportLists({})).toEqual([
+      'endereço de resposta (endereços de e-mail)',
+      'saudação',
+      'assinatura',
+    ])
+  })
+
+  it('lista presente e não vazia sai do relatório de ausências', () => {
+    const support = {
+      SystemAddressList: { 1: 'Suporte <suporte@empresa.com>' },
+      SalutationList: { 1: 'padrão' },
+      SignatureList: { 1: 'padrão' },
+    }
+    expect(missingQueueSupportLists(support)).toEqual([])
+  })
+
+  it('lista vazia conta como ausente (select vazio trava a criação)', () => {
+    const support = { SystemAddressList: {}, SalutationList: { 1: 'padrão' }, SignatureList: { 1: 'padrão' } }
+    expect(missingQueueSupportLists(support)).toEqual(['endereço de resposta (endereços de e-mail)'])
+  })
+
+  it('optionsWithCurrent normaliza a lista de apoio do sidecar', () => {
+    expect(optionsWithCurrent({ 1: 'Suporte', 2: 'Financeiro' }, '1')).toEqual([
+      { id: '1', name: 'Suporte' },
+      { id: '2', name: 'Financeiro' },
+    ])
+  })
+
+  it('optionsWithCurrent preserva o valor atual que não veio na lista', () => {
+    expect(optionsWithCurrent({ 1: 'Suporte' }, '9')).toEqual([
+      { id: '1', name: 'Suporte' },
+      { id: '9', name: '#9 (definido no Znuny)' },
+    ])
+  })
+
+  it('optionsWithCurrent sem valor atual devolve só a lista', () => {
+    expect(optionsWithCurrent({ 1: 'Suporte' })).toEqual([{ id: '1', name: 'Suporte' }])
+    expect(optionsWithCurrent(undefined, '')).toEqual([])
+  })
+
+  it('followUpOptions traz os três tratamentos semeados pelo Znuny', () => {
+    expect(followUpOptions().map(o => o.id)).toEqual(['1', '2', '3'])
+  })
+
+  it('followUpOptions preserva um tratamento fora dos três padrões', () => {
+    const options = followUpOptions('7')
+    expect(options).toHaveLength(4)
+    expect(options[3]).toEqual({ id: '7', name: 'Tratamento #7 (definido no Znuny)' })
   })
 })
 

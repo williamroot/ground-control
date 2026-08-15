@@ -270,8 +270,22 @@ async def search_tickets(
     ]
 
 
-async def get_ticket(*, znuny_ticket_id: int, customer_id: str) -> TicketDetail:
-    data = await _post("/Ticket/Get", {"TicketID": znuny_ticket_id, "CustomerID": customer_id})
+async def get_ticket(
+    *, znuny_ticket_id: int, customer_id: str, customer_user: str | None = None
+) -> TicketDetail:
+    """Detalhe do ticket com guarda de posse no GI (anti-IDOR).
+
+    `customer_id` (empresa) é sempre exigido. `customer_user` é OPCIONAL e
+    corresponde ao escopo `own` da lista: quando informado, o GI exige que o
+    ticket também seja daquele CustomerUserID, senão devolve o MESMO
+    'ticket not found' (ZnunyWriteError -> 404 no router; nunca 403, nunca
+    erro distinto — não vaza a existência do chamado). Vazio == ausente:
+    a chave simplesmente não é enviada.
+    """
+    payload: dict[str, Any] = {"TicketID": znuny_ticket_id, "CustomerID": customer_id}
+    if customer_user:
+        payload["CustomerUserID"] = customer_user
+    data = await _post("/Ticket/Get", payload)
     if data.get("TicketID") is None:
         raise ZnunyUnavailable("resposta inesperada do Znuny")
     return TicketDetail(
@@ -288,17 +302,35 @@ async def get_ticket(*, znuny_ticket_id: int, customer_id: str) -> TicketDetail:
 
 
 async def reply_ticket(
-    *, znuny_ticket_id: int, customer_user: str, customer_id: str, body: str
+    *,
+    znuny_ticket_id: int,
+    customer_user: str,
+    customer_id: str,
+    body: str,
+    customer_user_id: str | None = None,
 ) -> None:
-    await _post(
-        "/Ticket/Reply",
-        {
-            "TicketID": znuny_ticket_id,
-            "CustomerUser": customer_user,
-            "CustomerID": customer_id,
-            "Body": body,
-        },
-    )
+    """Responde um ticket com guarda de posse no GI (anti-IDOR).
+
+    ATENÇÃO aos dois parâmetros distintos: `customer_user` é o AUTOR da resposta
+    (vai como `CustomerUser`, obrigatório, sempre o usuário logado);
+    `customer_user_id` é a GUARDA de posse (vai como `CustomerUserID`).
+
+    `customer_id` (empresa) é sempre exigido. `customer_user_id` é OPCIONAL e
+    corresponde ao escopo `own` da lista: quando informado, o GI exige que o
+    ticket também seja daquele CustomerUserID, senão devolve o MESMO
+    'ticket not found' (ZnunyWriteError -> 404 no router; nunca 403, nunca
+    erro distinto — não vaza a existência do chamado). Vazio == ausente:
+    a chave simplesmente não é enviada.
+    """
+    payload: dict[str, Any] = {
+        "TicketID": znuny_ticket_id,
+        "CustomerUser": customer_user,
+        "CustomerID": customer_id,
+        "Body": body,
+    }
+    if customer_user_id:
+        payload["CustomerUserID"] = customer_user_id
+    await _post("/Ticket/Reply", payload)
 
 
 async def form_meta(*, customer_user: str) -> dict[str, list[dict[str, Any]]]:

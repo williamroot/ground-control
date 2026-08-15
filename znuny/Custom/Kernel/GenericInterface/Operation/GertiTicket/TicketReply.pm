@@ -1,5 +1,14 @@
 # znuny/Custom/Kernel/GenericInterface/Operation/GertiTicket/TicketReply.pm
-# Resposta do cliente a um ticket existente. Mesma guarda de posse do TicketGet.
+# Resposta do cliente a um ticket existente. Mesma guarda de posse do TicketGet:
+# o ticket DEVE pertencer ao CustomerID informado, senão NotFound. CustomerUserID
+# é OPCIONAL: quando informado, o ticket também precisa ser do próprio usuário —
+# alinha a resposta ao escopo `own` que a lista já usa no papel `helpdesk`.
+# Ausente => escopo de empresa (papel `admin` do portal).
+#
+# CUIDADO: CustomerUser (obrigatório) e CustomerUserID (opcional) são parâmetros
+# DIFERENTES e não podem ser fundidos. CustomerUser é o AUTOR do artigo (o From
+# da resposta); CustomerUserID é a GUARDA de posse. Guardar pelo autor
+# bloquearia o `admin` do portal, que legitimamente responde chamado da empresa.
 package Kernel::GenericInterface::Operation::GertiTicket::TicketReply;
 
 use strict;
@@ -36,7 +45,22 @@ sub Run {
 
     my $TicketObject = $Kernel::OM->Get('Kernel::System::Ticket');
     my %T = $TicketObject->TicketGet( TicketID => $D->{TicketID}, UserID => 1 );
-    if ( !%T || ( $T{CustomerID} // '' ) ne $D->{CustomerID} ) {
+
+    # Posse (empresa): ticket inexistente OU de outra empresa => NotFound.
+    my $NotFound = !%T || ( $T{CustomerID} // '' ) ne $D->{CustomerID};
+
+    # Posse por USUÁRIO, guarda ADICIONAL (nunca substitui a de empresa acima).
+    # A resposta era mais permissiva que a lista: a lista usa escopo `own` para o
+    # papel `helpdesk`, a resposta conferia só a empresa — um helpdesk que
+    # adivinhasse o id escrevia no chamado de colega (IDOR). CustomerUserID
+    # ausente ou vazio => comportamento de antes, escopo de empresa.
+    if ( !$NotFound && IsStringWithData( $D->{CustomerUserID} ) ) {
+        $NotFound = ( $T{CustomerUserID} // '' ) ne $D->{CustomerUserID};
+    }
+
+    # Sempre o MESMO NotFound: nunca 403, nunca erro distinto — não pode vazar
+    # a existência do chamado nem para a empresa errada nem para o colega.
+    if ($NotFound) {
         return $Self->ReturnError(
             ErrorCode => 'TicketReply.NotFound', ErrorMessage => 'ticket not found',
         );

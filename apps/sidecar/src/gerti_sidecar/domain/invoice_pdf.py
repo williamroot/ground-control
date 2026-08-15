@@ -99,10 +99,11 @@ def _render_reportlab(
     """
     import io
 
-    from reportlab.lib import colors  # type: ignore[import-not-found]
-    from reportlab.lib.pagesizes import A4  # type: ignore[import-not-found]
-    from reportlab.lib.units import mm  # type: ignore[import-not-found]
-    from reportlab.pdfgen import canvas  # type: ignore[import-not-found]
+    # import tardio; reportlab não publica py.typed, daí os ignores (idem WeasyPrint).
+    from reportlab.lib import colors  # type: ignore[import-untyped]
+    from reportlab.lib.pagesizes import A4  # type: ignore[import-untyped]
+    from reportlab.lib.units import mm  # type: ignore[import-untyped]
+    from reportlab.pdfgen import canvas  # type: ignore[import-untyped]
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)

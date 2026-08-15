@@ -4,6 +4,11 @@ tenant-scoped via `get_tenant_session` (RLS). `q` obrigatório, 2-100 chars
 (422 fora disso via `Query`). Cada bloco (tickets/assets/kb/catalog) ≤5
 itens; cross-tenant é impossível por construção (GI escopado por
 `customer_id`/RLS por `tenant_id`).
+
+O bloco de chamados respeita o papel da sessão (#1H): a `SessionPayload` é
+repassada inteira para `client_search`, que deriva o escopo do ponto único
+`domain.ticket_scope` — o mesmo de `/v1/tickets`. Resultado da busca e
+navegação para o detalhe são, por construção, coerentes.
 """
 
 from __future__ import annotations
@@ -48,7 +53,7 @@ async def search(
     tenant: Tenant = request.state.tenant
     results = await client_search(
         session=session,
-        customer_user=session_payload["znuny_login"],
+        session_payload=session_payload,
         customer_id=tenant.znuny_customer_id,
         q=q,
     )

@@ -1,8 +1,10 @@
 """CsatService (Spec #1M): grava a avaliação CSAT 1-5 do cliente por ticket.
 
 Guardas (server-side, fail-closed):
-  - posse + existência: via GI get_ticket(znuny_ticket_id, customer_id) — já
-    customer-scoped (ZnunyWriteError p/ não-encontrado/posse → CsatError);
+  - posse + existência: via GI get_ticket(znuny_ticket_id, customer_id,
+    customer_user) — escopado pela empresa e, quando `customer_user` é dado
+    (escopo `own` do papel != admin), também pelo dono do chamado
+    (ZnunyWriteError p/ não-encontrado/posse → CsatError → 404);
   - estado: só fechado ('closed' no nome do estado) senão TicketNotClosed (422);
   - 1 resposta por ticket: UNIQUE (tenant_id, znuny_ticket_id) → IntegrityError
     capturado como CsatAlreadyExists (409);
@@ -62,14 +64,19 @@ class CsatService:
         customer_id: str,
         score: int,
         comment: str | None,
+        customer_user: str | None = None,
     ) -> CsatResponse:
         if score < 1 or score > 5:
             raise CsatError("score fora do range 1..5")
 
-        # Posse + existência: o GI é customer-scoped; não-encontrado/posse → 404.
+        # Posse + existência: o GI é customer-scoped e, no escopo `own`
+        # (customer_user informado), também user-scoped — o mesmo escopo que a
+        # lista/detalhe usam. Não-encontrado/posse → CsatError → 404 (nunca 403).
         try:
             ticket = await self._gi.get_ticket(
-                znuny_ticket_id=znuny_ticket_id, customer_id=customer_id
+                znuny_ticket_id=znuny_ticket_id,
+                customer_id=customer_id,
+                customer_user=customer_user,
             )
         except ZnunyWriteError as exc:
             raise CsatError("ticket_not_found") from exc

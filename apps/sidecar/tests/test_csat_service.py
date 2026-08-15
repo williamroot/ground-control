@@ -1,9 +1,10 @@
 """Spec #1M Task 2 — CsatService: guarda de posse + estado fechado.
 
-A assinatura REAL do GI é get_ticket(*, znuny_ticket_id, customer_id) — não há
-customer_user/login no GI (o escopo de posse é o customer_id do tenant; o GI
-levanta ZnunyWriteError p/ não-encontrado/posse). O service recebe customer_id
-p/ o lookup e customer_login só p/ gravar.
+A assinatura REAL do GI é get_ticket(*, znuny_ticket_id, customer_id,
+customer_user=None): o escopo de posse é o customer_id do tenant e, quando
+`customer_user` é informado (escopo `own` do papel != admin), também o dono do
+chamado; o GI levanta ZnunyWriteError p/ não-encontrado/posse. O service recebe
+customer_id/customer_user p/ o lookup e customer_login só p/ gravar.
 """
 
 from __future__ import annotations
@@ -23,9 +24,20 @@ from gerti_sidecar.domain.csat_service import (
 from gerti_sidecar.integrations.znuny_ticket import ZnunyWriteError
 
 
-def _fake_gi(*, state: str = "closed successful", customer_id: str = "AURORA"):
-    async def get_ticket(*, znuny_ticket_id: int, customer_id: str) -> Any:
+def _fake_gi(
+    *,
+    state: str = "closed successful",
+    customer_id: str = "AURORA",
+    owner: str | None = None,
+):
+    async def get_ticket(
+        *, znuny_ticket_id: int, customer_id: str, customer_user: str | None = None
+    ) -> Any:
         if state == "__notfound__":
+            raise ZnunyWriteError("not found")
+        # Guarda ADICIONAL por usuário: presente => o dono precisa bater; ausente
+        # => escopo de empresa. Mesmo 'not found' nos dois casos (nunca 403).
+        if customer_user and owner is not None and owner != customer_user:
             raise ZnunyWriteError("not found")
         return SimpleNamespace(
             znuny_ticket_id=znuny_ticket_id,
@@ -134,6 +146,39 @@ async def test_comment_truncated(session, app_session_factory, seed_two_tenants)
         )
         assert r.comment is not None
         assert len(r.comment) <= 2000
+
+
+@pytest.mark.asyncio
+async def test_submit_scopes_by_customer_user(session, app_session_factory, seed_two_tenants):
+    """Escopo `own`: avaliar chamado de colega da MESMA empresa é 'not found'.
+
+    O `customer_user` (guarda) é repassado ao GI; sem ele (escopo de empresa do
+    papel admin) a MESMA avaliação passa — o privilégio do admin fica intacto.
+    """
+    tenant_id, _ = seed_two_tenants
+    gi = _fake_gi(state="closed successful", owner="ana@a")
+    async with tenant_session_scope(tenant_id, factory=app_session_factory) as s:
+        with pytest.raises(CsatError):
+            await CsatService(s, gi).submit(
+                tenant_id=tenant_id,
+                znuny_ticket_id=15,
+                customer_login="bob@a",
+                customer_id="AURORA",
+                score=5,
+                comment=None,
+                customer_user="bob@a",
+            )
+    async with tenant_session_scope(tenant_id, factory=app_session_factory) as s:
+        r = await CsatService(s, gi).submit(
+            tenant_id=tenant_id,
+            znuny_ticket_id=15,
+            customer_login="chefe@a",
+            customer_id="AURORA",
+            score=5,
+            comment=None,
+            customer_user=None,
+        )
+        assert r.score == 5
 
 
 @pytest.mark.asyncio

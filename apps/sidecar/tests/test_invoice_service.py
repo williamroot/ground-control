@@ -9,6 +9,7 @@ são terminais.
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 
 import pytest
 
@@ -22,16 +23,16 @@ from gerti_sidecar.models import ContractCycle, Invoice
 from gerti_sidecar.models.enums import ContractType, CycleKind, InvoiceStatus
 
 
-async def _seed_cycle_with_events(s, *, code, events):
+async def _seed_typed_cycle(s, *, code, ctype, events, **contract_fields):
+    """Contrato de `ctype` + ciclo de fechamento fechado + eventos de consumo."""
     c = await ContractService(s).create(
         NewContract(
             code=code,
-            type=ContractType.credit_brl,
+            type=ctype,
             starts_on=dt.date(2026, 1, 1),
             ends_on=dt.date(2026, 12, 31),
-            initial_amount_brl=20000,
-            unit_price_brl=200,
             created_by="w",
+            **contract_fields,
         )
     )
     cyc = ContractCycle(
@@ -43,7 +44,6 @@ async def _seed_cycle_with_events(s, *, code, events):
     s.add(cyc)
     await s.flush()
     cons = ConsumptionService(s)
-    import uuid
 
     for i, (kind, minutes, brl) in enumerate(events):
         await cons.record(
@@ -61,6 +61,17 @@ async def _seed_cycle_with_events(s, *, code, events):
     # Fatura parte de um ciclo fechado (worker #1B fecha; aqui fechamos no seed).
     await CycleService(s).close(cyc.id)
     return c, cyc
+
+
+async def _seed_cycle_with_events(s, *, code, events):
+    return await _seed_typed_cycle(
+        s,
+        code=code,
+        ctype=ContractType.credit_brl,
+        events=events,
+        initial_amount_brl=20000,
+        unit_price_brl=200,
+    )
 
 
 @pytest.mark.asyncio
@@ -92,6 +103,150 @@ async def test_create_from_cycle_aggregates_and_numbers(
         _c2, cyc2 = await _seed_cycle_with_events(s, code="CB2", events=[("ticket_work", 60, 100)])
         inv2 = await InvoiceService(s).create_from_cycle(cyc2.id)
         assert inv2.number == 2
+
+
+@pytest.mark.asyncio
+async def test_hour_bank_overage_is_billed(session, app_session_factory, seed_two_tenants):
+    """V-R15.4 — banco de horas: franquia 10h, 12h consumidas, R$ 200/h → R$ 400,00.
+
+    Os eventos de `hour_bank` nascem com billable_amount_brl = 0 (o worker só
+    precifica tipos de crédito — reconciliation_service). O valor da fatura vem
+    do overage calculado no fechamento do ciclo.
+
+    As linhas em horas precisam SOMAR 12 h — o consumido. Emitir "Atendimento
+    (horas) 12 h" + "Horas excedentes 2 h" mostrava 14 h ao cliente, contando o
+    excedente duas vezes (as 2 h estão DENTRO das 12 h).
+    """
+    a_id, _ = seed_two_tenants
+    async with db.tenant_session_scope(a_id, factory=app_session_factory) as s:
+        _c, cyc = await _seed_typed_cycle(
+            s,
+            code="HB1",
+            ctype=ContractType.hour_bank,
+            events=[("ticket_work", 12 * 60, 0)],
+            initial_hours=10,
+            unit_price_brl=200,
+        )
+        inv = await InvoiceService(s).create_from_cycle(cyc.id)
+        assert inv.total_cents == 40000
+        assert inv.subtotal_cents == 40000
+
+        lines = await InvoiceService(s).lines_for(inv.id)
+        # Rótulo, quantidade e valor de CADA linha — nada de dobra de horas.
+        assert [
+            (line.description, float(line.quantity), line.unit, line.amount_cents) for line in lines
+        ] == [
+            ("Horas dentro da franquia", 10.0, "h", 0),
+            ("Horas excedentes", 2.0, "h", 40000),
+        ]
+        # A soma das quantidades em horas é o consumido (12 h), não 14 h.
+        assert sum(float(line.quantity) for line in lines if line.unit == "h") == 12.0
+
+        overage = [line for line in lines if line.description == "Horas excedentes"]
+        assert overage[0].unit_price_cents == 20000
+
+
+@pytest.mark.asyncio
+async def test_hour_bank_within_franchise_has_no_overage_line(
+    session, app_session_factory, seed_two_tenants
+):
+    """Dentro da franquia não há linha de excedente — fatura zerada é legítima."""
+    a_id, _ = seed_two_tenants
+    async with db.tenant_session_scope(a_id, factory=app_session_factory) as s:
+        _c, cyc = await _seed_typed_cycle(
+            s,
+            code="HB2",
+            ctype=ContractType.hour_bank,
+            events=[("ticket_work", 6 * 60, 0)],
+            initial_hours=10,
+            unit_price_brl=200,
+        )
+        inv = await InvoiceService(s).create_from_cycle(cyc.id)
+        lines = await InvoiceService(s).lines_for(inv.id)
+        # 6 h de 10 h: uma linha só, com as horas de fato consumidas.
+        assert [(line.description, float(line.quantity)) for line in lines] == [
+            ("Horas dentro da franquia", 6.0)
+        ]
+        assert inv.total_cents == 0
+
+
+@pytest.mark.asyncio
+async def test_hour_bank_travel_line_survives_franchise_clamp(
+    session, app_session_factory, seed_two_tenants
+):
+    """O recorte da franquia só toca linhas em horas; deslocamento continua intacto."""
+    a_id, _ = seed_two_tenants
+    async with db.tenant_session_scope(a_id, factory=app_session_factory) as s:
+        _c, cyc = await _seed_typed_cycle(
+            s,
+            code="HB3",
+            ctype=ContractType.hour_bank,
+            events=[("ticket_work", 12 * 60, 0), ("travel", 0, 50)],
+            initial_hours=10,
+            unit_price_brl=200,
+        )
+        inv = await InvoiceService(s).create_from_cycle(cyc.id)
+        lines = await InvoiceService(s).lines_for(inv.id)
+        assert [(line.description, float(line.quantity), line.amount_cents) for line in lines] == [
+            ("Horas dentro da franquia", 10.0, 0),
+            ("Deslocamento", 1.0, 5000),
+            ("Horas excedentes", 2.0, 40000),
+        ]
+        assert inv.total_cents == 45000
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ctype", [ContractType.closed_value, ContractType.saas_product], ids=lambda t: t.value
+)
+async def test_fixed_value_contract_bills_monthly_fee(
+    session, app_session_factory, seed_two_tenants, ctype
+):
+    """closed_value/saas_product: linha de mensalidade com o valor contratado."""
+    a_id, _ = seed_two_tenants
+    async with db.tenant_session_scope(a_id, factory=app_session_factory) as s:
+        _c, cyc = await _seed_typed_cycle(
+            s,
+            code=f"FX-{ctype.value}",
+            ctype=ctype,
+            events=[("ticket_work", 90, 0)],
+            initial_amount_brl=5000,
+        )
+        inv = await InvoiceService(s).create_from_cycle(cyc.id)
+        assert inv.total_cents == 500000
+        assert inv.subtotal_cents == 500000
+
+        lines = await InvoiceService(s).lines_for(inv.id)
+        fee = [line for line in lines if line.description == "Mensalidade"]
+        assert len(fee) == 1
+        assert fee[0].amount_cents == 500000
+        assert fee[0].unit == "mês"
+        assert float(fee[0].quantity) == 1.0
+        assert fee[0].unit_price_cents == 500000
+        # a mensalidade abre a fatura; o consumo vem depois
+        assert fee[0].position == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ctype", [ContractType.credit_brl, ContractType.credit_shared], ids=lambda t: t.value
+)
+async def test_credit_contracts_unchanged(session, app_session_factory, seed_two_tenants, ctype):
+    """Regressão: contratos de crédito continuam faturando só o consumo, sem linha nova."""
+    a_id, _ = seed_two_tenants
+    async with db.tenant_session_scope(a_id, factory=app_session_factory) as s:
+        _c, cyc = await _seed_typed_cycle(
+            s,
+            code=f"CR-{ctype.value}",
+            ctype=ctype,
+            events=[("ticket_work", 60, 200), ("travel", 0, 50)],
+            initial_amount_brl=20000,
+            unit_price_brl=200,
+        )
+        inv = await InvoiceService(s).create_from_cycle(cyc.id)
+        assert inv.total_cents == 25000
+        lines = await InvoiceService(s).lines_for(inv.id)
+        assert [line.description for line in lines] == ["Atendimento (horas)", "Deslocamento"]
 
 
 @pytest.mark.asyncio

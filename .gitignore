@@ -25,3 +25,9 @@ __pycache__/
 
 # PDFs de documentação são artefato de build, não fonte.
 docs/pdf/out/
+
+# Gravações brutas de cliente: pesadas e não são fonte — a transcrição versionada
+# em docs/transcricoes/ é o que importa, e os stills relevantes estão em docs/assets/.
+*.webm
+*.mp4
+*.mov

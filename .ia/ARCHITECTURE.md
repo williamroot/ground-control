@@ -276,7 +276,23 @@ Browser → portal:3000 → sidecar:8001 → GertiTicket GI → Znuny
 - **Endpoints sidecar:** `GET /v1/ticketing/contracts` (selecionáveis pelo customer,
   non-admin), `GET /v1/ticketing/form-meta`, `POST /v1/tickets` (multipart, cria ticket),
   `GET /v1/tickets` (lista role-scoped), `GET /v1/tickets/{id}` (ownership-guarded),
-  `POST /v1/tickets/{id}/reply`.
+  `POST /v1/tickets/{id}/reply` e `POST /v1/tickets/{id}/csat` (ownership-guarded).
+- **Escopo de posse — decisão única (`ticket_scope`/`own_login` em
+  `domain/ticket_scope.py`):** papel `admin` do portal => escopo de empresa;
+  qualquer outro papel (ex. `helpdesk`) => escopo `own`. Lista, detalhe, resposta,
+  CSAT (`routers/tickets.py`) **e a busca federada do portal** (`GET /v1/search`,
+  via `domain/search_service.py`) consomem a MESMA decisão — a busca já usou
+  `scope="company"` fixo e vazava título/número/estado de chamado de colega, que
+  ao ser clicado dava 404. Qualquer superfície nova que leia chamado do cliente
+  importa daqui em vez de repetir a regra. (A busca do **console**,
+  `GET /v1/admin/search`, é do agente da Gerti (`gsid_adm`) e permanece
+  cross-tenant por design — `Agent/Ticket/Search` sem `CustomerID`.) No
+  escopo `own` o sidecar manda `CustomerUserID` ao GI, que exige que o chamado
+  também seja daquele usuário; ausente/vazio => escopo de empresa (comportamento
+  do papel `admin`). Guardas no Perl: `TicketGet.pm` e `TicketReply.pm` — sempre o
+  MESMO `NotFound` (→ 404 no sidecar), nunca 403, para não vazar a existência do
+  chamado. Em `TicketReply.pm`, `CustomerUser` (autor do artigo) e `CustomerUserID`
+  (guarda de posse) são parâmetros DIFERENTES e não podem ser fundidos.
 - **Páginas portal:** `/tickets` (lista, role-scoped), `/tickets/novo` (form
   single-page + seletor condicional de contrato), `/tickets/[id]` (detalhe + reply).
 - **Env var nova:** `ZNUNY_TICKET_WS_URL` (base do GertiTicket; fallback: derivado
@@ -358,6 +374,18 @@ sidecar-worker
 - **Conversão:** `hour_bank` → `billable_minutes`; `credit_brl`/`shared` →
   `billable_amount_brl = round(minutes/60 × unit_price, 2)`. Outros tipos
   (`n/a`, `saas`, …) são registrados mas não afetam o saldo.
+- **Franquia efetiva no fechamento (`CycleService.close`, `hour_bank`):**
+  `initial_hours × 60` **+ `carry_over` do ciclo de fechamento anterior** quando
+  o contrato tem `accumulate_balance_between_cycles` ("Acumular saldo entre
+  ciclos"). O `carry_over` era gravado em `totals` e nunca lido — com a fatura de
+  `hour_bank` deixando de sair R$ 0,00, isso virava cobrança de excedente
+  inexistente. `totals` agora traz também `base_franchise_minutes` e
+  `carry_in_minutes` (`franchise_minutes` = efetiva). Acúmulo em cadeia, **sem
+  teto e sem expiração** — cap/validade seria decisão de negócio, não default.
+- **Linhas da fatura de `hour_bank` somam o consumido:** `Horas dentro da
+  franquia` (`min(consumido, franquia efetiva)`, R$ 0,00) + `Horas excedentes`.
+  As duas juntas = horas do ciclo; emitir o consumo cheio junto do excedente
+  mostrava as horas em dobro ao cliente (12 h viravam 14 h).
 - **Idempotência:** `webhook_event_id = uuid5(namespace, f"timeaccounting:{id}")`
   — reprocessar não duplica.
 - **Op Znuny nova:** `TimeAccountingSince` no webservice `GertiTicket` (read-only,

@@ -80,3 +80,43 @@ async def test_get_ticket_passes_customer_id(monkeypatch):
     d = await znuny_ticket.get_ticket(znuny_ticket_id=7, customer_id="ACME")
     assert d.customer_id == "ACME"
     assert d.articles == []
+
+
+@pytest.mark.asyncio
+async def test_reply_sends_customer_user_id_only_when_scoped(monkeypatch):
+    """CustomerUser (autor) != CustomerUserID (guarda de posse); vazio == ausente."""
+    bodies = []
+
+    async def fake_post(route, body):
+        assert route == "/Ticket/Reply"
+        bodies.append(body)
+        return {"ArticleID": 1}
+
+    monkeypatch.setattr(znuny_ticket, "_post", fake_post)
+
+    # escopo de empresa (admin do portal): a chave da guarda nem é enviada
+    await znuny_ticket.reply_ticket(
+        znuny_ticket_id=7, customer_user="chefe@acme", customer_id="ACME", body="b"
+    )
+    assert bodies[-1]["CustomerUser"] == "chefe@acme"
+    assert "CustomerUserID" not in bodies[-1]
+
+    # escopo `own`: guarda presente, sem substituir o autor
+    await znuny_ticket.reply_ticket(
+        znuny_ticket_id=7,
+        customer_user="ana@acme",
+        customer_id="ACME",
+        body="b",
+        customer_user_id="ana@acme",
+    )
+    assert bodies[-1]["CustomerUserID"] == "ana@acme"
+
+    # string vazia == ausente (não vira guarda que nunca casa)
+    await znuny_ticket.reply_ticket(
+        znuny_ticket_id=7,
+        customer_user="ana@acme",
+        customer_id="ACME",
+        body="b",
+        customer_user_id="",
+    )
+    assert "CustomerUserID" not in bodies[-1]

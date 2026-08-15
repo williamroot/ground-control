@@ -10,6 +10,7 @@ Uso: `scripts/docs-pdf.sh` (ou veja o `argparse` abaixo).
 from __future__ import annotations
 
 import argparse
+import base64
 import html
 import re
 from dataclasses import dataclass
@@ -71,16 +72,44 @@ def _build_toc(md: markdown.Markdown) -> str:
     return f'<nav class="toc"><h2>Sumário</h2>{render(items)}</nav>'
 
 
+# Mark do Ground Control — o mesmo crosshair de `landing/assets/favicon.svg`, na cor
+# de sinal da marca (#FF6B1A). Vai embutido como data URI porque o suporte nativo a
+# SVG do WeasyPrint é parcial; como <img> ele renderiza igual em qualquer versão.
+_BRANDMARK_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">'
+    '<circle cx="20" cy="20" r="15" fill="none" stroke="#FF6B1A" stroke-width="2"/>'
+    '<circle cx="20" cy="20" r="4" fill="#FF6B1A"/>'
+    '<line x1="20" y1="2" x2="20" y2="9" stroke="#FF6B1A" stroke-width="2"/>'
+    '<line x1="20" y1="31" x2="20" y2="38" stroke="#FF6B1A" stroke-width="2"/>'
+    '<line x1="2" y1="20" x2="9" y2="20" stroke="#FF6B1A" stroke-width="2"/>'
+    '<line x1="31" y1="20" x2="38" y2="20" stroke="#FF6B1A" stroke-width="2"/>'
+    "</svg>"
+)
+
+
+def _brandmark() -> str:
+    encoded = base64.b64encode(_BRANDMARK_SVG.encode("utf-8")).decode("ascii")
+    return f'<img class="cover__logo" src="data:image/svg+xml;base64,{encoded}" alt="">'
+
+
 def _cover(doc: Doc, generated_at: str, commit: str) -> str:
     return f"""
     <section class="cover">
-      <div class="cover__mark">Ground Control &middot; Documentação</div>
+      <div class="cover__brand">
+        {_brandmark()}
+        <div class="cover__lockup">
+          <span class="cover__wordmark">Ground Control</span>
+          <span class="cover__tagline">Service Desk Platform &middot; White-label &middot; MSP-first</span>
+        </div>
+      </div>
+      <div class="cover__mark">Documentação</div>
       <h1 class="cover__title">{html.escape(doc.title)}</h1>
       <p class="cover__subtitle">{html.escape(doc.subtitle)}</p>
       <div class="cover__meta">
         <strong>Gerado em</strong> {html.escape(generated_at)}
         &nbsp;&middot;&nbsp; <strong>Revisão</strong> {html.escape(commit)}
         <br>Plataforma de Service Desk para MSP &mdash; núcleo Znuny, white-label por cliente.
+        <div class="cover__was">Engineered by <strong>WAS Soluções em Tecnologia</strong></div>
       </div>
     </section>
     """
@@ -119,6 +148,20 @@ def main() -> None:
     args = parser.parse_args()
 
     docs = [
+        Doc(
+            Path("docs/REQUISITOS-RECURSOS-ADMINISTRATIVOS.md"),
+            "Recursos administrativos",
+            "O vídeo do Kleber convertido em 18 requisitos numerados, com o estado de "
+            "cada um no código, as tarefas, os termos de aceite e os testes que os "
+            "provam — mais a transcrição integral com marcação de tempo.",
+        ),
+        Doc(
+            Path("docs/SUPOSICOES-A-VALIDAR.md"),
+            "Suposições a validar",
+            "As seis leituras do vídeo do Kleber que assumimos sem confirmação — cada "
+            "uma com a chave que a controla, o custo de mudar de ideia e as perguntas "
+            "prontas para levar a ele.",
+        ),
         Doc(
             Path("docs/ENTREGA-E-ROADMAP.md"),
             "Entrega e roadmap",

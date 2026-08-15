@@ -5,6 +5,13 @@ Cliente (`/v1/search`): chamados e ativos vêm do Znuny GI (escopados pelo
 Postgres via a sessão tenant-scoped (RLS) recebida do router — cross-tenant
 é portanto impossível por construção (GI escopado + RLS).
 
+O escopo dos CHAMADOS do cliente é decidido por `domain.ticket_scope` — o
+MESMO ponto único da lista/detalhe/reply/CSAT em `routers/tickets.py`. Antes
+a busca usava `scope="company"` fixo: um helpdesk via título/número/estado de
+chamado de colega no resultado e levava 404 ao clicar (a guarda do detalhe já
+estava certa). Por isso a busca NÃO recebe `scope` pronto — recebe a
+`SessionPayload` e deriva a decisão do mesmo lugar que todo mundo.
+
 Agente (`/v1/admin/search`): cross-tenant por design — tenants (Postgres,
 BYPASSRLS), chamados (Znuny GI `Agent/Ticket/Search`, sem filtro de
 customer), KB (Postgres, BYPASSRLS).
@@ -24,6 +31,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerti_sidecar import db
+from gerti_sidecar.auth.session import SessionPayload
+from gerti_sidecar.domain.ticket_scope import ticket_scope
 from gerti_sidecar.integrations import znuny_ticket
 from gerti_sidecar.integrations.znuny_customer_admin import ZnunyUnavailable
 from gerti_sidecar.models import Tenant
@@ -47,11 +56,15 @@ def _cap(items: list[SearchItem]) -> list[SearchItem]:
 
 
 async def _search_tickets_client(
-    *, customer_user: str, customer_id: str, q: str
+    *, session_payload: SessionPayload, customer_id: str, q: str
 ) -> list[SearchItem]:
     try:
+        # MESMA decisão de escopo da lista/detalhe (domain.ticket_scope):
+        # helpdesk só acha os próprios chamados; admin do portal, os da empresa.
         rows = await znuny_ticket.search_tickets(
-            scope="company", customer_user=customer_user, customer_id=customer_id
+            scope=ticket_scope(session_payload),
+            customer_user=session_payload["znuny_login"],
+            customer_id=customer_id,
         )
     except ZnunyUnavailable:
         return []
@@ -172,11 +185,11 @@ async def _search_catalog_client(session: AsyncSession, q: str) -> list[SearchIt
 
 
 async def client_search(
-    *, session: AsyncSession, customer_user: str, customer_id: str, q: str
+    *, session: AsyncSession, session_payload: SessionPayload, customer_id: str, q: str
 ) -> dict[str, list[SearchItem]]:
     return {
         "tickets": await _search_tickets_client(
-            customer_user=customer_user, customer_id=customer_id, q=q
+            session_payload=session_payload, customer_id=customer_id, q=q
         ),
         "assets": await _search_assets_client(customer_id=customer_id, q=q),
         "kb": await _search_kb(session, q, public_only=True),

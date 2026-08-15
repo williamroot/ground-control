@@ -21,6 +21,9 @@ dependencies = [
     "pyjwt>=2.9",
     "jinja2>=3.1,<4",
     "weasyprint>=63,<70",
+    # Fallback de render de PDF quando as libs nativas do WeasyPrint (cairo/pango)
+    # não carregam — roda em produção, por isso é runtime e não dev.
+    "reportlab>=4.2,<6",
 ]
 
 [project.optional-dependencies]

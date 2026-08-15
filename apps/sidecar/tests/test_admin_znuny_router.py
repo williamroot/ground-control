@@ -8,6 +8,9 @@ quando o GI rejeita (inclusive DefinitionCheck reprovando); e a invariante
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -20,6 +23,9 @@ from gerti_sidecar.integrations import znuny_admin_objects as zao
 from gerti_sidecar.main import create_app
 
 _HOST = {"host": "gerti.was.dev.br"}
+
+_ROOT = Path(__file__).resolve().parents[3]
+_GI_DIR = _ROOT / "znuny" / "Custom" / "Kernel" / "GenericInterface" / "Operation" / "GertiAdmin"
 
 # Nomes que NUNCA podem existir como tabela no schema gerti — se um deles
 # aparecer, alguém introduziu uma segunda fonte de verdade para config do
@@ -431,3 +437,48 @@ async def test_get_object_missing_is_404(engine, app_session_factory, monkeypatc
         resp = await c.get("/v1/admin/znuny/objects/Queue/999")
     assert resp.status_code == 404
     assert resp.json()["detail"] == "queue_not_found"
+
+
+def test_support_lists_do_perl_chegam_todas_ao_console() -> None:
+    """Toda lista de apoio que o Perl devolve precisa passar pelo filtro do sidecar.
+
+    `znuny_admin_objects._SUPPORT_LIST_KEYS` é um FILTRO, não documentação: chave
+    que o `AdminObjectList.pm` emite e não está na tupla é descartada **em
+    silêncio** e nunca chega à tela. Foi exatamente assim que a criação de fila
+    ficou impossível (T-R9.3) — o Perl já mandava `SystemAddressList`,
+    `SalutationList` e `SignatureList`, o sidecar as jogava fora, e o formulário
+    montava selects vazios sem erro nenhum.
+
+    Este teste é a trava contra a repetição: quem acrescentar lista no Perl e
+    esquecer o Python vê vermelho aqui, não em produção.
+    """
+    perl = (_GI_DIR / "AdminObjectList.pm").read_text(encoding="utf-8")
+    emitidas = set(re.findall(r"\b(\w+List)\s*=>", perl))
+
+    assert emitidas, "regex não achou nenhuma lista de apoio — o Perl mudou de forma?"
+
+    faltando = emitidas - set(zao._SUPPORT_LIST_KEYS)
+    assert not faltando, (
+        f"o Perl devolve {sorted(faltando)} e o sidecar descarta: "
+        "acrescente em _SUPPORT_LIST_KEYS, senão o console recebe select vazio"
+    )
+
+
+def test_criar_fila_exige_os_campos_que_o_perl_exige() -> None:
+    """A allowlist do console não pode ser mais frouxa que o `RequiredOnAdd` do Perl.
+
+    Se o `AdminSpec.pm` exige um campo na criação e a tela não o envia, o efeito
+    é o bug original: "Criar fila" falha sempre, com erro do Znuny e nenhuma
+    pista na interface.
+    """
+    spec = (_GI_DIR / "AdminSpec.pm").read_text(encoding="utf-8")
+    bloco = re.search(r"Queue\s*=>\s*\{(.+?)\n    \},", spec, re.S)
+    assert bloco, "bloco Queue não encontrado em AdminSpec.pm"
+
+    exigidos = re.search(r"RequiredOnAdd\s*=>\s*\[qw\(([^)]+)\)\]", bloco.group(1))
+    assert exigidos, "RequiredOnAdd do Queue não encontrado"
+
+    campos = set(exigidos.group(1).split())
+    # Os três que faltavam quando o defeito foi encontrado. Se algum sair daqui,
+    # é porque o contrato com o Znuny mudou — e a tela precisa mudar junto.
+    assert {"SystemAddressID", "SalutationID", "SignatureID"} <= campos
