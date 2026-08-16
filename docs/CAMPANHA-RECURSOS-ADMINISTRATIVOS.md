@@ -12,8 +12,8 @@ Uma linha por tarefa: estado, gate, evidência de aceite, sha deployado.
 
 Branch `campanha/onda-0-defeitos`, a partir de `main @ 50fb3c9`.
 
-**Sha deployado em staging: `42d38af`** (2026-08-15) — branch rodando no host, **não**
-mergeada na `main`. Runbook, provas e rollback em
+**Sha deployado em staging: `42d38af`** (2026-08-15). Depois mergeada na `main` em
+`811cb9f`. Runbook, provas e rollback em
 [`../.ia/OPS.md`](../.ia/OPS.md), seção "Deploy da Onda 0". Sha anterior do
 staging: `214842b`.
 
@@ -34,7 +34,7 @@ staging: `214842b`.
 | Achado | Gravidade | Onde | Onda |
 |---|---|---|---|
 | **A gravação do calendário estoura o timeout do cliente.** `AdminSysConfigSet` leva ~12 s no staging (faz `ConfigurationDeploy`) contra `_TIMEOUT = 10.0` do cliente; o console devolve **503 com mensagem vazia** e `applied: []` numa gravação que o Znuny pode estar concluindo — exatamente o "aplicação parcial silenciosa" que o Bloco D existe para evitar | alto | `integrations/znuny_admin_sysconfig.py` | a definir |
-| **O papel do portal é resolvido pela string exata do login.** `eduardo.salvi` cai em `helpdesk` (papel default) e `eduardo.salvi@auroramoveis.com.br` em `admin` — a mesma pessoa vê coisas diferentes conforme o formato que digitou. O console já canonicaliza o login do agente; o portal não faz o equivalente para o papel | alto | resolução de papel do portal (`portal_user_role`) | a definir |
+| **O papel do portal é resolvido pela string exata do login.** `eduardo.salvi` cai em `helpdesk` (papel default) e `eduardo.salvi@auroramoveis.com.br` em `admin` — a mesma pessoa vê coisas diferentes conforme o formato que digitou. O console já canonicaliza o login do agente; o portal não faz o equivalente para o papel. **A Onda 1 mostrou a causa raiz:** o papel aponta para um login que **não existe** no `customer_user` do Znuny — são dois cadastros para a mesma pessoa, o defeito que o R2 combate | alto | resolução de papel do portal (`portal_user_role`) | **Onda 2** |
 
 ### Achados que a onda não previu
 
@@ -67,6 +67,94 @@ Três elos quebrados que só apareceram ao executar, todos registrados porque a 
 O item 2 merece registro: **foi uma regressão criada pela própria onda**. Enquanto a fatura
 saía zerada, a falta do acúmulo não aparecia. Corrigir um defeito tornou o outro visível — e
 cobrável.
+
+---
+
+## Onda 1 — Cadastro de cliente e usuário único
+
+Branch `campanha/onda-1-cadastro`, a partir de `main @ 811cb9f`.
+
+**Sha deployado em staging: `bce770b`** (2026-08-16) — branch rodando no host.
+Runbook, provas e rollback em [`../.ia/OPS.md`](../.ia/OPS.md), seção "Deploy da
+Onda 1". Sha anterior do staging: `c7f9025`; alembic anterior: `0026`.
+
+### Tarefas
+
+| Tarefa | O que entregou | Estado | Sha | Evidência |
+|---|---|---|---|---|
+| **T-R1.1** | Endereço e contato em `gerti.tenant` (migration 0027, 10 colunas nullable) | ✅ | `bce770b` | `test_migration_0027_tenant_address.py` — cliente antigo sem endereço continua inserível; as 10 colunas existem e são nullable |
+| **T-R1.2** | `PUT /v1/admin/tenants/{id}` — dá para corrigir o cadastro depois de criado | ✅ | `bce770b` | `test_admin_tenants.py`. **Ao vivo:** cidade e contato da Aurora persistem; `subdomain` → **422** com o valor intacto no banco; id fantasma → **404** |
+| **T-R1.3** | GI `CustomerCompanyUpdate` — espelho no `customer_company` | ✅ | `bce770b` | `perl -c` verde. **Ao vivo:** `street`/`zip`/`city`/`comments` da AURORA gravados no Znuny |
+| **T-R1.4** | `/clientes/novo` vira assistente de 3 etapas | ✅ | `bce770b` | `tenant-wizard.test.ts` — 15 casos; não avança com etapa inválida, CEP e UF normalizados |
+| **T-R1.5** | Tela de edição do cliente | ✅ | `bce770b` | Campos imutáveis renderizados desabilitados **com a explicação do porquê** |
+| **T-R1.6** | Aba "Chamados" na ficha | ✅ | `bce770b` | Proxy resolve o `znuny_customer_id` no servidor; estados de vazio e de erro |
+| **T-R2.1** | Cadastro rico: telefone, celular, ramal, ativo, chave de e-mail (migration 0028 + GI `CustomerUserUpdate`) | ✅ | `bce770b` | `test_tenant_users_router.py`. **Ao vivo:** os três campos voltam na listagem; desativar → `ValidID=2`, a pessoa continua existindo |
+| **T-R2.2** | `GET /{id}/users` lendo o Znuny como fonte de verdade (GI `CustomerUserList`) | ✅ | `bce770b` | **Ao vivo:** 4 pessoas criadas direto no Znuny, até então invisíveis no console, aparecem marcadas "sem acesso ao portal" |
+| **T-R2.3** | Hora em chamado sem contrato deixa de sumir (migration 0030 + auto-vínculo) | ✅ | `bce770b` | 4 testes em `test_reconciliation_service.py`: 1 contrato ativo → vincula e fatura; 2 → nada cobrado + pendência `ambiguous_contract`; CustomerID desconhecido → `no_tenant`; rescan não duplica |
+| **T-R2.4** | — | ✅ | `42d38af` | Entregue na Onda 0 |
+| **T-R2.5** | Tela de usuários do cliente | ✅ | `bce770b` | `tenant-users.test.ts` — 17 casos. Payload de edição **nunca** carrega senha; desativar exige o e-mail digitado |
+| **T-R5.1** | `gerti.tenant_queue` com FORCE RLS e no máx. 1 padrão (migration 0029) | ✅ | `bce770b` | `test_rls_tenant_queue.py` — isolamento entre clientes, fail-closed sem GUC, escrita cross-tenant bloqueada, FORCE confirmado no `pg_class` |
+| **T-R5.2** | `GET/PUT /v1/admin/tenants/{id}/queues` | ✅ | `bce770b` | `test_admin_tenant_queues_router.py` — 8 casos. **Ao vivo:** fila 99999 → **422** e zero linhas; duas padrões → 422; mover o padrão não colide com o índice |
+| **T-R5.3** | Fila padrão do cliente vale na abertura de chamado | ✅ | `bce770b` | **Ao vivo:** chamado da Aurora nasceu em `Suporte::N1`, não em `Raw`; fila não associada → **422** |
+| **T-R5.4** | Tela "Relacionamentos" na ficha | ✅ | `bce770b` | `tenant-queues.test.ts` — 14 casos; remover a fila padrão pede confirmação |
+| **T-R5.5** | Coluna "atendida por" na tela global de filas | ✅ | `bce770b` | `AdminGroupList` passa a devolver `RwUserCount`; sem a contagem, mostra só o grupo — nunca "0 agentes" inventado |
+
+### Aceites cobertos
+
+A1.1–A1.5 · A2.1, A2.3–A2.6 · A5.1–A5.5. **A2.2 ao vivo** (chamado que entra por
+e-mail aparece no portal do autor) depende de T-R2.6, que é Onda 2 — mas o que
+o tornava perigoso já está resolvido: **T-R2.3 entrou antes**, como o plano
+exige.
+
+### Defeito que só a execução ao vivo revelou
+
+**A guarda de fila não chegava a rodar.** Abrir chamado com `queue=Financeiro`
+— fila que a Aurora não acessa — devolvia **201** em vez de 422. O serviço
+validava certo; a **rota** não recebia o campo do formulário, então
+`OpenTicketInput.queue` era sempre `None` e o 422 prometido era código morto.
+
+Não era brecha de isolamento (o chamado sempre caía na fila padrão do próprio
+cliente, nunca na de outro), mas era validação anunciada e inexistente.
+
+A lição repete a da Onda 0, com outra roupa: **o teste de serviço passava**
+porque chamava `open_ticket` direto, com a fila já dentro do dataclass. O elo
+que faltava era uma camada acima. Entraram dois testes de **rota**; o segundo
+falha sem a correção.
+
+### Achados da execução
+
+1. **A demo tem o defeito do Kleber dentro dela.** A listagem por Znuny mostrou
+   que a Aurora tem `eduardo.salvi` (usuário real no Znuny, criado pelo seed) e
+   `eduardo.salvi@auroramoveis.com.br` (só um papel em `portal_user_role`, sem
+   nenhum `customer_user` correspondente). É a mesma pessoa partida em dois
+   cadastros — exatamente o que o R2 existe para acabar. Isso **explica** o
+   achado da Onda 0 sobre papel resolvido por string exata de login: quem entra
+   como `eduardo.salvi` não acha papel nenhum e cai no default `helpdesk`.
+   Não é defeito de código desta onda; é dado de seed, e a tela nova o torna
+   visível numa olhada.
+
+2. **Duas correções da revisão adversarial, antes do commit.**
+   `CustomerUserUpdate` aceitava `UserCustomerID` na allowlist de escrita — o
+   que transformaria "editar usuário" em "mover a pessoa para outra empresa";
+   o campo agora é preservado do registro atual e nunca lido da requisição. E a
+   listagem de pessoas tem teto de 500 no Perl, mas o console engolia a marca de
+   corte: lista truncada passava por lista completa, que se lê como exclusão.
+
+### Decisões tomadas por padrão nesta onda
+
+**O ramal mora do nosso lado.** O mapa nativo do `customer_user` tem `phone`,
+`mobile`, `street`, `city` — e não tem ramal. Colocá-lo no Znuny exigiria coluna
+nova no núcleo, que a invariante 4 proíbe; enfiá-lo num campo livre (`comments`,
+`fax`) seria pior. Então telefone e celular vão para o Znuny, que é o dono da
+identidade (D-C), e o ramal fica em `portal_user_role`, **com a limitação
+declarada: ele não aparece no painel nativo.** Risco baixo, reversão barata.
+
+**V-R2.3 foi ajustado à decisão D-E.** O teste como estava redigido no
+levantamento exigia que o cursor **não** avançasse sobre lançamento órfão. A
+decisão D-E, fechada depois, diz o contrário: não mexer no avanço do cursor (é
+código financeiro vivo) e trocar o descarte silencioso por pendência
+reprocessável. Os testes seguem a decisão, e asseram explicitamente que o cursor
+avança **e** que a pendência ficou registrada.
 
 ---
 

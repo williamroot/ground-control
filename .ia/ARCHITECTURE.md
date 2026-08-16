@@ -324,12 +324,15 @@ Browser → cloudflared → admin:3000 → sidecar:8001 (/v1/admin/*, cross-tena
   invariantes #1C. BYPASSRLS só em `/v1/admin/*`.
 - **Escrita no Znuny via GI** (Spec #0): o webservice custom **`GertiAdmin`**
   (`znuny/Custom/Kernel/GenericInterface/Operation/...`) embrulha a API Perl nativa
-  (`CustomerCompanyAdd`/`CustomerUserAdd`/`SetPassword`), idempotente e com
-  `AccessToken` fail-closed. O sidecar é a única porta; o browser nunca fala com o
-  Znuny.
+  (`CustomerCompanyAdd/Update`, `CustomerUserAdd/Update/List`, `SetPassword`),
+  idempotente e com `AccessToken` fail-closed. O sidecar é a única porta; o
+  browser nunca fala com o Znuny.
 - **Páginas:** `/login` (agente), `/` (lista de clientes), `/clientes/novo`
-  (assistente: dados+branding+usuários/papéis), `/clientes/[id]` (detalhe),
-  `/clientes/[id]/contratos/novo` (form por tipo de contrato). Guarda de rota
+  (assistente de 3 etapas: cadastro+endereço+contato / identidade visual /
+  usuários), `/clientes/[id]` (detalhe), `/clientes/[id]/editar` (corrigir o
+  cadastro), `/clientes/[id]/usuarios` (pessoas do cliente),
+  `/clientes/[id]/filas` (relacionamentos cliente↔fila),
+  `/clientes/[id]/chamados`, `/clientes/[id]/contratos/novo`. Guarda de rota
   `admin-auth` (gate real é o 401 do sidecar). Subdomínio white-label do cliente
   continua **manual** (D-1G-4) — a UI mostra ao operador o subdomínio a registrar.
 
@@ -680,7 +683,7 @@ Chave desconhecida não carrega nada; campo fora da allowlist é **erro explíci
 nunca descarte silencioso. A mesma allowlist é revalidada no sidecar — defesa em
 profundidade, não confiança mútua.
 
-### Os 15 módulos GI (webservice `GertiAdmin`)
+### Os 18 módulos GI (webservice `GertiAdmin`)
 
 | Bloco | Módulos | Risco |
 |---|---|---|
@@ -688,6 +691,16 @@ profundidade, não confiança mútua.
 | B — classes de CI | `AdminCiClassList`, `AdminCiClassDefinitionGet/Set` | médio |
 | C — pessoas | `AdminAgentList/Get/Set`, `AdminGroupList`, `AdminAgentGroupSet` | médio-alto |
 | D — SysConfig | `AdminSysConfigGet/Set` | **alto** |
+| E — cadastro do cliente (Onda 1) | `CustomerCompanyAdd/Update`, `CustomerUserAdd/Update/List`, `SetPassword` | médio |
+
+**Bloco E, o que a Onda 1 acrescentou:** `CustomerCompanyUpdate` (espelho de
+endereço/contato), `CustomerUserUpdate` (editar/desativar a pessoa) e
+`CustomerUserList` (ler as pessoas de um `CustomerID` — o Znuny é o dono da
+identidade, decisão D-C, e sem esta op quem fosse criado direto no painel era
+invisível no console). As duas de `Update` fazem **merge sobre o registro
+atual**: o Update nativo é full replace e apagaria todo campo não enviado.
+`CustomerUserUpdate` **não** aceita `UserCustomerID` do chamador — é o que
+impediria "editar usuário" de virar "mover a pessoa para outra empresa".
 
 **Sem exclusão em lugar nenhum:** o Znuny invalida com `ValidID = 2`. As telas
 dizem "Invalidar", não "Excluir".
