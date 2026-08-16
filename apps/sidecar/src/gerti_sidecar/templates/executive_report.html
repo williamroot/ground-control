@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<style>
+  /* Relatório executivo mensal (R18b). O Kleber sobre o original do TIFLUX:
+     "acho um relatório bem feinho, mas são os indicadores que a gente mostra
+     para o cliente". Paridade de conteúdo é obrigatória; a apresentação é o
+     lugar onde dá para ser melhor sem custo. */
+  @page {
+    size: A4;
+    margin: 18mm 16mm 22mm 16mm;
+    @bottom-center {
+      content: "Relatório executivo — página " counter(page) " de " counter(pages);
+      font-size: 8pt;
+      color: #94a3b8;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "DejaVu Sans", "Helvetica", sans-serif;
+    font-size: 10pt;
+    color: #1f2937;
+    margin: 0;
+  }
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 3px solid {{ primary_color }};
+    padding-bottom: 12px;
+    margin-bottom: 22px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand img { max-height: 48px; max-width: 180px; }
+  .brand .name { font-size: 18pt; font-weight: 700; color: {{ primary_color }}; }
+  .doc-meta { text-align: right; font-size: 9pt; color: #4b5563; }
+  .doc-meta .title { font-size: 13pt; font-weight: 700; color: #111827; margin-bottom: 4px; }
+
+  h2 {
+    font-size: 11pt;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+    margin: 26px 0 10px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  h2:first-of-type { margin-top: 0; }
+
+  .cards { display: flex; gap: 10px; flex-wrap: wrap; }
+  .card {
+    flex: 1 1 150px;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .card .label { font-size: 8pt; text-transform: uppercase; color: #64748b; letter-spacing: .03em; }
+  .card .value { font-size: 16pt; font-weight: 700; color: {{ primary_color }}; margin-top: 2px; }
+  .card .sub { font-size: 8pt; color: #94a3b8; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 9pt; }
+  th {
+    text-align: left;
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: #64748b;
+    border-bottom: 1px solid #cbd5e1;
+    padding: 6px 6px 6px 0;
+  }
+  td { padding: 6px 6px 6px 0; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+  td.num, th.num { text-align: right; padding-right: 0; }
+  .muted { color: #94a3b8; }
+  .mono { font-family: "DejaVu Sans Mono", monospace; font-size: 8.5pt; }
+
+  /* Barra proporcional dos "principais tipos" — sem imagem, sem JS: só uma div
+     com largura em %, que o WeasyPrint renderiza igual ao navegador. */
+  .bar-track { background: #f1f5f9; border-radius: 3px; height: 10px; width: 100%; }
+  .bar-fill { background: {{ primary_color }}; border-radius: 3px; height: 10px; }
+
+  .note {
+    border-left: 3px solid #f59e0b;
+    background: #fffbeb;
+    padding: 8px 10px;
+    font-size: 8.5pt;
+    color: #92400e;
+    margin-top: 10px;
+  }
+  .tickets { page-break-before: auto; }
+  tr { page-break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="brand">
+    {% if logo_url %}<img src="{{ logo_url }}" alt="" />{% endif %}
+    <div class="name">{{ display_name }}</div>
+  </div>
+  <div class="doc-meta">
+    <div class="title">Relatório executivo</div>
+    <div>{{ month_label }}</div>
+    <div class="muted">{{ period_start }} a {{ period_end }}</div>
+  </div>
+</div>
+
+<h2>Consumo do período</h2>
+{% if consumption %}
+  <div class="cards">
+    {% for c in consumption %}
+      <div class="card">
+        <div class="label">{{ c.code }}</div>
+        <div class="value">{{ fmt_value(c) }}</div>
+        <div class="sub">{{ c.unit_label }} · {{ type_label(c.type) }}</div>
+      </div>
+    {% endfor %}
+  </div>
+  {% if consumption | length > 1 %}
+    <div class="note">
+      Este cliente tem contratos de tipos diferentes. Os valores acima
+      <strong>não se somam</strong> — cada um está na unidade do seu contrato.
+    </div>
+  {% endif %}
+{% else %}
+  <p class="muted">Nenhum contrato com consumo mensurável no período.</p>
+{% endif %}
+
+<h2>Principais chamados por {{ dimension_label | lower }}</h2>
+{% if top_items %}
+  <table>
+    <thead>
+      <tr>
+        <th>{{ dimension_label }}</th>
+        <th class="num">Chamados</th>
+        <th style="width: 40%">&nbsp;</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for label, count in top_items %}
+        <tr>
+          <td>{{ label }}</td>
+          <td class="num">{{ count }}</td>
+          <td>
+            <div class="bar-track">
+              <div class="bar-fill" style="width: {{ (count / top_items[0][1] * 100) | round(1) }}%"></div>
+            </div>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p class="muted">Nenhum chamado registrado no período.</p>
+{% endif %}
+
+<h2 class="tickets">Chamados do período ({{ ticket_total }})</h2>
+{% if tickets %}
+  <table>
+    <thead>
+      <tr>
+        <th>Número</th>
+        <th>Assunto</th>
+        <th>Aberto em</th>
+        <th>Estado</th>
+        <th class="num">Horas</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for t in tickets %}
+        <tr>
+          <td class="mono">{{ t.ticket_number }}</td>
+          <td>{{ t.title }}</td>
+          <td class="muted">{{ t.created[:10] }}</td>
+          <td>{{ t.state }}</td>
+          <td class="num">{{ '%.2f' | format(t.hours) }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if tickets_truncated %}
+    <div class="note">
+      A lista foi limitada aos primeiros {{ tickets | length }} chamados. A
+      contagem total do período ({{ ticket_total }}) continua correta.
+    </div>
+  {% endif %}
+  <div class="note" style="border-left-color:#cbd5e1;background:#f8fafc;color:#475569">
+    As horas por chamado vêm dos lançamentos no Znuny. O bloco de consumo, acima,
+    é o que foi <strong>cobrado</strong> — ele exclui o que foi glosado, então os
+    dois podem divergir de propósito.
+  </div>
+{% else %}
+  <p class="muted">Nenhum chamado no período.</p>
+{% endif %}
+
+</body>
+</html>

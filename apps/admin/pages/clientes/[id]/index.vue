@@ -123,6 +123,14 @@ const contactLine = computed(() => {
             Chamados
           </UButton>
           <UButton
+            :to="`/clientes/${tenant.id}/consumo`"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-chart-column"
+          >
+            Consumo
+          </UButton>
+          <UButton
             :to="`/clientes/${tenant.id}/agentes`"
             color="neutral"
             variant="soft"

@@ -24,6 +24,13 @@ our $ObjectManagerDisabled = 1;
 # SlaBreached and take precedence.
 use constant AT_RISK_WINDOW_SECONDS => 2 * 60 * 60;
 
+# Teto da "listona de chamados" do relatório executivo (T-R18b.2). Um cliente
+# com mil chamados no mês não pode virar um payload GI de vários MB nem um PDF
+# de cem páginas. Acima do teto a resposta marca `TicketsTruncated` — a
+# contagem em `Total` continua exata, é só a lista que é cortada, e quem
+# consome precisa poder dizer isso ao operador em vez de mostrar menos.
+use constant MAX_TICKETS => 1000;
+
 sub new {
     my ( $Type, %Param ) = @_;
     my $Self = {};
@@ -71,6 +78,24 @@ sub Run {
     my %ByState;
     my %ByPriority;
     my %ByDay;
+    # T-R18b.1 — as três dimensões de "principais tipos de chamado" saem juntas,
+    # de uma passada só. Qual delas vai para o relatório é escolha do sidecar
+    # (chave REPORT_TOP_DIMENSION): o `Type` do Znuny costuma ter dois valores e
+    # render pouco, o catálogo de serviço costuma ser o que o operador chama de
+    # "tipo". Entregar as três agora custa nada e faz a virada ser configuração.
+    my %ByType;
+    my %ByService;
+    my %ByQueue;
+    # T-R18b.2 — a "listona de chamados" do fim do relatório. Sai do MESMO loop:
+    # o TicketGet já foi pago para as agregações.
+    #
+    # OPT-IN de propósito (`IncludeTickets`): esta mesma operação alimenta o
+    # painel de analytics, que precisa só das contagens. Sem a chave, o painel
+    # passaria a arrastar até mil chamados e um TicketAccountedTimeGet por
+    # chamado a cada carga — custo que só o relatório tem motivo de pagar.
+    my $IncludeTickets = $D->{IncludeTickets} ? 1 : 0;
+    my @Tickets;
+    my $TicketsTruncated = 0;
     my $SlaBreached = 0;
     my $SlaAtRisk   = 0;
     my $Total       = 0;
@@ -101,6 +126,41 @@ sub Run {
             $ByDay{$1}++;
         }
 
+        # Type / Service / Queue. Um chamado sem serviço definido NÃO vira
+        # 'unknown' silencioso em ByService: ele fica de fora, senão o relatório
+        # anunciaria "o tipo mais frequente é 'não informado'". Type e Queue
+        # sempre existem no Znuny, então esses caem em 'unknown' se vierem vazios.
+        my $Type = defined $T{Type} && $T{Type} ne '' ? $T{Type} : 'unknown';
+        $ByType{$Type}++;
+        my $Queue = defined $T{Queue} && $T{Queue} ne '' ? $T{Queue} : 'unknown';
+        $ByQueue{$Queue}++;
+        if ( defined $T{Service} && $T{Service} ne '' ) {
+            $ByService{ $T{Service} }++;
+        }
+
+        if ( $IncludeTickets && scalar @Tickets < MAX_TICKETS ) {
+            push @Tickets, {
+                TicketID     => $T{TicketID},
+                TicketNumber => $T{TicketNumber},
+                Title        => $T{Title},
+                State        => $State,
+                Priority     => $Priority,
+                Type         => ( defined $T{Type} ? $T{Type} : '' ),
+                Service      => ( defined $T{Service} ? $T{Service} : '' ),
+                Queue        => ( defined $T{Queue} ? $T{Queue} : '' ),
+                Created      => ( defined $T{Created} ? $T{Created} : '' ),
+                CustomerUser => ( defined $T{CustomerUserID} ? $T{CustomerUserID} : '' ),
+                # Horas lançadas no chamado. Vem do time_accounting do Znuny —
+                # NÃO é a mesma conta do faturamento, que exclui glosa aprovada.
+                # A lista do relatório mostra o trabalho feito; o bloco de
+                # consumo mostra o que foi cobrado. Podem divergir de propósito.
+                AccountedTime => ( $TicketObject->TicketAccountedTimeGet( TicketID => $ID ) || 0 ),
+            };
+        }
+        elsif ($IncludeTickets) {
+            $TicketsTruncated = 1;
+        }
+
         # SLA: EscalationTime is seconds until the next escalation fires
         # (negative => already breached). Only meaningful for tickets that still
         # have a running escalation (open). closed/resolved tickets typically
@@ -123,12 +183,17 @@ sub Run {
     return {
         Success => 1,
         Data    => {
-            ByState     => \%ByState,
-            ByPriority  => \%ByPriority,
-            ByDay       => \@ByDay,
-            SlaBreached => $SlaBreached,
-            SlaAtRisk   => $SlaAtRisk,
-            Total       => $Total,
+            ByState          => \%ByState,
+            ByPriority       => \%ByPriority,
+            ByDay            => \@ByDay,
+            ByType           => \%ByType,
+            ByService        => \%ByService,
+            ByQueue          => \%ByQueue,
+            Tickets          => \@Tickets,
+            TicketsTruncated => $TicketsTruncated,
+            SlaBreached      => $SlaBreached,
+            SlaAtRisk        => $SlaAtRisk,
+            Total            => $Total,
         },
     };
 }

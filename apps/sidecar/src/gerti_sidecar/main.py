@@ -26,6 +26,7 @@ from gerti_sidecar.routers import (
     admin_contracts,
     admin_invoices,
     admin_kb,
+    admin_reports,
     admin_search,
     admin_system,
     admin_tenant_queues,
@@ -101,6 +102,9 @@ def create_app() -> FastAPI:
     # Relacionamentos cliente↔fila (T-R5.2). Mesmo prefixo /admin/tenants,
     # router separado por depender da lista viva de filas do Znuny.
     app.include_router(admin_tenant_queues.router, prefix=settings.api_v1_prefix)
+    # Relatório executivo mensal (R18b). Mesmo prefixo /admin/tenants; router
+    # separado porque é a única superfície que devolve PDF.
+    app.include_router(admin_reports.router, prefix=settings.api_v1_prefix)
     app.include_router(admin_contracts.router, prefix=settings.api_v1_prefix)
     # Faturas internas — console gera/gerencia (Spec #1P).
     app.include_router(admin_invoices.router, prefix=settings.api_v1_prefix)
