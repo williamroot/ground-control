@@ -131,8 +131,15 @@ async def get_tenant_consumption_series(
         contracts = (
             (
                 await scoped.execute(
+                    # `tenant_id` EXPLÍCITO: a sessão vem de AdminSessionLocal,
+                    # que tem BYPASSRLS — o GUC é setado mas a policy não filtra.
+                    # Sem esta cláusula, a tela de consumo da Aurora mostrava os
+                    # contratos da TechNova (achado na verificação ao vivo).
                     select(Contract)
-                    .where(Contract.status == ContractStatus.active)
+                    .where(
+                        Contract.tenant_id == tid,
+                        Contract.status == ContractStatus.active,
+                    )
                     .order_by(Contract.code)
                 )
             )

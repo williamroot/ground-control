@@ -163,7 +163,7 @@ class ReportService:
             raise TenantNotFound(str(tenant_id))
         branding = await meta_session.get(TenantBranding, tenant_id)
 
-        consumption = await self._consumption(start, end)
+        consumption = await self._consumption(tenant_id, start, end)
         stats, degraded = await self._ticket_stats(tenant.znuny_customer_id, start, end)
 
         raw_dim: dict[str, int] = {
@@ -210,7 +210,9 @@ class ReportService:
             },
         )
 
-    async def _consumption(self, start: dt.date, end: dt.date) -> list[ContractConsumption]:
+    async def _consumption(
+        self, tenant_id: uuid.UUID, start: dt.date, end: dt.date
+    ) -> list[ContractConsumption]:
         """Uma linha por contrato ativo, cada uma na SUA unidade.
 
         Nunca soma tipos diferentes: um cliente com banco de horas e crédito em
@@ -221,8 +223,15 @@ class ReportService:
         contracts = (
             (
                 await self.session.execute(
+                    # `tenant_id` EXPLÍCITO: o console abre a sessão por
+                    # AdminSessionLocal (BYPASSRLS), onde a policy de RLS não
+                    # se aplica. Sem isto, o relatório de um cliente listaria os
+                    # contratos de outro — e sairia em PDF para o cliente errado.
                     select(Contract)
-                    .where(Contract.status == ContractStatus.active)
+                    .where(
+                        Contract.tenant_id == tenant_id,
+                        Contract.status == ContractStatus.active,
+                    )
                     .order_by(Contract.code)
                 )
             )
