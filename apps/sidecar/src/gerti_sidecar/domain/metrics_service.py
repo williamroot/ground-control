@@ -59,8 +59,8 @@ class MetricsService:
         since = now - dt.timedelta(days=period_days)
 
         csat = await self._csat(tenant_id)
-        hours = await self._hours(since)
-        balance = await self._balance()
+        hours = await self._hours(since, tenant_id)
+        balance = await self._balance(tenant_id)
         tickets = await self._tickets(customer_id, since, now)
 
         return {
@@ -97,15 +97,22 @@ class MetricsService:
 
         return {"avg": avg, "count": count, "distribution": distribution}
 
-    async def _hours(self, since: dt.datetime) -> dict[str, Any]:
+    async def _hours(self, since: dt.datetime, tenant_id: uuid.UUID) -> dict[str, Any]:
         """Soma de billable_minutes (não-glosado) no período -> horas.
 
-        Tenant-scoped via RLS (a sessão tem app.current_tenant). Representa o
-        tempo de agente lançado nos contratos deste tenant (timer #1J -> #1B).
+        Filtra por `tenant_id` EXPLICITAMENTE, e isso não é redundância: o
+        console chama este serviço por `tenant_session_scope(..., factory=
+        AdminSessionLocal)`, e `gerti_admin_user` tem BYPASSRLS — o GUC
+        `app.current_tenant` é setado mas a policy **não se aplica**. Confiar só
+        na RLS aqui fazia a tela de analytics de um cliente somar as horas de
+        TODOS. Achado na verificação ao vivo da Onda 3.
         """
         total_minutes = (
             await self._session.execute(
-                select(func.coalesce(func.sum(ConsumptionEvent.billable_minutes), 0)).where(
+                select(func.coalesce(func.sum(ConsumptionEvent.billable_minutes), 0))
+                .join(Contract, Contract.id == ConsumptionEvent.contract_id)
+                .where(
+                    Contract.tenant_id == tenant_id,
                     ConsumptionEvent.occurred_at >= since,
                     not_written_off_predicate(),
                 )
@@ -114,10 +121,20 @@ class MetricsService:
         minutes = float(total_minutes or 0.0)
         return {"total_minutes": minutes, "total_hours": round(minutes / 60.0, 2)}
 
-    async def _balance(self) -> dict[str, Any]:
-        """Contagem de contratos + saldo total por contrato + alertas (#1F-b)."""
+    async def _balance(self, tenant_id: uuid.UUID) -> dict[str, Any]:
+        """Contagem de contratos + saldo total por contrato + alertas (#1F-b).
+
+        `tenant_id` explícito pelo mesmo motivo de `_hours`: sob BYPASSRLS a
+        policy não filtra, e a lista viria com os contratos de todo mundo.
+        """
         contracts = (
-            (await self._session.execute(select(Contract).order_by(Contract.code))).scalars().all()
+            (
+                await self._session.execute(
+                    select(Contract).where(Contract.tenant_id == tenant_id).order_by(Contract.code)
+                )
+            )
+            .scalars()
+            .all()
         )
         cons = ConsumptionService(self._session)
         reads = ContractReadService(self._session)

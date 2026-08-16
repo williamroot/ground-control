@@ -76,6 +76,26 @@ class Settings(BaseSettings):
     ollama_timeout_seconds: int = 120  # OLLAMA_TIMEOUT_SECONDS
     ai_features_enabled: bool = False  # AI_FEATURES_ENABLED (kill-switch global)
 
+    # Relatórios (Onda 3, R18a/R18b) — DUAS SUPOSIÇÕES DO VÍDEO, atrás de chave
+    # ------------------------------------------------------------------
+    # Nenhuma das duas foi confirmada com o Kleber. A invariante da campanha é
+    # que suposição não vira constante no meio da regra: nasce nomeada aqui, com
+    # teste nos dois estados, para a virada custar uma variável de ambiente.
+    #
+    # S2 — "principais tipos de chamado" é o catálogo de SERVIÇO, não o `Type`
+    # do Znuny (que costuma ter dois valores e render um gráfico sem conteúdo).
+    # As três dimensões chegam prontas do GI; a chave só escolhe qual é exibida.
+    # Vira com: REPORT_TOP_DIMENSION=type (ou queue) + recriar o sidecar.
+    report_top_dimension: Literal["service", "type", "queue"] = "service"
+    #
+    # S3 — "últimos três meses" são três CICLOS de faturamento, porque ele diz
+    # "ciclo de utilização". Ciclo e mês coincidem em contrato mensal e divergem
+    # fora disso. Os dois modos coexistem e são sobrescritíveis por requisição
+    # (`?window=`/`?count=`) — a tela oferece o seletor, o que transforma a
+    # suposição em escolha dele em vez de aposta nossa.
+    consumption_window_mode: Literal["cycles", "months"] = "cycles"
+    consumption_window_count: int = 3
+
     # Contratação + Asaas (Spec #2) — opt-in. Vazio/false => checkout 404, fail-safe.
     asaas_enabled: bool = False  # ASAAS_ENABLED (kill-switch)
     asaas_api_key: str = ""  # ASAAS_API_KEY (conta Gerti default; vazio = off)

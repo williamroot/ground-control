@@ -14,7 +14,7 @@ presente, senão deriva de ZNUNY_ADMIN_WS_URL trocando '/GertiAdmin' por
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -162,6 +162,16 @@ class TicketStats:
     sla_breached: int
     sla_at_risk: int
     total: int
+    # As três dimensões de "principais tipos de chamado" (T-R18b.1). Chegam
+    # sempre as três; qual vai para o relatório é a chave REPORT_TOP_DIMENSION.
+    # Default vazio: uma imagem Znuny anterior à Onda 3 não devolve os blocos, e
+    # isso precisa degradar para "sem dados", nunca levantar exceção.
+    by_type: dict[str, int] = field(default_factory=dict)
+    by_service: dict[str, int] = field(default_factory=dict)
+    by_queue: dict[str, int] = field(default_factory=dict)
+    # A "listona de chamados" do fim do relatório (T-R18b.2).
+    tickets: list[dict[str, Any]] = field(default_factory=list)
+    tickets_truncated: bool = False
 
 
 @dataclass(frozen=True)
@@ -532,7 +542,9 @@ async def config_item_upsert(
     return int(cid), str(data.get("Action") or "")
 
 
-async def ticket_stats(*, customer_id: str, since: str, until: str) -> TicketStats:
+async def ticket_stats(
+    *, customer_id: str, since: str, until: str, include_tickets: bool = False
+) -> TicketStats:
     """Contagens de ticket agregadas por CustomerID (Spec #1O).
 
     Usa o token de admin (_post) — o GI escopa por CustomerCompany (anti-IDOR);
@@ -541,7 +553,14 @@ async def ticket_stats(*, customer_id: str, since: str, until: str) -> TicketSta
     """
     data = await _post(
         "/Ticket/Stats",
-        {"CustomerCompany": customer_id, "Since": since, "Until": until},
+        {
+            "CustomerCompany": customer_id,
+            "Since": since,
+            "Until": until,
+            # Opt-in: só o relatório executivo precisa da listona. O painel de
+            # analytics usa a mesma op e pagaria caro por dados que não mostra.
+            "IncludeTickets": 1 if include_tickets else 0,
+        },
     )
     by_state = {str(k): int(v) for k, v in (data.get("ByState") or {}).items()}
     by_priority = {str(k): int(v) for k, v in (data.get("ByPriority") or {}).items()}
@@ -551,6 +570,27 @@ async def ticket_stats(*, customer_id: str, since: str, until: str) -> TicketSta
     ]
     total = data.get("Total")
     total_int = int(total) if total is not None else sum(by_state.values())
+    # Blocos da Onda 3. Ausentes (imagem Znuny antiga) => vazios, sem exceção.
+    by_type = {str(k): int(v) for k, v in (data.get("ByType") or {}).items()}
+    by_service = {str(k): int(v) for k, v in (data.get("ByService") or {}).items()}
+    by_queue = {str(k): int(v) for k, v in (data.get("ByQueue") or {}).items()}
+    tickets = [
+        {
+            "znuny_ticket_id": int(r.get("TicketID") or 0),
+            "ticket_number": str(r.get("TicketNumber") or ""),
+            "title": str(r.get("Title") or ""),
+            "state": str(r.get("State") or ""),
+            "priority": str(r.get("Priority") or ""),
+            "type": str(r.get("Type") or ""),
+            "service": str(r.get("Service") or ""),
+            "queue": str(r.get("Queue") or ""),
+            "created": str(r.get("Created") or ""),
+            "customer_user": str(r.get("CustomerUser") or ""),
+            "accounted_time": float(r.get("AccountedTime") or 0),
+        }
+        for r in (data.get("Tickets") or [])
+        if isinstance(r, dict)
+    ]
     return TicketStats(
         by_state=by_state,
         by_priority=by_priority,
@@ -558,6 +598,11 @@ async def ticket_stats(*, customer_id: str, since: str, until: str) -> TicketSta
         sla_breached=int(data.get("SlaBreached") or 0),
         sla_at_risk=int(data.get("SlaAtRisk") or 0),
         total=total_int,
+        by_type=by_type,
+        by_service=by_service,
+        by_queue=by_queue,
+        tickets=tickets,
+        tickets_truncated=bool(data.get("TicketsTruncated")),
     )
 
 

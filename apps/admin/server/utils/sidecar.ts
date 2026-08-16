@@ -35,3 +35,28 @@ export async function sidecarFetch<T>(
   }
   return { status: res.status, data, setCookie }
 }
+
+// Passthrough binário (Onda 3): o PDF do relatório executivo não é JSON, então
+// `sidecarFetch` não serve — ele tentaria parsear os bytes. Mesma forma do
+// `sidecarFetchRaw` do portal, que já serve o PDF de fatura.
+export async function sidecarFetchRaw(
+  event: H3Event,
+  path: string,
+): Promise<{ status: number, body: ArrayBuffer, contentType: string }> {
+  const cfg = useRuntimeConfig()
+  const fwdHost
+    = getRequestHeader(event, 'x-forwarded-host')
+      || getRequestHeader(event, 'host')
+      || ''
+  const cookie = getRequestHeader(event, 'cookie') || ''
+  const res = await fetch(`${cfg.sidecarUrl}${path}`, {
+    method: 'GET',
+    headers: { 'x-forwarded-host': fwdHost, cookie },
+  })
+  const body = await res.arrayBuffer()
+  return {
+    status: res.status,
+    body,
+    contentType: res.headers.get('content-type') || 'application/octet-stream',
+  }
+}

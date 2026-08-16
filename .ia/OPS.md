@@ -1710,3 +1710,100 @@ sido configurado nelas). **NUNCA** `make reset`.
 > `Suporte::N1`, não mais em `Raw`** — é o requisito R5 funcionando, e é o que
 > se demonstra ao Kleber. Para voltar ao comportamento antigo basta
 > `PUT /v1/admin/tenants/{id}/queues {"queues": []}`.
+
+### Deploy da Onda 3 — consumo por cliente e relatório executivo (profile `gerti`)
+
+Onda 3 da campanha Recursos Administrativos (R18a · R18b). Aditivo e
+profile-gated. **Sem migration nenhuma.** Uma operação GI existente
+(`GertiTicket::TicketStats`) mudou de **corpo**, não de contrato — o
+`GertiTicket.yml` **não** mudou, então **não** é preciso reimportar/atualizar o
+webservice. É a primeira onda em que isso vale; conferir antes de repetir.
+
+**Pré-requisitos:** nenhuma variável obrigatória nova. Duas chaves **opcionais**
+controlam as suposições do vídeo e têm padrão aplicado se ausentes:
+
+| Chave | Padrão | O que muda |
+|---|---|---|
+| `REPORT_TOP_DIMENSION` | `service` | Qual dimensão vira "principais tipos de chamado" (`service` · `type` · `queue`). As três chegam prontas do GI |
+| `CONSUMPTION_WINDOW_MODE` | `cycles` | Janela padrão do gráfico de consumo (`cycles` · `months`). Sobrescritível por requisição (`?window=`) e pelo seletor da tela |
+| `CONSUMPTION_WINDOW_COUNT` | `3` | Quantos períodos |
+
+```bash
+ssh gc 'cd ~/ground-control && git fetch origin && git checkout campanha/onda-3-relatorios && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 1) Znuny: rebuild (bakeia o TicketStats com ByType/ByService/ByQueue + a
+#    lista de chamados). `perl -c` é gate de build. Downtime curto.
+ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-daemon"
+
+# 2) NÃO há passo de webservice: o contrato do GertiTicket.yml não mudou.
+#    GUARD, ainda assim (custa nada e já nos mordeu antes):
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List"'
+#   → GertiCustomerAuth (1) + GertiAdmin (2) + GertiTicket (3)
+
+# 3) sidecar + admin (sem migration):
+ssh gc "cd ~/ground-control && $DC build sidecar admin && $DC up -d sidecar admin && $DC ps"
+
+# 4) serviços anteriores intactos (mesma lista das ondas anteriores).
+```
+
+**Rollback.** Não há schema a desfazer — é o rollback mais barato da campanha:
+
+```bash
+ssh gc 'cd ~/ground-control && git checkout campanha/onda-1-cadastro'
+$DC build znuny-web sidecar admin && $DC up -d znuny-web znuny-daemon sidecar admin
+```
+
+> **Status (2026-08-16): DEPLOYADO em staging e verificado ao vivo.** Branch
+> `campanha/onda-3-relatorios` (`fe5d99a`) no host. Sha anterior: `bce770b`
+> (Onda 1). Alembic segue em `0030` — nenhuma migration nesta onda.
+>
+> **Provas ao vivo (tenant Aurora, `5effe6fd…`; TechNova, `dd51f082…`):**
+>
+> - **A18a.1/A18a.2** — `GET /consumption-series?window=months&count=6` → 200,
+>   uma série por contrato ativo com a **unidade de cada uma**:
+>   `AUR-HORAS-2026` em `hours` (jun/2026 = 31,98 h), `AUR-CREDITO-2026` e
+>   `AUR-POOL-2026` em `brl`, `AUR-PACOTE-2026` em `services`. Nunca misturadas.
+> - **A18a.3 / S3** — o modo `cycles` mostra exatamente por que a suposição
+>   importa: em `AUR-HORAS-2026` ele devolve os ciclos reais de **jan (6,0 h)** e
+>   **fev (2,0 h)** — consumo que a janela de 6 meses-calendário a partir de
+>   agosto **não alcança**. Os dois modos coexistem e o seletor está na tela.
+> - **A18a.4** — `AUR-FECHADO-2026` (valor fechado) e `AUR-SAAS-2026` não
+>   aparecem na série: contrato sem saldo não vira gráfico vazio enganoso.
+> - **A18b.1–A18b.4** — relatório de **maio/2026** da Aurora: 11 chamados
+>   listados com as horas de cada um, principais **por serviço** ("Acesso e
+>   Senhas" 2, "Hardware" 2, "Microsoft 365" 2 — a dimensão de catálogo é a que
+>   informa; o `Type` do Znuny daria duas barras). PDF: **200**,
+>   `application/pdf`, 22.493 bytes, começando em `%PDF-`.
+> - **A18b.5** — `month=2026-13` → **422**; tenant inexistente → **404**.
+> - **A18b.6** — a regra (JSON degrada, PDF recusa) está travada em
+>   `test_admin_reports_router.py`; ao vivo o Znuny estava de pé, então o
+>   caminho exercitado foi o feliz.
+>
+> **Vazamento cross-tenant achado na verificação ao vivo — o achado mais sério
+> da campanha até aqui (corrigido, `fe5d99a`):** a série de consumo da **Aurora**
+> vinha com os contratos da **TechNova** (`TNV-CREDITO-2026`, `TNV-HORAS-2026`).
+>
+> A causa vale registrar porque o padrão está espalhado: as rotas de console
+> abrem `tenant_session_scope(tid, factory=AdminSessionLocal)`, e
+> `gerti_admin_user` tem **BYPASSRLS** — o GUC é gravado e a policy **não se
+> aplica**. Toda consulta que dependia só da RLS enxergava a base inteira. O
+> comentário no `admin_analytics.py` dizia, literalmente, "reusar a mesma
+> agregação tenant-scoped do portal **sem vazamento cross-tenant**"; era
+> exatamente o que não acontecia.
+>
+> Corrigido com `tenant_id` explícito em três lugares — os dois da Onda 3
+> (`consumption-series` e `ReportService._consumption`) e um **pré-existente**:
+> `MetricsService._hours`/`._balance`, que faziam o painel `/v1/admin/analytics`
+> somar as horas de **todos** os clientes e listar o saldo de **todos** os
+> contratos, para qualquer `tenant_id` pedido (#1O, desde 2026-06).
+>
+> **Prova da correção ao vivo:** Aurora → só `AUR-*`; TechNova → só `TNV-*`,
+> nas duas telas. Cinco testes novos em `test_admin_cross_tenant_isolation.py`,
+> que rodam com a factory **admin** de propósito (rodar com `gerti_sidecar`
+> provaria a RLS, que não é o caminho que falhou) — e que **falham** sem a
+> correção, verificado revertendo o filtro.
+>
+> **Nada a limpar:** a onda é somente-leitura. Nenhum chamado, usuário ou
+> registro foi criado no staging para a verificação.
