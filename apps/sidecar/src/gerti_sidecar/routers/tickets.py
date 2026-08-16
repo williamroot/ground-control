@@ -35,6 +35,7 @@ from gerti_sidecar.domain.ticketing_service import (
     ContractChoiceRequired,
     NoActiveContract,
     OpenTicketInput,
+    QueueNotAllowed,
     TicketingService,
 )
 from gerti_sidecar.integrations import znuny_ticket
@@ -132,6 +133,8 @@ async def open_ticket(
         raise HTTPException(status_code=422, detail="contract_required") from exc
     except NoActiveContract as exc:
         raise HTTPException(status_code=404, detail="contract_not_found") from exc
+    except QueueNotAllowed as exc:
+        raise HTTPException(status_code=422, detail="queue_not_allowed") from exc
     except ZnunyWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ZnunyUnavailable as exc:

@@ -36,6 +36,28 @@ const { data: raw, pending, refresh } = await useAsyncData('znuny-queues', () =>
 
 const loadFailed = computed(() => !pending.value && raw.value === null)
 
+// T-R5.5 — "quem atende esta fila?". A fila pertence a um grupo; a contagem de
+// agentes com `rw` nesse grupo vem de /admin/znuny/groups. Best-effort: se
+// falhar, a coluna mostra só o nome do grupo, como antes — nunca "0 agentes",
+// que diria que ninguém atende.
+interface GroupWithCount { id: number, name: string, rw_user_count: number | null }
+const { data: groupsWithCounts } = await useAsyncData('znuny-groups-rw', () =>
+  $fetch<GroupWithCount[]>('/api/admin/znuny/groups', { headers }).catch(() => null))
+
+const rwCountByGroup = computed<Record<string, number | null>>(() => {
+  const out: Record<string, number | null> = {}
+  for (const g of groupsWithCounts.value ?? []) out[String(g.id)] = g.rw_user_count
+  return out
+})
+
+function servedBy(groupId: string): string {
+  const name = groupName(groupId)
+  if (!groupId) return '—'
+  const count = rwCountByGroup.value[String(groupId)]
+  if (count === null || count === undefined) return name
+  return `${name} · ${count} ${count === 1 ? 'agente' : 'agentes'}`
+}
+
 const rows = computed<QueueRow[]>(() =>
   extractItems(raw.value, 'Queue').map(item => ({
     id: extractItemId(item),
@@ -243,7 +265,7 @@ async function confirmInvalidate() {
         <thead class="bg-elevated text-left text-xs uppercase text-muted">
           <tr>
             <th class="px-4 py-2.5">Nome</th>
-            <th class="px-4 py-2.5">Grupo</th>
+            <th class="px-4 py-2.5">Atendida por</th>
             <th class="px-4 py-2.5">Validade</th>
             <th class="px-4 py-2.5">1ª resposta</th>
             <th class="px-4 py-2.5">Atualização</th>
@@ -257,7 +279,7 @@ async function confirmInvalidate() {
               <span class="font-semibold text-highlighted">{{ row.Name }}</span>
               <span class="block text-xs text-dimmed">responde como {{ systemAddressName(row.SystemAddressID) }}</span>
             </td>
-            <td class="px-4 py-3 text-muted">{{ groupName(row.GroupID) }}</td>
+            <td class="px-4 py-3 text-muted">{{ servedBy(row.GroupID) }}</td>
             <td class="px-4 py-3">
               <UBadge :color="validBadgeColor(row.ValidID)" variant="soft" size="sm">
                 {{ validName(row.ValidID) }}

@@ -13,6 +13,7 @@ from gerti_sidecar.domain.reconciliation_service import NS_TIMEACCOUNTING, Recon
 from gerti_sidecar.integrations import znuny_ticket
 from gerti_sidecar.models import (
     ConsumptionEvent,
+    ConsumptionOrphan,
     ConsumptionSyncCursor,
     Contract,
     Tenant,
@@ -177,3 +178,214 @@ async def test_gi_unavailable_does_not_advance_cursor(  # type: ignore[no-untype
     async with admin_factory() as a:
         cur = await a.get(ConsumptionSyncCursor, inst.id)
         assert cur.last_time_accounting_id == 5
+
+
+# ── T-R2.3 — hora em chamado SEM vínculo não pode sumir ─────────────────────
+#
+# O vínculo chamado↔contrato só nasce no POST do portal. Todo chamado que
+# entrar por e-mail (R9, Onda 2) nasce sem ele — e, até esta onda, o worker
+# descartava o lançamento em silêncio e ainda avançava o cursor por cima.
+#
+# Decisão D-E: o cursor CONTINUA avançando (é código financeiro vivo, e segurá-lo
+# travaria a reconciliação inteira por causa de um órfão). O que muda é que o
+# descarte deixa de ser silencioso.
+
+
+async def _seed_one_contract(session):  # type: ignore[no-untyped-def]
+    """Tenant com EXATAMENTE um contrato ativo e nenhum vínculo de chamado."""
+    inst = ZnunyInstance(
+        name="i",
+        base_url="http://z",
+        db_dsn_secret_ref="x",
+        webservice_token_secret_ref="x",
+        webhook_signing_secret_ref="x",
+        mode="pool",
+    )
+    session.add(inst)
+    await session.flush()
+    t = Tenant(
+        legal_name="Acme",
+        trade_name="Acme",
+        document="1",
+        znuny_customer_id="ACME",
+        znuny_instance_id=inst.id,
+        subdomain="acme",
+    )
+    session.add(t)
+    await session.flush()
+    cb = Contract(
+        tenant_id=t.id,
+        code="CB",
+        type=ContractType.credit_brl,
+        starts_on=dt.date(2026, 1, 1),
+        ends_on=dt.date(2026, 12, 31),
+        initial_amount_brl=10000,
+        unit_price_brl=200,
+        created_by="seed",
+    )
+    session.add(cb)
+    session.add(ConsumptionSyncCursor(znuny_instance_id=inst.id, last_time_accounting_id=0))
+    await session.commit()
+    return inst, t, cb
+
+
+@pytest.mark.asyncio
+async def test_orphan_with_single_active_contract_is_linked_and_billed(  # type: ignore[no-untyped-def]
+    engine, app_session_factory, session, monkeypatch
+):
+    """V-R2.3 / aceite A2.3 — 1 contrato ativo: vincula sozinho e a hora é faturada."""
+    monkeypatch.setattr(
+        db,
+        "AdminSessionLocal",
+        async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession),
+    )
+    monkeypatch.setattr(db, "SessionLocal", app_session_factory)
+    _inst, t, cb = await _seed_one_contract(session)
+
+    # Chamado 777 nunca passou pelo portal — é o cenário do e-mail.
+    entries = [
+        znuny_ticket.TimeEntry(
+            id=201,
+            ticket_id=777,
+            article_id=None,
+            time_unit=60.0,
+            created="2026-08-15 09:00:00",
+            customer_id="ACME",
+            customer_user_id="ana@acme.example",
+        )
+    ]
+    n = await ReconciliationService(gi=_gi_with(entries)).reconcile()
+    assert n == 1, "a hora do chamado por e-mail precisa ser faturada, não descartada"
+
+    async with tenant_session_scope(t.id, factory=app_session_factory) as s:
+        link = (
+            await s.execute(
+                select(TicketContractLink).where(TicketContractLink.znuny_ticket_id == 777)
+            )
+        ).scalar_one()
+        assert link.contract_id == cb.id
+        assert "auto-link" in link.linked_by_rule
+        ev = (await s.execute(select(ConsumptionEvent))).scalars().one()
+        assert float(ev.billable_minutes) == 60.0
+        assert float(ev.billable_amount_brl) == 200.0
+
+    # Nada foi para a fila de pendência.
+    async with db.AdminSessionLocal() as a:
+        assert (await a.execute(select(ConsumptionOrphan))).scalars().all() == []
+
+
+@pytest.mark.asyncio
+async def test_orphan_with_two_active_contracts_becomes_visible_pendency(  # type: ignore[no-untyped-def]
+    engine, app_session_factory, session, monkeypatch
+):
+    """V-R2.3 (o caso ambíguo) — 2 contratos ativos: NADA é cobrado, e fica registrado.
+
+    Escolher um dos dois por conta própria seria faturar no contrato errado —
+    pior do que não faturar. A pendência é o que impede o silêncio.
+    """
+    monkeypatch.setattr(
+        db,
+        "AdminSessionLocal",
+        async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession),
+    )
+    monkeypatch.setattr(db, "SessionLocal", app_session_factory)
+    inst, t, _hb, _cb = await _seed(session)  # este seed tem DOIS contratos ativos
+
+    entries = [
+        znuny_ticket.TimeEntry(
+            id=301,
+            ticket_id=888,
+            article_id=None,
+            time_unit=45.0,
+            created="2026-08-15 10:00:00",
+            customer_id="ACME",
+            customer_user_id="ana@acme.example",
+        )
+    ]
+    n = await ReconciliationService(gi=_gi_with(entries)).reconcile()
+    assert n == 0, "com 2 contratos ativos, nada pode ser debitado automaticamente"
+
+    async with db.AdminSessionLocal() as a:
+        orphan = (await a.execute(select(ConsumptionOrphan))).scalars().one()
+        assert orphan.reason == "ambiguous_contract"
+        assert orphan.znuny_ticket_id == 888
+        assert orphan.znuny_customer_id == "ACME"
+        assert orphan.tenant_id == t.id
+        assert orphan.status == "pending"
+        assert float(orphan.time_unit) == 45.0
+        # D-E: o cursor avança mesmo assim — o registro é que troca o silêncio.
+        cur = await a.get(ConsumptionSyncCursor, inst.id)
+        assert cur.last_time_accounting_id == 301
+
+    async with tenant_session_scope(t.id, factory=app_session_factory) as s:
+        assert (await s.execute(select(ConsumptionEvent))).scalars().all() == []
+        assert (
+            await s.execute(
+                select(TicketContractLink).where(TicketContractLink.znuny_ticket_id == 888)
+            )
+        ).scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_orphan_from_unknown_customer_is_recorded_not_dropped(  # type: ignore[no-untyped-def]
+    engine, app_session_factory, session, monkeypatch
+):
+    """CustomerID que não casa com nenhum cliente vira pendência `no_tenant`."""
+    monkeypatch.setattr(
+        db,
+        "AdminSessionLocal",
+        async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession),
+    )
+    monkeypatch.setattr(db, "SessionLocal", app_session_factory)
+    await _seed_one_contract(session)
+
+    entries = [
+        znuny_ticket.TimeEntry(
+            id=401,
+            ticket_id=999,
+            article_id=None,
+            time_unit=10.0,
+            created="2026-08-15 11:00:00",
+            customer_id="EMPRESA-QUE-NAO-EXISTE",
+        )
+    ]
+    assert await ReconciliationService(gi=_gi_with(entries)).reconcile() == 0
+
+    async with db.AdminSessionLocal() as a:
+        orphan = (await a.execute(select(ConsumptionOrphan))).scalars().one()
+        assert orphan.reason == "no_tenant"
+        assert orphan.tenant_id is None
+
+
+@pytest.mark.asyncio
+async def test_orphan_pendency_is_idempotent(  # type: ignore[no-untyped-def]
+    engine, app_session_factory, session, monkeypatch
+):
+    """Rescan da mesma faixa não multiplica a pendência (unique por lançamento)."""
+    admin_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    monkeypatch.setattr(db, "AdminSessionLocal", admin_factory)
+    monkeypatch.setattr(db, "SessionLocal", app_session_factory)
+    inst, _t, _hb, _cb = await _seed(session)
+
+    entries = [
+        znuny_ticket.TimeEntry(
+            id=501,
+            ticket_id=1001,
+            article_id=None,
+            time_unit=5.0,
+            created="2026-08-15 12:00:00",
+            customer_id="ACME",
+        )
+    ]
+    svc = ReconciliationService(gi=_gi_with(entries))
+    await svc.reconcile()
+    # Rebobina o cursor à mão, como faria um reprocessamento manual.
+    async with admin_factory() as a:
+        cur = await a.get(ConsumptionSyncCursor, inst.id)
+        cur.last_time_accounting_id = 500
+        await a.commit()
+    await svc.reconcile()
+
+    async with admin_factory() as a:
+        rows = (await a.execute(select(ConsumptionOrphan))).scalars().all()
+        assert len(rows) == 1

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,6 +33,19 @@ class Tenant(Base):
     )
     subdomain: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="active")
+    # Endereço e contato (migration 0027, T-R1.1). `gerti.tenant` é dona
+    # (decisão D-B); o Znuny recebe espelho best-effort via CustomerCompanyUpdate.
+    # Todas nullable: cadastro antigo continua válido sem preenchimento.
+    address_street: Mapped[str | None] = mapped_column(Text)
+    address_number: Mapped[str | None] = mapped_column(Text)
+    address_complement: Mapped[str | None] = mapped_column(Text)
+    address_district: Mapped[str | None] = mapped_column(Text)
+    address_city: Mapped[str | None] = mapped_column(Text)
+    address_state: Mapped[str | None] = mapped_column(Text)
+    address_zip: Mapped[str | None] = mapped_column(Text)
+    contact_name: Mapped[str | None] = mapped_column(Text)
+    contact_email: Mapped[str | None] = mapped_column(Text)
+    contact_phone: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -96,6 +96,10 @@ class Group:
     name: str
     comment: str
     valid: bool
+    # Agentes com `rw` no grupo (T-R5.5). `None` quando o Znuny ainda não
+    # devolve o campo — imagem antiga não vira contagem zero, que mentiria
+    # dizendo que ninguém atende a fila.
+    rw_user_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -311,6 +315,9 @@ def _group_from(data: dict[str, Any]) -> Group:
         name=str(data.get("Name") or ""),
         comment=str(data.get("Comment") or ""),
         valid=_valid_id_is_one(data.get("ValidID")),
+        rw_user_count=(
+            int(data["RwUserCount"]) if str(data.get("RwUserCount") or "").isdigit() else None
+        ),
     )
 
 

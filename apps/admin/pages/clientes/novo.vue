@@ -1,13 +1,9 @@
 <script setup lang="ts">
+// Assistente de cadastro de cliente em 3 etapas (T-R1.4, R1 do vídeo).
+// A validação por etapa vive em `useTenantWizard` (lógica pura, testada
+// isoladamente); aqui só tem tela. Ao final, cai na ficha do cliente — que é
+// onde o Kleber espera cair ("uma telinha de edição", 01:10).
 definePageMeta({ middleware: 'admin-auth' })
-
-interface UserRow {
-  email: string
-  first_name: string
-  last_name: string
-  password: string
-  role: 'admin' | 'helpdesk'
-}
 
 interface OnboardingResult {
   tenant: { id: string, trade_name: string, subdomain: string }
@@ -20,84 +16,68 @@ const roleOptions = [
   { label: 'Helpdesk', value: 'helpdesk' },
 ]
 
-const form = reactive({
-  legal_name: '',
-  trade_name: '',
-  document: '',
-  subdomain: '',
-  znuny_customer_id: '',
-  branding: {
-    display_name: '',
-    primary_color: '#2563EB',
-    accent_color: '#1E40AF',
-    support_email: '',
-    logo_url: '',
-  },
-})
-
-const users = ref<UserRow[]>([
-  { email: '', first_name: '', last_name: '', password: '', role: 'admin' },
-])
-
-function addUser() {
-  users.value.push({ email: '', first_name: '', last_name: '', password: '', role: 'helpdesk' })
-}
-function removeUser(i: number) {
-  if (users.value.length > 1) users.value.splice(i, 1)
-}
-
+const draft = reactive(emptyTenantWizardDraft())
+const step = ref<WizardStep>(1)
 const submitting = ref(false)
 const errorMsg = ref('')
+const stepErrors = ref<string[]>([])
 const result = ref<OnboardingResult | null>(null)
 
-function validate(): string | null {
-  if (!form.legal_name.trim()) return 'Razão social é obrigatória.'
-  if (!form.trade_name.trim()) return 'Nome fantasia é obrigatório.'
-  if (!form.document.trim()) return 'CNPJ/documento é obrigatório.'
-  if (!form.subdomain.trim()) return 'Subdomínio é obrigatório.'
-  if (!form.znuny_customer_id.trim()) return 'ID do cliente no Znuny é obrigatório.'
-  if (!form.branding.display_name.trim()) return 'Nome de exibição (branding) é obrigatório.'
-  for (const [i, u] of users.value.entries()) {
-    const n = i + 1
-    if (!u.email.trim()) return `Usuário ${n}: e-mail é obrigatório.`
-    if (!u.first_name.trim()) return `Usuário ${n}: nome é obrigatório.`
-    if (!u.last_name.trim()) return `Usuário ${n}: sobrenome é obrigatório.`
-    if (!u.password.trim()) return `Usuário ${n}: senha é obrigatória.`
+const steps: WizardStep[] = [1, 2, 3]
+
+function addUser() {
+  draft.users.push(emptyTenantUser('helpdesk'))
+}
+function removeUser(i: number) {
+  if (draft.users.length > 1) draft.users.splice(i, 1)
+}
+
+function next() {
+  const errors = validateStep(step.value, draft)
+  stepErrors.value = errors
+  if (errors.length) return
+  if (step.value < 3) step.value = (step.value + 1) as WizardStep
+}
+
+function back() {
+  stepErrors.value = []
+  if (step.value > 1) step.value = (step.value - 1) as WizardStep
+}
+
+// Voltar a uma etapa já vencida é livre; pular para a frente exige que as
+// anteriores estejam válidas — senão o assistente não estaria validando nada.
+function goTo(target: WizardStep) {
+  if (target <= step.value) { step.value = target; stepErrors.value = []; return }
+  for (const s of steps) {
+    if (s >= target) break
+    const errors = validateStep(s, draft)
+    if (errors.length) { step.value = s; stepErrors.value = errors; return }
   }
-  return null
+  step.value = target
+  stepErrors.value = []
+}
+
+function onZipBlur() {
+  draft.address_zip = normalizeZip(draft.address_zip)
+}
+function onStateBlur() {
+  draft.address_state = normalizeState(draft.address_state)
 }
 
 async function submit() {
   errorMsg.value = ''
-  const v = validate()
-  if (v) { errorMsg.value = v; return }
+  // Revalida TODAS as etapas: o operador pode ter voltado e esvaziado um campo.
+  for (const s of steps) {
+    const errors = validateStep(s, draft)
+    if (errors.length) { step.value = s; stepErrors.value = errors; return }
+  }
+  stepErrors.value = []
 
   submitting.value = true
   try {
-    const body = {
-      legal_name: form.legal_name.trim(),
-      trade_name: form.trade_name.trim(),
-      document: form.document.trim(),
-      subdomain: form.subdomain.trim(),
-      znuny_customer_id: form.znuny_customer_id.trim(),
-      branding: {
-        display_name: form.branding.display_name.trim(),
-        primary_color: form.branding.primary_color,
-        accent_color: form.branding.accent_color,
-        support_email: form.branding.support_email.trim() || undefined,
-        logo_url: form.branding.logo_url.trim() || undefined,
-      },
-      users: users.value.map(u => ({
-        email: u.email.trim(),
-        first_name: u.first_name.trim(),
-        last_name: u.last_name.trim(),
-        password: u.password,
-        role: u.role,
-      })),
-    }
     result.value = await $fetch<OnboardingResult>('/api/admin/tenants', {
       method: 'POST',
-      body,
+      body: buildTenantBody(draft),
     })
   }
   catch (e) {
@@ -129,7 +109,7 @@ async function submit() {
         Novo cliente
       </h1>
       <p class="mt-1 text-sm text-muted">
-        Provisione um novo tenant: dados cadastrais, branding do portal e usuários iniciais.
+        Provisione um novo tenant: dados cadastrais, identidade visual do portal e usuários.
       </p>
     </div>
 
@@ -178,121 +158,266 @@ async function submit() {
       </div>
     </UCard>
 
-    <!-- Formulário -->
-    <form v-else class="space-y-8" @submit.prevent="submit">
-      <UAlert
-        v-if="errorMsg"
-        color="error"
-        variant="soft"
-        icon="i-lucide-alert-triangle"
-        :title="errorMsg"
-      />
-
-      <section class="space-y-4">
-        <h2 class="font-display text-lg font-bold text-highlighted">
-          Dados cadastrais
-        </h2>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <UFormField label="Razão social" required>
-            <UInput v-model="form.legal_name" placeholder="Empresa Exemplo LTDA" />
-          </UFormField>
-          <UFormField label="Nome fantasia" required>
-            <UInput v-model="form.trade_name" placeholder="Exemplo" />
-          </UFormField>
-          <UFormField label="CNPJ / Documento" required>
-            <UInput v-model="form.document" placeholder="00.000.000/0001-00" />
-          </UFormField>
-          <UFormField label="Subdomínio" required help="Ex.: exemplo (vira exemplo.suporte.gerti.com.br)">
-            <UInput v-model="form.subdomain" placeholder="exemplo" />
-          </UFormField>
-          <UFormField label="ID do cliente no Znuny" required>
-            <UInput v-model="form.znuny_customer_id" placeholder="exemplo" />
-          </UFormField>
-        </div>
-      </section>
-
-      <section class="space-y-4">
-        <h2 class="font-display text-lg font-bold text-highlighted">
-          Branding do portal
-        </h2>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <UFormField label="Nome de exibição" required>
-            <UInput v-model="form.branding.display_name" placeholder="Portal Exemplo" />
-          </UFormField>
-          <UFormField label="E-mail de suporte">
-            <UInput v-model="form.branding.support_email" type="email" placeholder="suporte@exemplo.com" />
-          </UFormField>
-          <UFormField label="Cor primária">
-            <UInput v-model="form.branding.primary_color" type="color" />
-          </UFormField>
-          <UFormField label="Cor de destaque">
-            <UInput v-model="form.branding.accent_color" type="color" />
-          </UFormField>
-          <UFormField label="URL do logo" class="sm:col-span-2">
-            <UInput v-model="form.branding.logo_url" placeholder="https://..." />
-          </UFormField>
-        </div>
-      </section>
-
-      <section class="space-y-4">
-        <div class="flex items-center justify-between">
-          <h2 class="font-display text-lg font-bold text-highlighted">
-            Usuários iniciais
-          </h2>
-          <UButton type="button" variant="soft" color="primary" icon="i-lucide-plus" size="sm" @click="addUser">
-            Adicionar usuário
-          </UButton>
-        </div>
-
-        <UCard
-          v-for="(u, i) in users"
-          :key="i"
-          :ui="{ body: 'space-y-4' }"
-        >
-          <div class="flex items-center justify-between">
-            <p class="text-sm font-semibold text-highlighted">
-              Usuário {{ i + 1 }}
-            </p>
-            <UButton
-              v-if="users.length > 1"
-              type="button"
-              variant="ghost"
-              color="error"
-              icon="i-lucide-trash-2"
-              size="xs"
-              @click="removeUser(i)"
+    <template v-else>
+      <!-- Trilha das etapas -->
+      <ol class="mb-8 flex items-center gap-2" aria-label="Etapas do cadastro">
+        <li v-for="(s, i) in steps" :key="s" class="flex flex-1 items-center gap-2">
+          <button
+            type="button"
+            class="flex items-center gap-2 text-left"
+            :aria-current="s === step ? 'step' : undefined"
+            @click="goTo(s)"
+          >
+            <span
+              class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold"
+              :class="s === step
+                ? 'bg-primary text-inverted'
+                : s < step ? 'bg-success text-white' : 'bg-elevated text-muted'"
             >
-              Remover
+              <UIcon v-if="s < step" name="i-lucide-check" class="h-4 w-4" />
+              <template v-else>{{ s }}</template>
+            </span>
+            <span
+              class="hidden text-sm sm:inline"
+              :class="s === step ? 'font-semibold text-highlighted' : 'text-muted'"
+            >{{ STEP_TITLES[s] }}</span>
+          </button>
+          <span v-if="i < steps.length - 1" class="h-px flex-1 bg-accented" />
+        </li>
+      </ol>
+
+      <form class="space-y-8" @submit.prevent="submit">
+        <UAlert
+          v-if="errorMsg"
+          color="error"
+          variant="soft"
+          icon="i-lucide-alert-triangle"
+          :title="errorMsg"
+        />
+        <UAlert
+          v-if="stepErrors.length"
+          color="error"
+          variant="soft"
+          icon="i-lucide-alert-triangle"
+          :title="stepErrors.length === 1 ? 'Corrija antes de avançar' : 'Corrija os itens abaixo'"
+        >
+          <template #description>
+            <ul class="list-disc space-y-0.5 pl-5">
+              <li v-for="e in stepErrors" :key="e">
+                {{ e }}
+              </li>
+            </ul>
+          </template>
+        </UAlert>
+
+        <!-- Etapa 1 — dados cadastrais, endereço e contato -->
+        <section v-show="step === 1" class="space-y-6">
+          <div class="space-y-4">
+            <h2 class="font-display text-lg font-bold text-highlighted">
+              Dados cadastrais
+            </h2>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <UFormField label="Razão social" required>
+                <UInput v-model="draft.legal_name" placeholder="Empresa Exemplo LTDA" />
+              </UFormField>
+              <UFormField label="Nome fantasia" required>
+                <UInput v-model="draft.trade_name" placeholder="Exemplo" />
+              </UFormField>
+              <UFormField label="CNPJ / Documento" required>
+                <UInput v-model="draft.document" placeholder="00.000.000/0001-00" />
+              </UFormField>
+              <UFormField
+                label="Subdomínio"
+                required
+                help="Não pode ser alterado depois de criado."
+              >
+                <UInput v-model="draft.subdomain" placeholder="exemplo" />
+              </UFormField>
+              <UFormField
+                label="ID do cliente no Znuny"
+                required
+                help="Não pode ser alterado depois de criado."
+              >
+                <UInput v-model="draft.znuny_customer_id" placeholder="EXEMPLO" />
+              </UFormField>
+            </div>
+          </div>
+
+          <div class="space-y-4">
+            <h2 class="font-display text-lg font-bold text-highlighted">
+              Endereço
+            </h2>
+            <div class="grid gap-4 sm:grid-cols-6">
+              <UFormField label="Logradouro" class="sm:col-span-4">
+                <UInput v-model="draft.address_street" placeholder="Rua das Acácias" />
+              </UFormField>
+              <UFormField label="Número" class="sm:col-span-2">
+                <UInput v-model="draft.address_number" placeholder="100" />
+              </UFormField>
+              <UFormField label="Complemento" class="sm:col-span-3">
+                <UInput v-model="draft.address_complement" placeholder="Sala 302" />
+              </UFormField>
+              <UFormField label="Bairro" class="sm:col-span-3">
+                <UInput v-model="draft.address_district" placeholder="Centro" />
+              </UFormField>
+              <UFormField label="Cidade" class="sm:col-span-3">
+                <UInput v-model="draft.address_city" placeholder="Belo Horizonte" />
+              </UFormField>
+              <UFormField label="UF" class="sm:col-span-1">
+                <UInput v-model="draft.address_state" placeholder="MG" @blur="onStateBlur" />
+              </UFormField>
+              <UFormField label="CEP" class="sm:col-span-2">
+                <UInput v-model="draft.address_zip" placeholder="30110-000" @blur="onZipBlur" />
+              </UFormField>
+            </div>
+          </div>
+
+          <div class="space-y-4">
+            <h2 class="font-display text-lg font-bold text-highlighted">
+              Contato
+            </h2>
+            <div class="grid gap-4 sm:grid-cols-3">
+              <UFormField label="Nome">
+                <UInput v-model="draft.contact_name" placeholder="Ana Souza" />
+              </UFormField>
+              <UFormField label="E-mail">
+                <UInput v-model="draft.contact_email" type="email" placeholder="ana@exemplo.com" />
+              </UFormField>
+              <UFormField label="Telefone">
+                <UInput v-model="draft.contact_phone" placeholder="(31) 3333-0000" />
+              </UFormField>
+            </div>
+          </div>
+        </section>
+
+        <!-- Etapa 2 — identidade visual -->
+        <section v-show="step === 2" class="space-y-4">
+          <h2 class="font-display text-lg font-bold text-highlighted">
+            Identidade visual do portal
+          </h2>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <UFormField label="Nome de exibição" required>
+              <UInput v-model="draft.display_name" placeholder="Portal Exemplo" />
+            </UFormField>
+            <UFormField label="E-mail de suporte">
+              <UInput v-model="draft.support_email" type="email" placeholder="suporte@exemplo.com" />
+            </UFormField>
+            <UFormField label="Cor primária">
+              <UInput v-model="draft.primary_color" type="color" />
+            </UFormField>
+            <UFormField label="Cor de destaque">
+              <UInput v-model="draft.accent_color" type="color" />
+            </UFormField>
+            <UFormField
+              label="URL do logo"
+              class="sm:col-span-2"
+              help="Endereço https:// de uma imagem já hospedada — o console ainda não recebe upload."
+            >
+              <UInput v-model="draft.logo_url" placeholder="https://..." />
+            </UFormField>
+          </div>
+        </section>
+
+        <!-- Etapa 3 — pessoas -->
+        <section v-show="step === 3" class="space-y-4">
+          <div class="flex items-center justify-between">
+            <h2 class="font-display text-lg font-bold text-highlighted">
+              Usuários
+            </h2>
+            <UButton type="button" variant="soft" color="primary" icon="i-lucide-plus" size="sm" @click="addUser">
+              Adicionar usuário
             </UButton>
           </div>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <UFormField label="E-mail" required>
-              <UInput v-model="u.email" type="email" placeholder="nome@exemplo.com" />
-            </UFormField>
-            <UFormField label="Papel" required>
-              <USelect v-model="u.role" :items="roleOptions" />
-            </UFormField>
-            <UFormField label="Nome" required>
-              <UInput v-model="u.first_name" />
-            </UFormField>
-            <UFormField label="Sobrenome" required>
-              <UInput v-model="u.last_name" />
-            </UFormField>
-            <UFormField label="Senha" required class="sm:col-span-2">
-              <UInput v-model="u.password" type="password" />
-            </UFormField>
-          </div>
-        </UCard>
-      </section>
 
-      <div class="flex items-center gap-3">
-        <UButton type="submit" color="primary" size="lg" :loading="submitting" icon="i-lucide-rocket">
-          Criar cliente
-        </UButton>
-        <UButton to="/" variant="ghost" color="neutral" :disabled="submitting">
-          Cancelar
-        </UButton>
-      </div>
-    </form>
+          <UAlert color="info" variant="soft" icon="i-lucide-info" :title="CADASTRO_UNICO_HINT" />
+
+          <UCard v-for="(u, i) in draft.users" :key="i" :ui="{ body: 'space-y-4' }">
+            <div class="flex items-center justify-between">
+              <p class="text-sm font-semibold text-highlighted">
+                Usuário {{ i + 1 }}
+              </p>
+              <UButton
+                v-if="draft.users.length > 1"
+                type="button"
+                variant="ghost"
+                color="error"
+                icon="i-lucide-trash-2"
+                size="xs"
+                @click="removeUser(i)"
+              >
+                Remover
+              </UButton>
+            </div>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <UFormField label="E-mail" required>
+                <UInput v-model="u.email" type="email" placeholder="nome@exemplo.com" />
+              </UFormField>
+              <UFormField label="Papel" required>
+                <USelect v-model="u.role" :items="roleOptions" />
+              </UFormField>
+              <UFormField label="Nome" required>
+                <UInput v-model="u.first_name" />
+              </UFormField>
+              <UFormField label="Sobrenome" required>
+                <UInput v-model="u.last_name" />
+              </UFormField>
+              <UFormField label="Telefone">
+                <UInput v-model="u.phone" placeholder="(31) 3333-0000" />
+              </UFormField>
+              <UFormField label="Ramal">
+                <UInput v-model="u.extension" placeholder="204" />
+              </UFormField>
+              <UFormField label="Senha" required class="sm:col-span-2">
+                <UInput v-model="u.password" type="password" />
+              </UFormField>
+              <UFormField class="sm:col-span-2">
+                <UCheckbox
+                  v-model="u.email_intake_enabled"
+                  label="Libera abertura de chamado por e-mail"
+                />
+              </UFormField>
+            </div>
+          </UCard>
+        </section>
+
+        <div class="flex items-center gap-3">
+          <UButton
+            v-if="step > 1"
+            type="button"
+            variant="ghost"
+            color="neutral"
+            icon="i-lucide-arrow-left"
+            :disabled="submitting"
+            @click="back"
+          >
+            Voltar
+          </UButton>
+          <UButton
+            v-if="step < 3"
+            type="button"
+            color="primary"
+            size="lg"
+            icon="i-lucide-arrow-right"
+            trailing
+            @click="next"
+          >
+            Avançar
+          </UButton>
+          <UButton
+            v-else
+            type="submit"
+            color="primary"
+            size="lg"
+            :loading="submitting"
+            icon="i-lucide-rocket"
+          >
+            Criar cliente
+          </UButton>
+          <UButton to="/" variant="ghost" color="neutral" :disabled="submitting">
+            Cancelar
+          </UButton>
+        </div>
+      </form>
+    </template>
   </div>
 </template>

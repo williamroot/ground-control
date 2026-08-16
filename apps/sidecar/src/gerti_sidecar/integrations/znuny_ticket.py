@@ -102,6 +102,10 @@ class TimeEntry:
     article_id: int | None
     time_unit: float
     created: str
+    # Dono do chamado, vindo do JOIN em `ticket` (T-R2.3). Default "" para não
+    # quebrar chamadores/fakes antigos: a op GI passou a devolvê-los na Onda 1.
+    customer_id: str = ""
+    customer_user_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -195,6 +199,8 @@ async def time_accounting_since(*, since_id: int, limit: int = 500) -> TimeAccou
             ),
             time_unit=float(r.get("TimeUnit") or 0),
             created=str(r.get("Created") or ""),
+            customer_id=str(r.get("CustomerId") or ""),
+            customer_user_id=str(r.get("CustomerUserId") or ""),
         )
         for r in rows
         if r.get("Id") is not None
@@ -214,6 +220,7 @@ async def create_ticket(
     contract_id: str,
     attachments: list[Attachment] | None = None,
     config_item_id: int | None = None,
+    queue: str | None = None,
 ) -> TicketCreated:
     payload: dict[str, Any] = {
         "CustomerUser": customer_user,
@@ -222,6 +229,10 @@ async def create_ticket(
         "Body": body,
         "ContractId": contract_id,
     }
+    # Fila padrão do cliente (T-R5.3). Ausente => TicketCreate.pm cai no 'Raw'
+    # histórico; presente => o chamado nasce onde o operador configurou.
+    if queue:
+        payload["Queue"] = queue
     if service:
         payload["Service"] = service
     if type_:

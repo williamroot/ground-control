@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, func, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func, text
 from sqlalchemy.dialects.postgresql import ENUM, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,6 +34,14 @@ class PortalUserRole(Base):
     )
     customer_login: Mapped[str] = mapped_column(String, nullable=False)
     role: Mapped[PortalRole] = mapped_column(_portal_role, nullable=False)
+    # "Libera chamados por e-mail" (01:44 do vídeo) — migration 0028. A
+    # identidade mora no Znuny (D-C); a flag é nossa, ao lado do papel.
+    email_intake_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    # Ramal: o `customer_user` do Znuny não tem esse campo e a invariante 4
+    # proíbe coluna nova no núcleo — ver justificativa na migration 0028.
+    extension: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

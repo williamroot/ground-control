@@ -9,9 +9,18 @@ Provider:
     CustomerCompanyAdd:
       Description: Create a CustomerCompany (Gerti custom op)
       Type: CustomerCompany::CustomerCompanyAdd
+    CustomerCompanyUpdate:
+      Description: Update a CustomerCompany's cadastro/address (Gerti custom op, T-R1.3)
+      Type: CustomerCompany::CustomerCompanyUpdate
     CustomerUserAdd:
       Description: Create a CustomerUser (Gerti custom op)
       Type: CustomerUser::CustomerUserAdd
+    CustomerUserUpdate:
+      Description: Update/deactivate a CustomerUser (Gerti custom op, T-R2.1)
+      Type: CustomerUser::CustomerUserUpdate
+    CustomerUserList:
+      Description: List the CustomerUsers of one CustomerID, valid and invalid (Gerti custom op, T-R2.2)
+      Type: CustomerUser::CustomerUserList
     CustomerUserSetPassword:
       Description: Set a CustomerUser password (Gerti custom op)
       Type: CustomerUser::SetPassword
@@ -72,10 +81,22 @@ Provider:
           RequestMethod:
           - POST
           Route: /CustomerCompany
+        CustomerCompanyUpdate:
+          RequestMethod:
+          - POST
+          Route: /CustomerCompany/Update
         CustomerUserAdd:
           RequestMethod:
           - POST
           Route: /CustomerUser
+        CustomerUserUpdate:
+          RequestMethod:
+          - POST
+          Route: /CustomerUser/Update
+        CustomerUserList:
+          RequestMethod:
+          - POST
+          Route: /CustomerUser/List
         CustomerUserSetPassword:
           RequestMethod:
           - POST
