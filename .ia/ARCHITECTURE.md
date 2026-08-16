@@ -318,6 +318,16 @@ Browser → cloudflared → admin:3000 → sidecar:8001 (/v1/admin/*, cross-tena
   typ:"admin"}`), **distinto** do `gsid` do cliente. `get_admin_session` é
   fail-closed por `typ:admin`+role; um `gsid` de cliente nunca vale em `/v1/admin/*`
   e vice-versa (isolamento bidirecional provado no e2e).
+> **RLS não protege rota de console.** As rotas `/v1/admin/*` abrem a sessão com
+> `tenant_session_scope(tid, factory=AdminSessionLocal)`, e `gerti_admin_user`
+> tem **BYPASSRLS** — o GUC `app.current_tenant` é gravado e a policy **não se
+> aplica**. Consulta que dependa só da RLS nesse caminho enxerga a base inteira.
+> Foi assim que a tela de consumo da Aurora listou contratos da TechNova
+> (achado ao vivo na Onda 3, corrigido). **Em rota de console, `tenant_id` vai
+> explícito na cláusula; a RLS é a segunda barreira, nunca a única.** Provado em
+> `tests/test_admin_cross_tenant_isolation.py`, que roda com a factory admin de
+> propósito.
+
 - **Cross-tenant, dois caminhos de DB (D16):** criar tenant/branding/papéis usa
   `AdminSessionLocal` (BYPASSRLS) com `tenant_id` explícito; criar contrato abre
   `tenant_session_scope(id)` (RLS-subject) + `ContractService` — preserva as
@@ -332,7 +342,9 @@ Browser → cloudflared → admin:3000 → sidecar:8001 (/v1/admin/*, cross-tena
   usuários), `/clientes/[id]` (detalhe), `/clientes/[id]/editar` (corrigir o
   cadastro), `/clientes/[id]/usuarios` (pessoas do cliente),
   `/clientes/[id]/filas` (relacionamentos cliente↔fila),
-  `/clientes/[id]/chamados`, `/clientes/[id]/contratos/novo`. Guarda de rota
+  `/clientes/[id]/chamados`, `/clientes/[id]/consumo` (R18a — um gráfico por
+  unidade), `/relatorios` (R18b — mês + cliente → PDF),
+  `/clientes/[id]/contratos/novo`. Guarda de rota
   `admin-auth` (gate real é o 401 do sidecar). Subdomínio white-label do cliente
   continua **manual** (D-1G-4) — a UI mostra ao operador o subdomínio a registrar.
 
@@ -692,6 +704,15 @@ profundidade, não confiança mútua.
 | C — pessoas | `AdminAgentList/Get/Set`, `AdminGroupList`, `AdminAgentGroupSet` | médio-alto |
 | D — SysConfig | `AdminSysConfigGet/Set` | **alto** |
 | E — cadastro do cliente (Onda 1) | `CustomerCompanyAdd/Update`, `CustomerUserAdd/Update/List`, `SetPassword` | médio |
+
+**Onda 3 — o `TicketStats` do `GertiTicket` (não do GertiAdmin) ganhou peso.**
+Ele já agregava por estado, prioridade e dia; passou a agregar também por
+**tipo, serviço e fila**, e a devolver a **lista de chamados** do período com as
+horas de cada um. As três dimensões saem juntas de propósito: qual delas vai
+para o relatório é a chave `REPORT_TOP_DIMENSION`, não uma escolha cravada no
+código. A lista é **opt-in** (`IncludeTickets`) porque a mesma operação alimenta
+o painel de analytics, que precisa só das contagens — sem a chave, toda carga do
+painel arrastaria até mil chamados e um `TicketAccountedTimeGet` por chamado.
 
 **Bloco E, o que a Onda 1 acrescentou:** `CustomerCompanyUpdate` (espelho de
 endereço/contato), `CustomerUserUpdate` (editar/desativar a pessoa) e

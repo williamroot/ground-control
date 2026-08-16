@@ -90,6 +90,12 @@ literalmente o nome do campo, e ele pode ter dito exatamente isso.
 
 **Sinal de que erramos:** ele olhar o relatório e dizer "não é isso que eu chamo de tipo".
 
+> **Construída e no ar (Onda 3, 2026-08-16).** A chave existe, o teste roda nos
+> três valores, e a execução ao vivo deu argumento: o relatório de maio da
+> Aurora, em `service`, distingue "Acesso e Senhas" (2), "Hardware" (2) e
+> "Microsoft 365" (2). Em `type`, o Znuny da Gerti daria duas barras. Vira com
+> `REPORT_TOP_DIMENSION=type` no `.env.prod` e recriar o sidecar.
+
 ---
 
 ## S3 — "Últimos três meses" são três ciclos de faturamento
@@ -110,6 +116,12 @@ quando não é. Ele pode estar usando "ciclo" como sinônimo de mês.
 
 **Recomendação:** entregar o seletor. Custa quase nada e transforma a suposição em escolha
 dele — que é melhor do que acertar por sorte.
+
+> **Construída e no ar (Onda 3, 2026-08-16), com o seletor.** Os dois modos
+> coexistem e a tela `/clientes/[id]/consumo` deixa escolher na hora. A execução
+> ao vivo mostrou a diferença sendo real, não teórica: em `cycles`, o contrato
+> `AUR-HORAS-2026` devolve os ciclos de janeiro (6,0 h) e fevereiro (2,0 h) —
+> consumo que a janela de meses-calendário a partir de agosto não alcança.
 
 ---
 

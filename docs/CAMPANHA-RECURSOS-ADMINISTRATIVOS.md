@@ -158,6 +158,107 @@ avança **e** que a pendência ficou registrada.
 
 ---
 
+## Onda 3 — Relatórios
+
+Branch `campanha/onda-3-relatorios`, a partir de `main @ 78edb43`.
+**Feita fora de ordem, a pedido do William** — a Onda 2 (e-mail) fica para
+depois. R18a e R18b não dependem dela.
+
+**Sha deployado em staging: `fe5d99a`** (2026-08-16). Runbook, provas e rollback
+em [`../.ia/OPS.md`](../.ia/OPS.md), seção "Deploy da Onda 3". Sha anterior:
+`bce770b`. **Sem migration** — alembic segue em `0030`.
+
+### Tarefas
+
+| Tarefa | O que entregou | Estado | Sha | Evidência |
+|---|---|---|---|---|
+| **T-R18a.1** | Janela por período na série (`months` e `cycles`), sem mexer na unidade | ✅ | `fe5d99a` | `test_contract_read_service.py` — 3 pontos exatos, com **assert de exclusão** do consumo fora da janela; ciclos bimestrais cobrindo 6 meses; contrato sem ciclo cai para meses |
+| **T-R18a.2** | `GET /v1/admin/tenants/{id}/consumption-series` | ✅ | `fe5d99a` | `test_admin_reports_router.py`. **Ao vivo:** 4 séries da Aurora, cada uma na sua unidade |
+| **T-R18a.3** | Tela `/clientes/[id]/consumo`, com seletor de janela | ✅ | `fe5d99a` | `reports.test.ts` — `groupSeriesByKind` prova que horas e reais viram **dois** gráficos |
+| **T-R18a.4** | Série por ciclo (era "opcional" no plano; entrou) | ✅ | `fe5d99a` | **Ao vivo:** `AUR-HORAS-2026` devolve os ciclos de jan (6,0 h) e fev (2,0 h) — que a janela de meses não alcança |
+| **T-R18b.1** | `TicketStats` agrega por tipo, serviço e fila | ✅ | `fe5d99a` | `perl -c` verde. **Ao vivo:** "Acesso e Senhas" 2, "Hardware" 2, "Microsoft 365" 2 |
+| **T-R18b.2** | Lista de chamados do período, com horas | ✅ | `fe5d99a` | **Ao vivo:** 11 chamados de maio/2026 com número, título, data, estado e horas |
+| **T-R18b.3** | `ReportService` + template + PDF branded | ✅ | `fe5d99a` | `test_report_service.py` (20 casos) e `test_report_pdf.py` (6) |
+| **T-R18b.4** | Endpoints JSON e PDF | ✅ | `fe5d99a` | `test_admin_reports_router.py` (10). **Ao vivo:** PDF 200, 22.493 bytes, `%PDF-`; `2026-13` → 422; tenant fantasma → 404 |
+| **T-R18b.5** | Tela `/relatorios`: mês + cliente → prévia e download | ✅ | `fe5d99a` | Abre já no mês passado; mês inválido não chega a virar chamada |
+
+### Aceites cobertos
+
+A18a.1–A18a.4 · A18b.1–A18b.6.
+
+### A decisão que faltava ser tomada: A18b.6
+
+O plano dizia "relatório degradado **ou** erro claro, nunca meio termo
+silencioso — decidir e travar no teste". Decidido assim:
+
+- **JSON degrada** (200 + `degraded: true`, bloco de chamados vazio). Ele
+  alimenta a tela, onde o operador vê o aviso na cara.
+- **PDF recusa** (503 com motivo). Ele é o artefato que **sai da empresa** e vai
+  para o cliente. Documento incompleto com cara de completo é exatamente o modo
+  de falha que esta campanha vem combatendo desde a Onda 0.
+
+O consumo sobrevive nos dois casos, porque vem do nosso banco e não depende do
+Znuny — o que degrada é só o bloco de chamados.
+
+### As duas suposições, atrás de chave e testadas nos dois estados
+
+| Suposição | Chave | Teste |
+|---|---|---|
+| **S2** — "principais tipos de chamado" é o catálogo de **serviço**, não o `Type` | `REPORT_TOP_DIMENSION` (`service` · `type` · `queue`) | `test_report_service.py` parametrizado nos **três** valores; valor inválido cai para `service` sem derrubar o relatório |
+| **S3** — "últimos três meses" são três **ciclos** | `CONSUMPTION_WINDOW_MODE` + `CONSUMPTION_WINDOW_COUNT`, sobrescritíveis por `?window=`/`?count=` | Ciclos bimestrais → 3 pontos cobrindo 6 meses; `months` → 3 pontos mensais. A unidade se preserva nos dois |
+
+**A execução ao vivo deu argumento para as duas.** Em serviço, o relatório de
+maio distingue "Acesso e Senhas", "Hardware" e "Microsoft 365"; em `Type`, o
+Znuny da Gerti daria duas barras. E o modo `cycles` encontrou consumo em janeiro
+e fevereiro que a janela de meses-calendário não alcança. Continuam sendo
+suposições — mas agora com evidência para levar ao Kleber, e um seletor na tela
+que deixa **ele** decidir.
+
+### O achado mais sério da campanha até aqui
+
+**As telas do console vazavam dados entre clientes.** A série de consumo da
+Aurora vinha com os contratos da TechNova.
+
+A causa: as rotas de console abrem
+`tenant_session_scope(tid, factory=AdminSessionLocal)`, e `gerti_admin_user` tem
+**BYPASSRLS**. Em Postgres, role com BYPASSRLS **não** é submetida às policies —
+o GUC `app.current_tenant` é gravado e ignorado. Toda consulta que dependia só
+da RLS enxergava a base inteira.
+
+O comentário no topo do `admin_analytics.py` dizia, literalmente, *"reusar a
+mesma agregação tenant-scoped do portal **sem vazamento cross-tenant**"*. Era
+exatamente o que não acontecia — e é um lembrete de que comentário não é prova.
+
+Escopo do estrago:
+
+| Onde | Desde | Gravidade |
+|---|---|---|
+| `consumption-series` (Onda 3) | esta onda | achado antes de qualquer uso |
+| `ReportService._consumption` (Onda 3) | esta onda | **o pior**: vira PDF e vai para o cliente |
+| `MetricsService._hours` / `._balance` → painel `/v1/admin/analytics` | **#1O, 2026-06** | **pré-existente e deployado**: somava as horas de todos os clientes e listava o saldo de todos os contratos, para qualquer `tenant_id` |
+
+Corrigido com `tenant_id` explícito nos três. Cinco testes novos em
+`test_admin_cross_tenant_isolation.py`, rodando com a factory **admin** de
+propósito — rodar com `gerti_sidecar` provaria a RLS, que não é o caminho que
+falhou. Verifiquei que **falham** sem a correção, revertendo o filtro.
+
+**A regra que fica para as próximas ondas:** em rota de console, RLS é a segunda
+barreira, nunca a única. Onde a sessão pode ser BYPASSRLS, o `tenant_id` vai na
+cláusula.
+
+### Outros dois achados da revisão adversarial
+
+1. **A listona teria virado peso morto do painel de analytics.** `TicketStats`
+   alimenta as duas coisas, e o painel só precisa de contagens — sem opt-in,
+   cada carga passaria a arrastar até mil chamados e um
+   `TicketAccountedTimeGet` por chamado. Virou `IncludeTickets`, com teste que
+   prova quem pede.
+2. **O consumo do relatório somava evento a evento em Python.** Um mês
+   movimentado traria milhares de linhas para calcular um número. Passou a
+   agregar no banco.
+
+---
+
 ## Dívida registrada, com dono e onda
 
 O que a revisão adversarial encontrou e **não** entrou nesta onda. Está aqui para não virar
@@ -171,7 +272,7 @@ surpresa depois.
 | Corpo de escrita do admin sem schema Pydantic e auditoria copiando o corpo bruto (sem teto de tamanho) | baixo (pré-existente) | `routers/admin_znuny.py` | **Onda 4** |
 | `ReplyBody.body` sem `max_length` (o CSAT já tem limite e truncagem) | baixo (pré-existente) | `routers/tickets.py` | **Onda 4** |
 | Guarda de posse compara login byte a byte, enquanto a lista compara sem diferenciar caixa. Não achamos caminho para o dono legítimo cair no 404 — caixa errada morre antes, no 401 — mas alinhar seria mais coerente | observação | `TicketGet.pm`, `TicketReply.pm` | **Onda 2** |
-| Fallback ReportLab não pagina: acima de ~35 linhas o conteúdo some do PDF em silêncio. Sem risco hoje (faturas têm 2 a 4 linhas) | observação | `invoice_pdf.py` | **Onda 3**, junto do relatório executivo |
+| Fallback ReportLab não pagina: acima de ~35 linhas o conteúdo some do PDF em silêncio. Sem risco hoje (faturas têm 2 a 4 linhas) | observação | `invoice_pdf.py` | **Parcial na Onda 3:** o fallback do RELATÓRIO pagina (`report_pdf.py`, com teste de 400 chamados), porque a listona exige. O da **fatura** segue sem paginar — continua sem risco, e agora há um molde pronto ao lado para quando virar |
 
 ---
 
