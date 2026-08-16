@@ -1575,3 +1575,138 @@ tocados. **NUNCA** `make reset`.
 >    `role: "helpdesk"` para `eduardo.salvi` e `role: "admin"` para o e-mail
 >    completo. O console já canonicaliza o login do agente; o portal não faz o
 >    equivalente para o papel.
+
+### Deploy da Onda 1 — cadastro de cliente, usuário único e filas (profile `gerti`)
+
+Onda 1 da campanha Recursos Administrativos (R1 · R2 exceto ingestão de e-mail ·
+R5). Aditivo e profile-gated. **Quatro migrations novas** (0027–0030) e **três
+operações GI novas** no webservice `GertiAdmin`, que já existe em prod desde
+#1G-a — logo, `Admin::WebService::Update --webservice-id`, nunca `Add`.
+
+**Pré-requisitos:** nenhuma variável nova. `ZNUNY_WS_TOKEN`
+(`GertiAdmin::AccessToken`) e `ZNUNY_ADMIN_WS_URL` já presentes são reusados
+pelas ops novas.
+
+```bash
+ssh gc 'cd ~/ground-control && git fetch origin && git checkout campanha/onda-1-cadastro && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 1) Znuny: rebuild (bakeia CustomerCompanyUpdate + CustomerUserUpdate +
+#    CustomerUserList, e o LEFT JOIN novo do TimeAccountingSince). `perl -c` é
+#    gate de build. NOTA: recria o core Znuny (downtime curto).
+ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-daemon"
+
+# 2) CRÍTICO — atualizar o webservice GertiAdmin (JÁ EXISTE: id 2).
+#    `Admin::WebService::Add` FALHA se o WS existir; `Update` exige
+#    --webservice-id (não --name) nesta versão do Znuny — lição do #1B.
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && \
+   WSID=\$(bin/otrs.Console.pl Admin::WebService::List | sed -n \"s/.*GertiAdmin (\\([0-9]\\+\\)).*/\\1/p\"); \
+   bin/otrs.Console.pl Admin::WebService::Update --webservice-id \"\$WSID\" \
+     --source-path /opt/otrs/webservices/GertiAdmin.yml"'
+#   GUARD: os três webservices seguem presentes (nenhum pode sumir):
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && bin/otrs.Console.pl Admin::WebService::List"'
+#   → GertiCustomerAuth (1) + GertiAdmin (2) + GertiTicket (3)
+#   NOTA: `TimeAccountingSince` vive no GertiTicket e NÃO mudou de contrato —
+#   só o corpo do .pm. Não precisa atualizar o GertiTicket.yml.
+
+# 3) migrations 0027→0030, ANTES do app (invariante 8):
+ssh gc "cd ~/ground-control && $DC build sidecar admin"
+ssh gc "cd ~/ground-control && $DC up -d sidecar-migrate"
+ssh gc "cd ~/ground-control && $DC ps -a sidecar-migrate"     # Exit (0)
+ssh gc "cd ~/ground-control && $DC up -d sidecar sidecar-worker admin && $DC ps"
+
+# 4) serviços anteriores intactos:
+curl -fsS https://znuny-dev.was.dev.br/znuny/index.pl | grep -qi login && echo ZNUNY_OK
+curl -fsS https://api-dev.was.dev.br/v1/health && echo SIDECAR_OK
+curl -fsSL https://aurora.was.dev.br/   | grep -qi Aurora   && echo AURORA_OK
+curl -fsSL https://technova.was.dev.br/ | grep -qi TechNova && echo TECHNOVA_OK
+curl -fsS https://gerti.was.dev.br/login | grep -qi login && echo ADMIN_OK
+curl -fsS https://groundcontrol.was.dev.br >/dev/null && echo LANDING_OK
+```
+
+**Rollback (Onda 1 somente).** As migrations 0027–0030 são **aditivas** — colunas
+nullable e tabelas novas. Voltar o código sem voltar o schema é seguro: nada do
+código anterior lê as colunas novas.
+
+```bash
+ssh gc 'cd ~/ground-control && git checkout campanha/onda-0-defeitos'
+$DC build znuny-web sidecar admin && $DC up -d znuny-web znuny-daemon sidecar admin
+# e reimportar o GertiAdmin.yml da branch anterior (mesmo comando do passo 2)
+```
+
+Se for preciso reverter o schema também: `$DC run --rm sidecar-migrate uv run
+alembic downgrade 0026_worker_heartbeat` (derruba `tenant_queue` e
+`consumption_orphan` e as colunas de endereço/ramal — **destrói** o que tiver
+sido configurado nelas). **NUNCA** `make reset`.
+
+> **Status (2026-08-16): DEPLOYADO em staging e verificado ao vivo.** Branch
+> `campanha/onda-1-cadastro` (`bce770b`) no host — **não** mergeada na `main` no
+> momento do deploy. Sha anterior do staging: `c7f9025`
+> (`campanha/onda-0-defeitos`), alembic `0026`.
+>
+> Imagem Znuny rebuildada (5 ops `perl -c` verdes: `CustomerCompanyUpdate`,
+> `CustomerUserUpdate`, `CustomerUserList`, `AdminGroupList`,
+> `TimeAccountingSince`); `znuny-web`/`znuny-daemon` Healthy; `GertiAdmin`
+> atualizado por `--webservice-id 2` com os três webservices intactos;
+> migrations **0027→0030** aplicadas (`Exit 0`); `sidecar`, `sidecar-worker` e
+> `admin` Healthy. Serviços anteriores intactos (znuny-dev, api-dev, aurora,
+> technova, gerti, landing — todos 200, white-label preservado).
+>
+> **Provas ao vivo (tenant Aurora, `5effe6fd…`):**
+>
+> - **A1.1** — `PUT /v1/admin/tenants/{id}` com endereço e contato → **200**; o
+>   `GET` devolve `Belo Horizonte` / CEP `30130005` / contato `Eduardo Salvi`.
+> - **A1.4** — o espelho chegou ao Znuny: `customer_company` da AURORA passou a
+>   ter `street='Av. Afonso Pena, 1500 — Centro'`, `zip='30130005'`,
+>   `city='Belo Horizonte/MG'` e o contato no campo `comments`.
+> - **A1.2** — `PUT` tentando trocar `subdomain` → **422**
+>   (`extra_forbidden`), e o valor no banco continua `aurora`. Idem
+>   `znuny_customer_id`. Tenant inexistente → **404**.
+> - **A2.5** — `GET /v1/admin/tenants/{id}/users` devolve **7** pessoas:
+>   as 6 do `customer_user` do Znuny **mais** 1 que só tem papel no nosso lado.
+>   Quatro delas (`carla.dorneles`, `eduardo.salvi`, `fernando.rech`,
+>   `juliana.peruzzo`) foram criadas direto no Znuny pelo seed e **eram
+>   invisíveis no console até esta onda** — agora aparecem marcadas como "sem
+>   acesso ao portal".
+> - **A2.1/A2.4** — usuário descartável criado com telefone, celular e ramal
+>   (`+553133339999` / `+5531999998888` / `777`) → **201**; a listagem devolve os
+>   três; `PUT {"active": false}` → **200** e a pessoa passa a `ValidID=2`,
+>   continuando na lista como inativa (invariante 3: sem exclusão).
+> - **A5.1/A5.5** — filas 6/7/8 associadas com a 6 (`Suporte::N1`) como padrão;
+>   o `GET` devolve as três com o grupo que as atende. Mover o padrão de 6 para
+>   7 e voltar → **200** nas duas (o índice parcial único não colide). PUT
+>   repetido não duplica linha.
+> - **A5.3** — fila `99999`, que não existe no Znuny → **422**
+>   `"fila inexistente no Znuny: 99999"` e **zero** linhas gravadas. Duas filas
+>   marcadas como padrão → **422**.
+> - **A5.2** — chamado aberto pelo portal da Aurora **sem informar fila** nasceu
+>   em **`Suporte::N1`**, não em `Raw` (ticket 74). Com fila explícita
+>   `Suporte::N2` (associada) → nasceu na N2 (ticket 76).
+> - **Worker** — tick com `last_error` vazio depois da mudança no
+>   `TimeAccountingSince` (`worker_heartbeat.ticks=11528`), e zero linhas em
+>   `gerti.consumption_orphan`.
+>
+> **Defeito que só a execução ao vivo revelou (corrigido e redeployado,
+> `bce770b`):** abrir chamado com `queue=Financeiro` — fila que a Aurora **não**
+> acessa — devolvia **201** em vez de 422. O serviço validava; a **rota** não
+> recebia o campo do formulário, então `OpenTicketInput.queue` era sempre `None`
+> e a guarda nunca rodava. Não era brecha de isolamento (o chamado caía na fila
+> padrão do próprio cliente), mas o 422 prometido era código morto. Depois da
+> correção: `queue=Financeiro` → **422** `queue_not_allowed`. Dois testes de
+> **rota** entraram — o de serviço passava e não pegava nada, mesma forma do que
+> a Onda 0 encontrou na criação de fila.
+>
+> **Limpeza:** os 3 chamados descartáveis (74/75/76) foram apagados
+> (`Maint::Ticket::Delete`) junto das linhas de `gerti.ticket_contract_link`. O
+> usuário de teste `zz.teste.onda1@auroramoveis.com.br` fica **invalidado**
+> (`ValidID=2`) — o Znuny invalida, não exclui, e esse é o estado terminal
+> esperado (mesmo tratamento da fila `ZZ-TESTE-ONDA0` da Onda 0).
+>
+> **Mudanças de comportamento deixadas de pé em staging, de propósito:** o
+> endereço e o contato da Aurora (eram nulos), e a associação de filas
+> 6/7/8 com `Suporte::N1` como padrão. **Chamado novo da Aurora agora nasce em
+> `Suporte::N1`, não mais em `Raw`** — é o requisito R5 funcionando, e é o que
+> se demonstra ao Kleber. Para voltar ao comportamento antigo basta
+> `PUT /v1/admin/tenants/{id}/queues {"queues": []}`.

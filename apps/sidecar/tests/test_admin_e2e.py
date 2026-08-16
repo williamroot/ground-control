@@ -69,7 +69,9 @@ async def test_admin_onboarding_to_portal_contract_visibility(
     async def co_add(customer_id: str, company_name: str, *, valid: bool = True) -> str:
         return customer_id
 
-    async def user_add(*, login, email, first_name, last_name, customer_id, valid=True) -> str:
+    async def user_add(
+        *, login, email, first_name, last_name, customer_id, valid=True, phone=None, mobile=None
+    ) -> str:
         return login
 
     async def set_pw(login: str, password: str) -> None:

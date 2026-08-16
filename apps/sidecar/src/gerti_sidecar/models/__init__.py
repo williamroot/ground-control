@@ -9,6 +9,7 @@ from gerti_sidecar.models.base import Base
 from gerti_sidecar.models.catalog import ServiceCatalogItem, SharedCreditPool
 from gerti_sidecar.models.catalog_item import CatalogItem
 from gerti_sidecar.models.consumption import ConsumptionEvent, Glosa
+from gerti_sidecar.models.consumption_orphan import ConsumptionOrphan
 from gerti_sidecar.models.contract import Contract, ContractBillingParty
 from gerti_sidecar.models.contract_policy import (
     ContractAdjustmentRule,
@@ -31,6 +32,7 @@ from gerti_sidecar.models.portal_user_role import PortalUserRole
 from gerti_sidecar.models.sync_cursor import ConsumptionSyncCursor
 from gerti_sidecar.models.tenant import Tenant
 from gerti_sidecar.models.tenant_branding import TenantBranding
+from gerti_sidecar.models.tenant_queue import TenantQueue
 from gerti_sidecar.models.ticket_link import TicketContractLink
 from gerti_sidecar.models.user_preference import UserPreference
 from gerti_sidecar.models.worker_heartbeat import WorkerHeartbeat
@@ -48,6 +50,7 @@ __all__ = [
     "CatalogItem",
     "CheckoutSession",
     "ConsumptionEvent",
+    "ConsumptionOrphan",
     "ConsumptionSyncCursor",
     "Contract",
     "ContractAdjustmentRule",
@@ -71,6 +74,7 @@ __all__ = [
     "SharedCreditPool",
     "Tenant",
     "TenantBranding",
+    "TenantQueue",
     "TicketContractLink",
     "UserPreference",
     "WorkerHeartbeat",

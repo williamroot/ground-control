@@ -94,6 +94,8 @@ class GroupOut(BaseModel):
     name: str
     comment: str
     valid: bool
+    # Quantos agentes atendem (rw) — a coluna "atendida por" da tela de filas.
+    rw_user_count: int | None = None
 
 
 class AgentGroupsIn(BaseModel):
@@ -141,7 +143,13 @@ def _agent_out(a: people_gi.Agent) -> AgentOut:
 
 
 def _group_out(g: people_gi.Group) -> GroupOut:
-    return GroupOut(id=g.id, name=g.name, comment=g.comment, valid=g.valid)
+    return GroupOut(
+        id=g.id,
+        name=g.name,
+        comment=g.comment,
+        valid=g.valid,
+        rw_user_count=g.rw_user_count,
+    )
 
 
 def _agent_id_or_404(agent_id: str) -> int:

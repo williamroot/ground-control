@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from gerti_sidecar.models import Contract, TicketContractLink
+from gerti_sidecar.models import Contract, TenantQueue, TicketContractLink
 from gerti_sidecar.models.enums import ContractStatus
 
 
@@ -25,6 +25,10 @@ class NoActiveContract(Exception):
 
 class ContractChoiceRequired(Exception):
     """Há >=2 contratos ativos e nenhum foi escolhido (->422)."""
+
+
+class QueueNotAllowed(Exception):
+    """Fila informada não está associada a este cliente (->422)."""
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,7 @@ class OpenTicketInput:
     contract_id: str | None
     attachments: list[Any]
     config_item_id: int | None = None
+    queue: str | None = None
 
 
 @dataclass(frozen=True)
@@ -76,8 +81,37 @@ class TicketingService:
             raise NoActiveContract("nenhum contrato ativo para abrir chamado")
         raise ContractChoiceRequired("selecione um contrato")
 
+    async def _resolve_queue(self, requested: str | None) -> str | None:
+        """Fila em que o chamado nasce (T-R5.3).
+
+        Antes desta onda o destino era a string `'Raw'`, fixa em
+        `TicketCreate.pm:67`: todo chamado de todo cliente caía no mesmo lugar,
+        e não havia como configurar. Agora:
+
+          • fila informada  → precisa estar associada a este cliente, senão 422
+          • nada informado  → a fila padrão do cliente
+          • cliente sem configuração → None, e o Perl mantém o `Raw` histórico
+
+        RLS já escopa `tenant_queue` ao tenant da sessão; não há como enxergar
+        nem cair na fila de outro cliente por id.
+        """
+        result = await self._session.execute(
+            select(TenantQueue.znuny_queue_name, TenantQueue.is_default)
+        )
+        rows = result.all()
+        if requested is not None:
+            allowed = {name for name, _ in rows}
+            if requested not in allowed:
+                raise QueueNotAllowed(f"fila {requested!r} não está associada a este cliente")
+            return requested
+        for name, is_default in rows:
+            if is_default:
+                return str(name)
+        return None
+
     async def open_ticket(self, data: OpenTicketInput) -> OpenedTicket:
         contract_id = await self._resolve_contract(data.contract_id)
+        queue = await self._resolve_queue(data.queue)
 
         created = await self._gi.create_ticket(
             customer_user=data.customer_user,
@@ -90,6 +124,7 @@ class TicketingService:
             contract_id=str(contract_id),
             attachments=data.attachments or None,
             config_item_id=data.config_item_id,
+            queue=queue,
         )
 
         # tenant_id vem do GUC app.current_tenant; a FK + RLS garantem o escopo.

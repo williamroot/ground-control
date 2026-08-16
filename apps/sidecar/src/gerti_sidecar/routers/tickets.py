@@ -35,6 +35,7 @@ from gerti_sidecar.domain.ticketing_service import (
     ContractChoiceRequired,
     NoActiveContract,
     OpenTicketInput,
+    QueueNotAllowed,
     TicketingService,
 )
 from gerti_sidecar.integrations import znuny_ticket
@@ -92,6 +93,11 @@ async def open_ticket(
     service: str | None = Form(None),
     type_: str | None = Form(None, alias="type"),
     priority: str | None = Form(None),
+    # T-R5.3: o portal ainda não oferece escolha de fila (o form-meta não
+    # devolve Queues), mas o campo é aceito e VALIDADO contra as filas
+    # associadas ao cliente. Sem receber aqui, a guarda do serviço nunca
+    # rodaria — e o 422 de "fila não associada" seria código morto.
+    queue: str | None = Form(None),
     config_item_id: int | None = Form(None),
     files: list[UploadFile] = File(default=[]),
     session_payload: SessionPayload = Depends(get_current_session),
@@ -125,6 +131,7 @@ async def open_ticket(
         contract_id=contract_id,
         attachments=attachments,
         config_item_id=config_item_id,
+        queue=queue,
     )
     try:
         out = await TicketingService(session, znuny_ticket).open_ticket(data)
@@ -132,6 +139,8 @@ async def open_ticket(
         raise HTTPException(status_code=422, detail="contract_required") from exc
     except NoActiveContract as exc:
         raise HTTPException(status_code=404, detail="contract_not_found") from exc
+    except QueueNotAllowed as exc:
+        raise HTTPException(status_code=422, detail="queue_not_allowed") from exc
     except ZnunyWriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ZnunyUnavailable as exc:

@@ -45,19 +45,41 @@ def _wire_admin_db(monkeypatch: pytest.MonkeyPatch, engine) -> None:
 
 
 class _GISpy:
-    """Captura as chamadas GI monkeypatched (3 funções de escrita)."""
+    """Captura as chamadas GI monkeypatched.
+
+    Onda 1 acrescentou três operações (`CustomerCompanyUpdate`,
+    `CustomerUserUpdate`, `CustomerUserList`). O spy passa a cobri-las e a
+    manter um "Znuny de mentira" em memória (`self.directory`), para que
+    `list_customer_users` reflita o que foi criado/alterado — sem isso, a
+    listagem por Znuny não teria como ser exercitada.
+    """
 
     def __init__(self) -> None:
         self.companies: list[tuple[str, str]] = []
         self.users: list[dict[str, str]] = []
         self.passwords: list[tuple[str, str]] = []
+        self.company_updates: list[dict[str, object]] = []
+        self.user_updates: list[dict[str, object]] = []
+        # login -> registro, no formato que o Znuny devolveria
+        self.directory: dict[str, gi.ZnunyCustomerUser] = {}
+        self._owner: dict[str, str] = {}  # login -> CustomerID dono
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
         async def _company(customer_id, company_name, *, valid=True):
             self.companies.append((customer_id, company_name))
             return customer_id
 
-        async def _user(*, login, email, first_name, last_name, customer_id, valid=True):
+        async def _user(
+            *,
+            login,
+            email,
+            first_name,
+            last_name,
+            customer_id,
+            valid=True,
+            phone=None,
+            mobile=None,
+        ):
             self.users.append(
                 {
                     "login": login,
@@ -65,16 +87,59 @@ class _GISpy:
                     "first_name": first_name,
                     "last_name": last_name,
                     "customer_id": customer_id,
+                    "phone": phone or "",
+                    "mobile": mobile or "",
                 }
             )
+            self.directory[login.lower()] = gi.ZnunyCustomerUser(
+                login=login,
+                first_name=first_name,
+                last_name=last_name,
+                email=email,
+                phone=phone or "",
+                mobile=mobile or "",
+                active=valid,
+            )
+            self._owner[login.lower()] = customer_id
             return login
 
         async def _password(login, password):
             self.passwords.append((login, password))
 
+        async def _company_update(customer_id, **kwargs):
+            self.company_updates.append({"customer_id": customer_id, **kwargs})
+            return customer_id
+
+        async def _user_update(login, **kwargs):
+            self.user_updates.append({"login": login, **kwargs})
+            cur = self.directory.get(login.lower())
+            if cur is not None:
+                self.directory[login.lower()] = gi.ZnunyCustomerUser(
+                    login=cur.login,
+                    first_name=kwargs.get("first_name") or cur.first_name,
+                    last_name=kwargs.get("last_name") or cur.last_name,
+                    email=kwargs.get("email") or cur.email,
+                    phone=cur.phone if kwargs.get("phone") is None else kwargs["phone"],
+                    mobile=cur.mobile if kwargs.get("mobile") is None else kwargs["mobile"],
+                    active=cur.active if kwargs.get("valid") is None else bool(kwargs["valid"]),
+                )
+
+        async def _user_list(customer_id):
+            return gi.CustomerUserPage(
+                users=[
+                    u
+                    for login, u in sorted(self.directory.items())
+                    if self._owner.get(login) == customer_id
+                ],
+                truncated=False,
+            )
+
         monkeypatch.setattr(gi, "create_customer_company", _company)
         monkeypatch.setattr(gi, "create_customer_user", _user)
         monkeypatch.setattr(gi, "set_password", _password)
+        monkeypatch.setattr(gi, "update_customer_company", _company_update)
+        monkeypatch.setattr(gi, "update_customer_user", _user_update)
+        monkeypatch.setattr(gi, "list_customer_users", _user_list)
 
 
 async def _seed_instance(session: AsyncSession) -> ZnunyInstance:
@@ -353,7 +418,207 @@ async def test_all_endpoints_require_admin_session(engine, session, monkeypatch)
             ("GET", "/v1/admin/tenants"),
             ("POST", "/v1/admin/tenants"),
             ("GET", "/v1/admin/tenants/abc"),
+            ("PUT", "/v1/admin/tenants/abc"),
             ("POST", "/v1/admin/tenants/abc/users"),
+            ("GET", "/v1/admin/tenants/abc/users"),
+            ("PUT", "/v1/admin/tenants/abc/users/ana@acme.example"),
+            ("GET", "/v1/admin/tenants/abc/queues"),
+            ("PUT", "/v1/admin/tenants/abc/queues"),
         ]:
             r = await c.request(method, path, headers=_HOST, json={})
             assert r.status_code == 401, (method, path, r.status_code)
+
+
+# ── T-R1.2 / Onda 1 — editar o cadastro depois de criado ────────────────────
+
+
+async def _onboarded(c, settings) -> str:
+    c.cookies.set("gsid_adm", _admin_cookie(settings))
+    r = await c.post("/v1/admin/tenants", headers=_HOST, json=_onboard_body())
+    assert r.status_code == 201, r.text
+    return str(r.json()["tenant"]["id"])
+
+
+@pytest.mark.asyncio
+async def test_update_tenant_persists_registration(engine, session, monkeypatch):
+    """V-R1.1 / aceite A1.1 — corrigir razão social e endereço, e a correção fica."""
+    settings = _settings(monkeypatch)
+    await _seed_instance(session)
+    _wire_admin_db(monkeypatch, engine)
+    spy = _GISpy()
+    spy.install(monkeypatch)
+
+    app = create_app()
+    async with _client(app) as c:
+        tid = await _onboarded(c, settings)
+        r = await c.put(
+            f"/v1/admin/tenants/{tid}",
+            headers=_HOST,
+            json={
+                "legal_name": "Nova Razão LTDA",
+                "address_city": "Belo Horizonte",
+                "address_state": "MG",
+                "address_zip": "30110000",
+                "contact_name": "Ana Contato",
+            },
+        )
+        assert r.status_code == 200, r.text
+        again = await c.get(f"/v1/admin/tenants/{tid}", headers=_HOST)
+
+    body = again.json()
+    assert body["legal_name"] == "Nova Razão LTDA"
+    assert body["address_city"] == "Belo Horizonte"
+    assert body["contact_name"] == "Ana Contato"
+    # A1.4 — o endereço também foi espelhado no Znuny.
+    assert spy.company_updates, "CustomerCompanyUpdate não foi chamado"
+    mirror = spy.company_updates[-1]
+    assert mirror["customer_id"] == "ACME"
+    assert mirror["city"] == "Belo Horizonte/MG"
+    assert "Ana Contato" in str(mirror["comment"])
+
+
+@pytest.mark.asyncio
+async def test_update_tenant_rejects_immutable_subdomain(engine, session, monkeypatch):
+    """V-R1.2 / aceite A1.2 — subdomínio é imutável, e o valor no banco não muda."""
+    settings = _settings(monkeypatch)
+    await _seed_instance(session)
+    _wire_admin_db(monkeypatch, engine)
+    _GISpy().install(monkeypatch)
+
+    app = create_app()
+    async with _client(app) as c:
+        tid = await _onboarded(c, settings)
+        r = await c.put(f"/v1/admin/tenants/{tid}", headers=_HOST, json={"subdomain": "outro"})
+        assert r.status_code == 422, r.text
+        r2 = await c.put(
+            f"/v1/admin/tenants/{tid}", headers=_HOST, json={"znuny_customer_id": "OUTRO"}
+        )
+        assert r2.status_code == 422, r2.text
+
+    tenant = (
+        await session.execute(select(Tenant).where(Tenant.znuny_customer_id == "ACME"))
+    ).scalar_one()
+    assert tenant.subdomain == "acme"
+    assert tenant.znuny_customer_id == "ACME"
+
+
+@pytest.mark.asyncio
+async def test_update_tenant_unknown_id_is_404(engine, session, monkeypatch):
+    """V-R1.3 — id inexistente devolve 404, nunca 403 nem 500."""
+    settings = _settings(monkeypatch)
+    await _seed_instance(session)
+    _wire_admin_db(monkeypatch, engine)
+    _GISpy().install(monkeypatch)
+
+    app = create_app()
+    async with _client(app) as c:
+        c.cookies.set("gsid_adm", _admin_cookie(settings))
+        ghost = "11111111-2222-3333-4444-555555555555"
+        r = await c.put(f"/v1/admin/tenants/{ghost}", headers=_HOST, json={"trade_name": "X"})
+        assert r.status_code == 404, r.text
+        r2 = await c.put("/v1/admin/tenants/nao-e-uuid", headers=_HOST, json={"trade_name": "X"})
+        assert r2.status_code == 404, r2.text
+
+
+@pytest.mark.asyncio
+async def test_update_tenant_audits_before_and_after(engine, session, monkeypatch):
+    """A trilha precisa dizer o que era, não só que mudou."""
+    settings = _settings(monkeypatch)
+    await _seed_instance(session)
+    _wire_admin_db(monkeypatch, engine)
+    _GISpy().install(monkeypatch)
+
+    app = create_app()
+    async with _client(app) as c:
+        tid = await _onboarded(c, settings)
+        r = await c.put(f"/v1/admin/tenants/{tid}", headers=_HOST, json={"legal_name": "Depois SA"})
+        assert r.status_code == 200, r.text
+
+    from gerti_sidecar.models import AuditLog
+
+    row = (
+        (
+            await session.execute(
+                select(AuditLog)
+                .where(AuditLog.entity == "tenant", AuditLog.action == "update")
+                .order_by(AuditLog.at.desc())
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert row is not None
+    assert row.metadata_json["legal_name"] == {
+        "antes": "Acme Indústria Ltda.",
+        "depois": "Depois SA",
+    }
+
+
+@pytest.mark.asyncio
+async def test_update_tenant_noop_does_not_touch_znuny(engine, session, monkeypatch):
+    """Mandar o valor que já está lá não vira escrita no Znuny nem linha de auditoria."""
+    settings = _settings(monkeypatch)
+    await _seed_instance(session)
+    _wire_admin_db(monkeypatch, engine)
+    spy = _GISpy()
+    spy.install(monkeypatch)
+
+    app = create_app()
+    async with _client(app) as c:
+        tid = await _onboarded(c, settings)
+        r = await c.put(f"/v1/admin/tenants/{tid}", headers=_HOST, json={"trade_name": "Acme"})
+        assert r.status_code == 200, r.text
+    assert spy.company_updates == []
+
+
+@pytest.mark.asyncio
+async def test_onboarding_accepts_address_and_contact(engine, session, monkeypatch):
+    """A etapa 1 do assistente manda endereço e contato — eles não podem sumir.
+
+    Sem este teste, `NewTenantBody` ignoraria os campos em silêncio (Pydantic
+    descarta chave desconhecida por padrão) e o operador acharia que cadastrou
+    o endereço quando não cadastrou.
+    """
+    settings = _settings(monkeypatch)
+    await _seed_instance(session)
+    _wire_admin_db(monkeypatch, engine)
+    _GISpy().install(monkeypatch)
+
+    body = _onboard_body()
+    body |= {
+        "address_street": "Rua das Acácias",
+        "address_number": "100",
+        "address_district": "Centro",
+        "address_city": "Belo Horizonte",
+        "address_state": "MG",
+        "address_zip": "30110000",
+        "contact_name": "Ana Contato",
+        "contact_email": "ana@acme.example",
+        "contact_phone": "+553133330000",
+    }
+    body["users"][0] |= {"phone": "+553133331111", "extension": "204"}
+
+    app = create_app()
+    async with _client(app) as c:
+        c.cookies.set("gsid_adm", _admin_cookie(settings))
+        r = await c.post("/v1/admin/tenants", headers=_HOST, json=body)
+    assert r.status_code == 201, r.text
+    detail = r.json()["tenant"]
+    assert detail["address_city"] == "Belo Horizonte"
+    assert detail["contact_email"] == "ana@acme.example"
+
+    tenant = (
+        await session.execute(select(Tenant).where(Tenant.znuny_customer_id == "ACME"))
+    ).scalar_one()
+    assert tenant.address_street == "Rua das Acácias"
+    assert tenant.address_zip == "30110000"
+
+    role = (
+        await session.execute(
+            select(PortalUserRole).where(
+                func.lower(PortalUserRole.customer_login) == "admin@acme.example"
+            )
+        )
+    ).scalar_one()
+    assert role.extension == "204"
+    assert role.email_intake_enabled is True

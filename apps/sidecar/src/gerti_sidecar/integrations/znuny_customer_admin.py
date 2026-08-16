@@ -28,6 +28,7 @@ STUB da Fase 0 (T0.2): corpo implementado em T1.B.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -129,18 +130,22 @@ async def create_customer_user(
     last_name: str,
     customer_id: str,
     valid: bool = True,
+    phone: str | None = None,
+    mobile: str | None = None,
 ) -> str:
-    data = await _post(
-        "/CustomerUser",
-        {
-            "UserLogin": login,
-            "UserEmail": email,
-            "UserFirstname": first_name,
-            "UserLastname": last_name,
-            "UserCustomerID": customer_id,
-            "ValidID": 1 if valid else 2,
-        },
-    )
+    body: dict[str, Any] = {
+        "UserLogin": login,
+        "UserEmail": email,
+        "UserFirstname": first_name,
+        "UserLastname": last_name,
+        "UserCustomerID": customer_id,
+        "ValidID": 1 if valid else 2,
+    }
+    if phone is not None:
+        body["UserPhone"] = phone
+    if mobile is not None:
+        body["UserMobile"] = mobile
+    data = await _post("/CustomerUser", body)
     return str(data.get("UserLogin") or login)
 
 
@@ -149,3 +154,127 @@ async def set_password(login: str, password: str) -> None:
         "/CustomerUser/Password",
         {"UserLogin": login, "Password": password},
     )
+
+
+# ── Onda 1 — corrigir o cadastro depois de criado (R1/R2) ────────────────────
+
+
+async def update_customer_company(
+    customer_id: str,
+    *,
+    company_name: str | None = None,
+    street: str | None = None,
+    zip_code: str | None = None,
+    city: str | None = None,
+    country: str | None = None,
+    comment: str | None = None,
+    valid: bool | None = None,
+) -> str:
+    """Espelha endereço/contato no `customer_company` nativo (T-R1.3).
+
+    `gerti.tenant` é a **dona** do dado (decisão D-B); isto aqui é o espelho
+    best-effort para que o agente que trabalha dentro do painel do Znuny veja o
+    mesmo endereço que o operador digitou no console. Campo ausente = não muda
+    (a op faz merge sobre o registro atual; o Update nativo é full replace).
+    """
+    body: dict[str, Any] = {"CustomerID": customer_id}
+    if company_name is not None:
+        body["CustomerCompanyName"] = company_name
+    if street is not None:
+        body["CustomerCompanyStreet"] = street
+    if zip_code is not None:
+        body["CustomerCompanyZIP"] = zip_code
+    if city is not None:
+        body["CustomerCompanyCity"] = city
+    if country is not None:
+        body["CustomerCompanyCountry"] = country
+    if comment is not None:
+        body["CustomerCompanyComment"] = comment
+    if valid is not None:
+        body["ValidID"] = 1 if valid else 2
+    data = await _post("/CustomerCompany/Update", body)
+    return str(data.get("CustomerID") or customer_id)
+
+
+async def update_customer_user(
+    login: str,
+    *,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    email: str | None = None,
+    phone: str | None = None,
+    mobile: str | None = None,
+    valid: bool | None = None,
+) -> None:
+    """Edita/desativa a pessoa do cliente no Znuny (T-R2.1).
+
+    Desativar é `ValidID = 2` — nunca delete (invariante 3). Senha NÃO passa por
+    aqui: a op Perl rejeita qualquer chave com cara de senha, e `set_password` é
+    a operação separada e explícita.
+    """
+    body: dict[str, Any] = {"UserLogin": login}
+    if first_name is not None:
+        body["UserFirstname"] = first_name
+    if last_name is not None:
+        body["UserLastname"] = last_name
+    if email is not None:
+        body["UserEmail"] = email
+    if phone is not None:
+        body["UserPhone"] = phone
+    if mobile is not None:
+        body["UserMobile"] = mobile
+    if valid is not None:
+        body["ValidID"] = 1 if valid else 2
+    await _post("/CustomerUser/Update", body)
+
+
+@dataclass(frozen=True)
+class ZnunyCustomerUser:
+    """Uma pessoa do cliente, como o Znuny (dono da identidade) a conhece."""
+
+    login: str
+    first_name: str
+    last_name: str
+    email: str
+    phone: str
+    mobile: str
+    active: bool
+
+
+@dataclass(frozen=True)
+class CustomerUserPage:
+    """Lista de pessoas + se o Znuny cortou o resultado.
+
+    `truncated` não é detalhe: uma lista cortada em silêncio faz o operador
+    concluir que alguém sumiu do cadastro. A op Perl tem teto de 500 e diz
+    quando bateu nele; quem consome precisa poder repassar o aviso.
+    """
+
+    users: list[ZnunyCustomerUser]
+    truncated: bool = False
+
+
+async def list_customer_users(customer_id: str) -> CustomerUserPage:
+    """Pessoas de um CustomerID, ativas **e** desativadas (T-R2.2).
+
+    Fonte de verdade é o Znuny (decisão D-C): quem foi criado direto no painel
+    aparece aqui, e por isso deixa de ser invisível no console.
+    """
+    data = await _post("/CustomerUser/List", {"CustomerID": customer_id})
+    rows = data.get("Users") or []
+    out: list[ZnunyCustomerUser] = []
+    for r in rows:
+        if not isinstance(r, dict) or not r.get("UserLogin"):
+            continue
+        out.append(
+            ZnunyCustomerUser(
+                login=str(r["UserLogin"]),
+                first_name=str(r.get("UserFirstname") or ""),
+                last_name=str(r.get("UserLastname") or ""),
+                email=str(r.get("UserEmail") or ""),
+                phone=str(r.get("UserPhone") or ""),
+                mobile=str(r.get("UserMobile") or ""),
+                active=str(r.get("ValidID") or "1") == "1",
+            )
+        )
+    return CustomerUserPage(users=out, truncated=str(data.get("Truncated") or "0") == "1")

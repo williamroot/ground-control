@@ -147,6 +147,18 @@ COPY Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserAdd.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserAdd.pm
 COPY Custom/Kernel/GenericInterface/Operation/CustomerUser/SetPassword.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/CustomerUser/SetPassword.pm
+# Onda 1 (R1/R2 do vídeo do Kleber) — corrigir o cadastro depois de criado.
+# CustomerCompanyUpdate espelha endereço/contato no customer_company nativo
+# (gerti.tenant é a dona, decisão D-B); CustomerUserUpdate edita/desativa a
+# pessoa (ValidID=2, nunca delete — invariante 3); CustomerUserList lê do Znuny,
+# que é o dono da identidade (decisão D-C), para que gente criada direto no
+# painel deixe de ser invisível no console.
+COPY Custom/Kernel/GenericInterface/Operation/CustomerCompany/CustomerCompanyUpdate.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/CustomerCompany/CustomerCompanyUpdate.pm
+COPY Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserUpdate.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserUpdate.pm
+COPY Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserList.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserList.pm
 # Spec #4 Bloco D — SysConfig (calendar/working hours) admin ops. Highest-risk
 # block in the project: allowlist + shape validation happen in Perl BEFORE any
 # SysConfig call; perl -c below is the build gate, same as every other op.
@@ -208,6 +220,9 @@ RUN set -eux; \
         Custom/Kernel/GenericInterface/Operation/CustomerCompany/CustomerCompanyAdd.pm \
         Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserAdd.pm \
         Custom/Kernel/GenericInterface/Operation/CustomerUser/SetPassword.pm \
+        Custom/Kernel/GenericInterface/Operation/CustomerCompany/CustomerCompanyUpdate.pm \
+        Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserUpdate.pm \
+        Custom/Kernel/GenericInterface/Operation/CustomerUser/CustomerUserList.pm \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminSysConfigGet.pm \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminSysConfigSet.pm \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminSpec.pm \

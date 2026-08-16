@@ -12,7 +12,7 @@ from gerti_sidecar.auth.session import encode_session
 from gerti_sidecar.config import get_settings
 from gerti_sidecar.integrations import znuny_ticket
 from gerti_sidecar.main import create_app
-from gerti_sidecar.models import Contract, Tenant, TenantBranding, ZnunyInstance
+from gerti_sidecar.models import Contract, Tenant, TenantBranding, TenantQueue, ZnunyInstance
 from gerti_sidecar.models.enums import ContractType
 
 
@@ -79,6 +79,91 @@ async def test_open_ticket_single_contract(engine, app_session_factory, session,
         )  # sem contract_id -> auto
         assert r.status_code == 201
         assert r.json()["ticket_number"] == "2026010100001"
+
+
+# --- T-R5.3: a fila do cliente vale na ROTA, não só no serviço ---------------
+#
+# A verificação ao vivo da Onda 1 pegou isto: o serviço validava a fila, mas a
+# rota não recebia o campo do formulário, então a guarda nunca rodava e o 422
+# de "fila não associada" era código morto. Teste de serviço passando não
+# provava a rota.
+
+
+@pytest.mark.asyncio
+async def test_open_ticket_uses_tenant_default_queue(
+    engine, app_session_factory, session, monkeypatch
+):
+    """Aceite A5.2 — sem fila informada, o chamado nasce na padrão do cliente."""
+    monkeypatch.setenv("SESSION_SECRET", "test-secret-32-chars-minimum-xxxx")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    get_settings.cache_clear()
+    t = await _seed(session)
+    session.add(
+        TenantQueue(
+            tenant_id=t.id, znuny_queue_id=6, znuny_queue_name="Suporte::N1", is_default=True
+        )
+    )
+    await session.commit()
+
+    seen: dict = {}
+
+    async def fake_create(**kw):
+        seen.update(kw)
+        return znuny_ticket.TicketCreated(123, "2026010100001")
+
+    monkeypatch.setattr(znuny_ticket, "create_ticket", fake_create)
+    monkeypatch.setattr(
+        db,
+        "AdminSessionLocal",
+        async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession),
+    )
+    monkeypatch.setattr(db, "SessionLocal", app_session_factory)
+    app = create_app()
+    st = get_settings()
+    h = {"host": "acme.suporte.gerti.com.br"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        c.cookies.set("gsid", encode_session(str(t.id), "joe", "helpdesk", st))
+        r = await c.post("/v1/tickets", headers=h, data={"title": "t", "body": "b"})
+        assert r.status_code == 201, r.text
+    assert seen["queue"] == "Suporte::N1"
+
+
+@pytest.mark.asyncio
+async def test_open_ticket_rejects_queue_not_associated(
+    engine, app_session_factory, session, monkeypatch
+):
+    """A rota precisa RECEBER a fila para a guarda existir — 422, sem criar nada."""
+    monkeypatch.setenv("SESSION_SECRET", "test-secret-32-chars-minimum-xxxx")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    get_settings.cache_clear()
+    t = await _seed(session)
+    session.add(
+        TenantQueue(
+            tenant_id=t.id, znuny_queue_id=6, znuny_queue_name="Suporte::N1", is_default=True
+        )
+    )
+    await session.commit()
+
+    async def must_not_create(**kw):
+        raise AssertionError("nenhum chamado pode nascer com fila recusada")
+
+    monkeypatch.setattr(znuny_ticket, "create_ticket", must_not_create)
+    monkeypatch.setattr(
+        db,
+        "AdminSessionLocal",
+        async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession),
+    )
+    monkeypatch.setattr(db, "SessionLocal", app_session_factory)
+    app = create_app()
+    st = get_settings()
+    h = {"host": "acme.suporte.gerti.com.br"}
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
+        c.cookies.set("gsid", encode_session(str(t.id), "joe", "helpdesk", st))
+        r = await c.post(
+            "/v1/tickets", headers=h, data={"title": "t", "body": "b", "queue": "Financeiro"}
+        )
+    assert r.status_code == 422, r.text
+    assert r.json()["detail"] == "queue_not_allowed"
 
 
 # --- V-R2.4: o detalhe tem que espelhar o escopo que a lista já usa ----------

@@ -63,6 +63,8 @@ Create a CustomerUser.
             UserFirstname  => 'John',
             UserLastname   => 'Doe',
             UserCustomerID => 'acme',
+            UserPhone      => '+553133330000',        # optional (T-R2.1)
+            UserMobile     => '+5531999990000',       # optional (T-R2.1)
             ValidID        => 1,                      # optional, defaults to 1
         },
     );
@@ -118,6 +120,14 @@ sub Run {
         };
     }
 
+    # Telefone e ramal do cadastro que o Kleber descreve em 02:27 (T-R2.1). São
+    # opcionais e vão vazios quando ausentes — o mapa nativo do customer_user já
+    # tem `phone`/`mobile`, então nada de coluna nova.
+    my %Optional;
+    for my $Field (qw(UserPhone UserMobile)) {
+        $Optional{$Field} = $Param{Data}->{$Field} if defined $Param{Data}->{$Field};
+    }
+
     my $UserLogin = $CustomerUserObject->CustomerUserAdd(
         Source         => 'CustomerUser',
         UserLogin      => $Param{Data}->{UserLogin},
@@ -125,6 +135,7 @@ sub Run {
         UserFirstname  => $Param{Data}->{UserFirstname},
         UserLastname   => $Param{Data}->{UserLastname},
         UserCustomerID => $Param{Data}->{UserCustomerID},
+        %Optional,
         ValidID        => $ValidID,
         UserID         => 1,                           # system agent (audit field)
     );

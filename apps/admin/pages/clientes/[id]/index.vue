@@ -20,6 +20,16 @@ interface TenantDetail {
   subdomain: string
   znuny_customer_id: string
   status: string
+  address_street: string | null
+  address_number: string | null
+  address_complement: string | null
+  address_district: string | null
+  address_city: string | null
+  address_state: string | null
+  address_zip: string | null
+  contact_name: string | null
+  contact_email: string | null
+  contact_phone: string | null
   branding: Branding | null
   users: TenantUser[]
   contracts: TenantContract[]
@@ -33,6 +43,24 @@ const { data: tenant } = await useAsyncData(`admin-tenant-${id}`, () =>
 
 const roleLabel = (r: string) =>
   r === 'admin' ? 'Administrador' : r === 'helpdesk' ? 'Helpdesk' : r
+
+// Endereço em uma linha, pulando o que estiver vazio. Cadastro criado antes da
+// Onda 1 não tem nada disso — a ficha diz isso em vez de mostrar vírgulas soltas.
+const addressLine = computed(() => {
+  const t = tenant.value
+  if (!t) return ''
+  const head = [t.address_street, t.address_number].filter(Boolean).join(', ')
+  const mid = [t.address_complement, t.address_district].filter(Boolean).join(', ')
+  const city = [t.address_city, t.address_state].filter(Boolean).join('/')
+  const zip = t.address_zip ? `CEP ${t.address_zip}` : ''
+  return [head, mid, city, zip].filter(Boolean).join(' · ')
+})
+
+const contactLine = computed(() => {
+  const t = tenant.value
+  if (!t) return ''
+  return [t.contact_name, t.contact_email, t.contact_phone].filter(Boolean).join(' · ')
+})
 </script>
 
 <template>
@@ -70,6 +98,30 @@ const roleLabel = (r: string) =>
           </p>
         </div>
         <div class="flex items-center gap-2">
+          <UButton
+            :to="`/clientes/${tenant.id}/usuarios`"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-users"
+          >
+            Usuários
+          </UButton>
+          <UButton
+            :to="`/clientes/${tenant.id}/filas`"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-list-tree"
+          >
+            Relacionamentos
+          </UButton>
+          <UButton
+            :to="`/clientes/${tenant.id}/chamados`"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-ticket"
+          >
+            Chamados
+          </UButton>
           <UButton
             :to="`/clientes/${tenant.id}/agentes`"
             color="neutral"
@@ -111,6 +163,14 @@ const roleLabel = (r: string) =>
             Identidade visual
           </UButton>
           <UButton
+            :to="`/clientes/${tenant.id}/editar`"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-pencil"
+          >
+            Editar cadastro
+          </UButton>
+          <UButton
             :to="`/clientes/${tenant.id}/contratos/novo`"
             color="primary"
             icon="i-lucide-plus"
@@ -141,6 +201,18 @@ const roleLabel = (r: string) =>
             <div class="flex justify-between gap-4">
               <dt class="text-muted">Znuny ID</dt>
               <dd class="text-right text-default">{{ tenant.znuny_customer_id }}</dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="text-muted">Endereço</dt>
+              <dd class="text-right" :class="addressLine ? 'text-default' : 'text-muted'">
+                {{ addressLine || 'não informado' }}
+              </dd>
+            </div>
+            <div class="flex justify-between gap-4">
+              <dt class="text-muted">Contato</dt>
+              <dd class="text-right" :class="contactLine ? 'text-default' : 'text-muted'">
+                {{ contactLine || 'não informado' }}
+              </dd>
             </div>
           </dl>
         </UCard>
@@ -177,9 +249,20 @@ const roleLabel = (r: string) =>
       </div>
 
       <section class="mt-6">
-        <h2 class="mb-3 font-display text-base font-bold text-highlighted">
-          Usuários
-        </h2>
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="font-display text-base font-bold text-highlighted">
+            Usuários
+          </h2>
+          <UButton
+            :to="`/clientes/${tenant.id}/usuarios`"
+            variant="soft"
+            color="primary"
+            icon="i-lucide-users"
+            size="sm"
+          >
+            Gerenciar usuários
+          </UButton>
+        </div>
         <UCard v-if="tenant.users.length === 0" class="text-sm text-muted">
           Nenhum usuário cadastrado.
         </UCard>

@@ -54,14 +54,26 @@ sub Run {
 
     my %GroupData = $Kernel::OM->Get('Kernel::System::Group')->GroupDataList();
 
+    # T-R5.5 — "quem atende esta fila?" numa olhada. A fila pertence a um grupo
+    # e os agentes são associados a grupos; sem a contagem, a tela de filas
+    # mostra o nome de um grupo e o operador ainda precisa abrir outra tela para
+    # descobrir se tem alguém nele. `rw` é o recorte certo: quem só tem `ro`
+    # enxerga a fila mas não atende.
+    my $GroupObject = $Kernel::OM->Get('Kernel::System::Group');
+
     my @Groups;
     for my $GroupID ( sort { $a <=> $b } keys %GroupData ) {
         my $G = $GroupData{$GroupID};
-        push @Groups, {
+        my %RwUsers = $GroupObject->PermissionGroupUserGet(
             GroupID => $GroupID,
-            Name    => $G->{Name},
-            ValidID => $G->{ValidID},
-            Comment => $G->{Comment},
+            Type    => 'rw',
+        );
+        push @Groups, {
+            GroupID     => $GroupID,
+            Name        => $G->{Name},
+            ValidID     => $G->{ValidID},
+            Comment     => $G->{Comment},
+            RwUserCount => scalar keys %RwUsers,
         };
     }
 

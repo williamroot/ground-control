@@ -45,9 +45,17 @@ sub Run {
     my $DBObject = $Kernel::OM->Get('Kernel::System::DB');
     return $Self->ReturnError(
         ErrorCode => 'TimeAccountingSince.DBError', ErrorMessage => 'prepare failed',
+    # O JOIN em `ticket` traz o dono do chamado junto com o lançamento (T-R2.3).
+    # Sem ele, uma hora lançada em chamado SEM vínculo contrato↔chamado — o caso
+    # de todo chamado que entra por e-mail — é indistinguível de lixo, e o worker
+    # a descarta em silêncio. Com o CustomerID em mãos, o worker resolve o tenant
+    # e ou vincula ao único contrato ativo, ou registra a pendência.
+    # LEFT JOIN de propósito: lançamento cujo ticket sumiu ainda precisa aparecer.
     ) if !$DBObject->Prepare(
-        SQL => 'SELECT id, ticket_id, article_id, time_unit, create_time '
-            . 'FROM time_accounting WHERE id > ? ORDER BY id ASC',
+        SQL => 'SELECT ta.id, ta.ticket_id, ta.article_id, ta.time_unit, ta.create_time, '
+            . 't.customer_id, t.customer_user_id '
+            . 'FROM time_accounting ta LEFT JOIN ticket t ON t.id = ta.ticket_id '
+            . 'WHERE ta.id > ? ORDER BY ta.id ASC',
         Bind  => [ \$SinceId ],
         Limit => $Limit,
     );
@@ -56,11 +64,13 @@ sub Run {
     my $MaxId = $SinceId;
     while ( my @Row = $DBObject->FetchrowArray() ) {
         push @Entries, {
-            Id        => $Row[0],
-            TicketId  => $Row[1],
-            ArticleId => $Row[2],
-            TimeUnit  => $Row[3],
-            Created   => $Row[4],
+            Id             => $Row[0],
+            TicketId       => $Row[1],
+            ArticleId      => $Row[2],
+            TimeUnit       => $Row[3],
+            Created        => $Row[4],
+            CustomerId     => $Row[5] // '',
+            CustomerUserId => $Row[6] // '',
         };
         $MaxId = $Row[0] if $Row[0] > $MaxId;
     }
