@@ -156,6 +156,14 @@ def main() -> None:
             "provam — mais a transcrição integral com marcação de tempo.",
         ),
         Doc(
+            Path("docs/ENTREGA-RECURSOS-ADMINISTRATIVOS.md"),
+            "Entrega — recursos administrativos",
+            "O fechamento da campanha aberta a partir do vídeo: o que mudou em "
+            "cada requisito, as decisões que assumimos no lugar dele (com o "
+            "custo de mudar de ideia) e o roteiro para conferir com as próprias "
+            "mãos no ambiente de homologação.",
+        ),
+        Doc(
             Path("docs/SUPOSICOES-A-VALIDAR.md"),
             "Suposições a validar",
             "As seis leituras do vídeo do Kleber que assumimos sem confirmação — cada "
