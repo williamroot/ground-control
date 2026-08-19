@@ -1900,3 +1900,66 @@ manter e apontar para o relay certo.
 > **Limpeza:** os 5 chamados descartáveis (o de teste + 4 de cron) apagados. A
 > caixa `gerti@mailpit:1110` e as duas regras de domínio **ficam** — são a
 > configuração que faz o R9 existir no staging.
+
+### Deploy da Onda 4 — configuração da plataforma (profile `gerti`)
+
+Onda 4 da campanha (R11 · R8 · R12 · R14). **Uma migration nova (0031).** O
+contrato do `GertiAdmin.yml` **não** mudou (as ops de permissão granular são
+extensão de payload da `AdminAgentGroupSet` existente), então não há passo de
+reimportação de webservice.
+
+**Chave nova, opcional:** `ZNUNY_SERVICE_MAX_DEPTH` (padrão `2`, `0` desliga) —
+é o teto de níveis do catálogo, a suposição de maior risco do vídeo.
+
+```bash
+ssh gc 'cd ~/ground-control && git fetch origin && git checkout campanha/onda-4-configuracao && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 1) Znuny: rebuild (TicketCreate com ContractId opcional + mensagem de erro
+#    real + permissões granulares no AdminAgentGroupSet).
+ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-daemon"
+
+# 2) migration 0031, ANTES do app (invariante 8):
+ssh gc "cd ~/ground-control && $DC build sidecar admin"
+ssh gc "cd ~/ground-control && $DC up -d sidecar-migrate && $DC ps -a sidecar-migrate"  # Exit (0)
+ssh gc "cd ~/ground-control && $DC up -d sidecar sidecar-worker admin && $DC ps"
+```
+
+**Rollback.** A migration é aditiva (duas tabelas novas): voltar o código sem
+voltar o schema é seguro. `git checkout campanha/onda-2-email` + rebuild.
+
+> **Status (2026-08-19): DEPLOYADO em staging e verificado ao vivo.** Branch
+> `campanha/onda-4-configuracao`. Migration **0031** aplicada (`Exit 0`).
+>
+> **Provas ao vivo:**
+>
+> - **R11** — atividade "toda segunda-feira, 08:00" cadastrada (201), agenda
+>   dos 30 dias listando as 4 segundas; semanal sem dia da semana → **422**
+>   `"escolha o dia da semana"`. O processador **abriu o chamado sozinho**
+>   (ticket `2026081910000062`, fila `Suporte::N1`, solicitante
+>   `mariana.bianchi`) e a **segunda execução não duplicou**.
+> - **R12** — criar serviço `ZZ-ONDA4::Nivel2::Nivel3` → **422** com a
+>   mensagem dizendo o teto, o nome e o caminho para elevá-lo.
+> - **R8** — simulação de 1 linha válida → 200 com `dry_run: true`, e a
+>   contagem de clientes **não mudou** (a simulação não grava). CSV com coluna
+>   `password` → **422** explicando por quê. Cabeçalho errado → **422**
+>   listando as colunas esperadas.
+>
+> **Dois defeitos que só a execução ao vivo revelou, corrigidos e redeployados:**
+>
+> 1. **Preventiva sem contrato não abria chamado nenhum.** `TicketCreate.pm`
+>    exigia `ContractId`, e a suposição S4 diz que manutenção preventiva não
+>    consome contrato — ou seja, o caso mais comum do R11 estava morto.
+>    `ContractId` saiu dos obrigatórios: nunca foi exigência do Znuny, é
+>    invariante do fluxo do **portal**, e continua garantida no
+>    `TicketingService`. Teste novo prova que o portal segue recusando.
+> 2. **`native TicketCreate failed` escondia a causa.** A falha seguinte era
+>    uma fila inexistente, e descobrir isso custou uma rodada de diagnóstico —
+>    o Znuny tinha a mensagem no log e nós a jogávamos fora. Agora ela sobe
+>    junto, com o nome da fila.
+>
+> O comportamento de falha da agenda funcionou como desenhado: a ocorrência
+> ficou registrada com o erro e **não** foi retentada em silêncio.
+>
+> **Limpeza:** chamado e atividade descartáveis apagados; `recurring_task`
+> voltou a zero.
