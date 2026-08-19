@@ -38,12 +38,23 @@ router = APIRouter(prefix="/admin/znuny", tags=["admin"])
 # Bloco A do plano — mesma tabela do dispatcher Perl (AdminSpec.pm), checada
 # aqui de novo: chave fora dela nunca chega a montar uma chamada GI.
 #
-# NOTA: o `AdminSpec.pm` também expõe `SystemAddress` (T-R9.2), de propósito
-# ausente aqui. O console usa os endereços apenas como LISTA DE APOIO da fila,
-# que chega pelo `support` do AdminObjectList — não precisa de CRUD. Manter esta
-# allowlist mais estreita que a do Perl é fail-closed e intencional; ela abre
-# junto com a tela de e-mail (R9, Onda 2), com testes próprios.
-_ALLOWED_OBJECTS = {"Queue", "SLA", "Service", "Type", "State", "Priority"}
+# NOTA (Onda 2): `SystemAddress` entrou. Até a Onda 1 ele ficava de fora de
+# propósito — o console só precisava dos endereços como lista de apoio da fila.
+# A tela de e-mail do R9 precisa cadastrá-los, então a allowlist abriu junto,
+# com teste próprio. Ela segue sendo a barreira: chave fora dela nunca monta
+# chamada GI.
+_ALLOWED_OBJECTS = {
+    "Queue",
+    "SLA",
+    "Service",
+    "Type",
+    "State",
+    "Priority",
+    # Onda 2 (T-R9.2/R9): endereços de RESPOSTA. É o outro lado do par que o
+    # Kleber descreve em 06:38 — a fila define por onde a resposta sai. A
+    # allowlist do Perl já o expunha; abrimos aqui junto da tela de e-mail.
+    "SystemAddress",
+}
 _ID_RE = re.compile(r"^[0-9]+$")
 
 _T = TypeVar("_T")

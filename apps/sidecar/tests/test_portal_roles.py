@@ -194,3 +194,62 @@ async def test_login_resolves_role_into_cookie(engine, app_session_factory, sess
             "/v1/auth/login", headers=h, json={"username": "ghost@x.com", "password": "x"}
         )
         assert role_of(r.cookies["gsid"]) == "helpdesk"
+
+
+# ── Onda 2 — a mesma pessoa não pode ter dois papéis conforme o que digitou ──
+#
+# Defeito real, achado ao vivo no staging na Onda 0 e com a causa raiz
+# explicada na Onda 1: `gerti.portal_user_role` da Aurora está chaveado por
+# `eduardo.salvi@auroramoveis.com.br`, mas o `customer_user` do Znuny tem o
+# login curto `eduardo.salvi`. São strings DIFERENTES, não uma diferença de
+# caixa — então quem entrava com o login curto caía no papel default
+# `helpdesk` e via só os próprios chamados, enquanto o mesmo humano entrando
+# com o e-mail via a empresa inteira como `admin`.
+
+
+@pytest.mark.asyncio
+async def test_role_resolves_by_alias_not_only_by_the_typed_string(
+    engine, app_session_factory, session
+):
+    """O papel gravado sob o E-MAIL é encontrado por quem entra com o LOGIN."""
+    aurora_id, _beta = await _seed_two(session)
+    short_login = AURORA_ADMIN.split("@")[0]  # 'admin' <- o login curto do Znuny
+
+    async with tenant_session_scope(aurora_id, factory=app_session_factory) as s:
+        # Sem o alias, o login curto não acha nada e cai no default.
+        assert await resolve_role(s, short_login) == PortalRole.helpdesk
+        # Com o e-mail como alias, acha o papel certo — é a correção.
+        assert await resolve_role(s, short_login, AURORA_ADMIN) == PortalRole.admin
+
+
+@pytest.mark.asyncio
+async def test_typed_identifier_wins_over_the_alias(engine, app_session_factory, session):
+    """Se os dois identificadores tiverem papel, vale o que a pessoa digitou.
+
+    Ordem determinística importa: sem ela, duas linhas conflitantes dariam
+    resultados diferentes conforme a ordem que o banco devolvesse.
+    """
+    aurora_id, _beta = await _seed_two(session)
+    async with tenant_session_scope(aurora_id, factory=app_session_factory) as s:
+        # AURORA_HELPDESK digitado, AURORA_ADMIN como alias → vence o digitado.
+        assert await resolve_role(s, AURORA_HELPDESK, AURORA_ADMIN) == PortalRole.helpdesk
+        # E o inverso também.
+        assert await resolve_role(s, AURORA_ADMIN, AURORA_HELPDESK) == PortalRole.admin
+
+
+@pytest.mark.asyncio
+async def test_alias_none_and_empty_are_ignored(engine, app_session_factory, session):
+    """`resolve_email_from_login` devolve None quando não acha — não pode quebrar."""
+    aurora_id, _beta = await _seed_two(session)
+    async with tenant_session_scope(aurora_id, factory=app_session_factory) as s:
+        assert await resolve_role(s, AURORA_ADMIN, None, "", "   ") == PortalRole.admin
+        assert await resolve_role(s, "", None) == PortalRole.helpdesk
+
+
+@pytest.mark.asyncio
+async def test_alias_does_not_cross_tenants(engine, app_session_factory, session):
+    """O alias amplia identificadores, NUNCA o escopo: RLS continua mandando."""
+    _aurora, beta_id = await _seed_two(session)
+    async with tenant_session_scope(beta_id, factory=app_session_factory) as s:
+        short = AURORA_ADMIN.split("@")[0]
+        assert await resolve_role(s, short, AURORA_ADMIN) == PortalRole.helpdesk

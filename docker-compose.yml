@@ -113,6 +113,17 @@ services:
       # assina o corpo com ele; DEVE bater com gerti.znuny_instance.webhook_signing_secret_ref
       # (o sidecar verifica). SEGREDO — só em .env.prod (gitignored). Vazio → não posta.
       GERTI_WEBHOOK_SIGNING_SECRET: ${GERTI_WEBHOOK_SIGNING_SECRET:-}
+      # ── Saída de e-mail (T-R9.1, R9) ────────────────────────────────
+      # O Znuny não enviava e-mail nenhum: o default é `sendmail`, e o binário
+      # não existe na imagem. Agora o transporte é SMTP. O alvo padrão é o
+      # Mailpit interno (staging); em produção troca-se ZNUNY_SMTP_* no
+      # .env.prod, sem tocar em código. Segredo nunca com :? (D13).
+      ZNUNY_SMTP_MODULE: ${ZNUNY_SMTP_MODULE:-SMTP}
+      ZNUNY_SMTP_HOST: ${ZNUNY_SMTP_HOST:-mailpit}
+      ZNUNY_SMTP_PORT: ${ZNUNY_SMTP_PORT:-1025}
+      ZNUNY_SMTP_USER: ${ZNUNY_SMTP_USER:-}
+      ZNUNY_SMTP_PASSWORD: ${ZNUNY_SMTP_PASSWORD:-}
+      ZNUNY_SMTP_FROM: ${ZNUNY_SMTP_FROM:-}
     volumes:
       - znuny-var:/opt/otrs/var
     ports:
@@ -158,6 +169,17 @@ services:
       # assina o corpo com ele; DEVE bater com gerti.znuny_instance.webhook_signing_secret_ref
       # (o sidecar verifica). SEGREDO — só em .env.prod (gitignored). Vazio → não posta.
       GERTI_WEBHOOK_SIGNING_SECRET: ${GERTI_WEBHOOK_SIGNING_SECRET:-}
+      # ── Saída de e-mail (T-R9.1, R9) ────────────────────────────────
+      # O Znuny não enviava e-mail nenhum: o default é `sendmail`, e o binário
+      # não existe na imagem. Agora o transporte é SMTP. O alvo padrão é o
+      # Mailpit interno (staging); em produção troca-se ZNUNY_SMTP_* no
+      # .env.prod, sem tocar em código. Segredo nunca com :? (D13).
+      ZNUNY_SMTP_MODULE: ${ZNUNY_SMTP_MODULE:-SMTP}
+      ZNUNY_SMTP_HOST: ${ZNUNY_SMTP_HOST:-mailpit}
+      ZNUNY_SMTP_PORT: ${ZNUNY_SMTP_PORT:-1025}
+      ZNUNY_SMTP_USER: ${ZNUNY_SMTP_USER:-}
+      ZNUNY_SMTP_PASSWORD: ${ZNUNY_SMTP_PASSWORD:-}
+      ZNUNY_SMTP_FROM: ${ZNUNY_SMTP_FROM:-}
     volumes:
       - znuny-var:/opt/otrs/var
     networks: [app, data]
@@ -202,6 +224,40 @@ services:
   # D1 — one-shot idempotente: cria schema `gerti` + roles + RLS no
   # cluster Postgres VIVO, como o superusuário. Re-rodável (só re-assere
   # roles/grants e reaplica senhas). NUNCA toca public/znuny do Znuny.
+  # ── Mailpit — caixa de e-mail de staging (T-R9.0, decisão I-1/2/3) ─────────
+  #
+  # O R9 inteiro depende de o e-mail entrar e sair. Depender de provedor
+  # externo + DNS para PROVAR isso trava a onda numa dependência que não
+  # controlamos. O Mailpit resolve os dois lados: recebe SMTP (saída do Znuny)
+  # e serve POP3 (entrada do PostMaster), com interface web para conferir a
+  # mensagem — inclusive o cabeçalho `From:`, que é o aceite A9.3.
+  #
+  # Regras que este serviço respeita, e que valem repetir:
+  #  • aditivo e profile-gated: um `make up` da stack Znuny não o sobe;
+  #  • **somente na rede interna `app`** — nunca exposto pelo Cloudflare Tunnel.
+  #    Uma caixa de e-mail aberta na internet é um problema, não uma
+  #    conveniência. Para olhar a interface, `docker compose port` ou túnel SSH;
+  #  • trocar por provedor real é mudar `ZNUNY_SMTP_*` no `.env.prod`, não
+  #    código.
+  mailpit:
+    profiles: ["gerti"]
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    environment:
+      # Aceita qualquer destinatário e guarda tudo em memória: é caixa de
+      # teste, não arquivo. Reiniciar limpa, e isso é desejável.
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+      MP_POP3_AUTH: "${MAILPIT_POP3_USER:-gerti}:${MAILPIT_POP3_PASSWORD:-gerti}"
+      MP_MAX_MESSAGES: "5000"
+    networks: [app]
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   gerti-db-init:
     profiles: ["gerti"]
     image: ${POSTGRES_IMAGE:-postgres:18}

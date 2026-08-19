@@ -53,6 +53,12 @@ render_config() {
         -e "s|__FQDN__|${ZNUNY_FQDN}|g" \
         -e "s|__OS_HOST__|${OPENSEARCH_HOST}|g" \
         -e "s|__OS_PORT__|${OPENSEARCH_PORT}|g" \
+        -e "s|__SMTP_MODULE__|${ZNUNY_SMTP_MODULE:-SMTP}|g" \
+        -e "s|__SMTP_HOST__|${ZNUNY_SMTP_HOST:-mailpit}|g" \
+        -e "s|__SMTP_PORT__|${ZNUNY_SMTP_PORT:-1025}|g" \
+        -e "s|__SMTP_USER__|${ZNUNY_SMTP_USER:-}|g" \
+        -e "s|__SMTP_PASSWORD__|${ZNUNY_SMTP_PASSWORD:-}|g" \
+        -e "s|__SMTP_FROM__|${ZNUNY_SMTP_FROM:-suporte@${ZNUNY_FQDN}}|g" \
         -e "s|__GERTI_ADMIN_WS_TOKEN__|${GERTI_ADMIN_WS_TOKEN:-}|g" \
         -e "s|__GERTI_AGENT_WS_TOKEN__|${GERTI_AGENT_WS_TOKEN:-}|g" \
         -e "s|__GERTI_WEBHOOK_SIGNING_SECRET__|${GERTI_WEBHOOK_SIGNING_SECRET:-}|g" \

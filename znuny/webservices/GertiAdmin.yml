@@ -72,6 +72,18 @@ Provider:
     AdminAgentResolveLogin:
       Description: Resolve an agent's canonical UserLogin from a login OR email identifier (#2 login-por-email)
       Type: GertiAdmin::AdminAgentResolveLogin
+    AdminMailAccountList:
+      Description: List PostMaster mail accounts, NEVER returning the password (T-R9.4)
+      Type: GertiAdmin::AdminMailAccountList
+    AdminMailAccountSet:
+      Description: Create/update a PostMaster mail account, keeping the stored password when none is sent (T-R9.4)
+      Type: GertiAdmin::AdminMailAccountSet
+    AdminPostMasterFilterList:
+      Description: List PostMaster filters — the authorized-domain view (T-R9.5)
+      Type: GertiAdmin::AdminPostMasterFilterList
+    AdminPostMasterFilterSet:
+      Description: Create/update/delete a PostMaster filter (no native FilterUpdate) (T-R9.5)
+      Type: GertiAdmin::AdminPostMasterFilterSet
   Transport:
     Config:
       KeepAlive: ''
@@ -165,5 +177,21 @@ Provider:
           RequestMethod:
           - POST
           Route: /Agent/ResolveLogin
+        AdminMailAccountList:
+          RequestMethod:
+          - POST
+          Route: /MailAccount/List
+        AdminMailAccountSet:
+          RequestMethod:
+          - POST
+          Route: /MailAccount/Set
+        AdminPostMasterFilterList:
+          RequestMethod:
+          - POST
+          Route: /PostMasterFilter/List
+        AdminPostMasterFilterSet:
+          RequestMethod:
+          - POST
+          Route: /PostMasterFilter/Set
     Type: HTTP::REST
 RemoteSystem: ''

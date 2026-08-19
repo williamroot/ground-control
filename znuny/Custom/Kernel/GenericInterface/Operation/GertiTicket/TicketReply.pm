@@ -55,7 +55,12 @@ sub Run {
     # adivinhasse o id escrevia no chamado de colega (IDOR). CustomerUserID
     # ausente ou vazio => comportamento de antes, escopo de empresa.
     if ( !$NotFound && IsStringWithData( $D->{CustomerUserID} ) ) {
-        $NotFound = ( $T{CustomerUserID} // '' ) ne $D->{CustomerUserID};
+        # Comparação sem diferenciar caixa, alinhada ao TicketSearch, que já
+        # compara assim. Não achamos caminho para o dono legítimo cair no 404 —
+        # caixa errada morre antes, no 401 do login — mas duas camadas de
+        # autorização com regras diferentes é dívida esperando virar defeito.
+        # Registrada na Onda 0, fechada aqui (Onda 2).
+        $NotFound = lc( $T{CustomerUserID} // '' ) ne lc( $D->{CustomerUserID} );
     }
 
     # Sempre o MESMO NotFound: nunca 403, nunca erro distinto — não pode vazar

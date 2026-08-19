@@ -36,6 +36,28 @@ sub Load {
     $Self->{DefaultLanguage} = 'pt_BR';
     $Self->{SecureMode}      = 1;
 
+    # ── Saída de e-mail (T-R9.1, R9 do vídeo) ────────────────────────
+    #   O padrão do Znuny é entregar por `sendmail`, e **esse programa não
+    #   existe na imagem** (verificado dentro do container). Consequência: o
+    #   Znuny não enviava e-mail NENHUM — nem resposta a chamado, nem
+    #   notificação. Nada do R9 era demonstrável, e o cliente nunca recebia
+    #   resposta. Aqui o transporte passa a ser SMTP, apontado por env.
+    #
+    #   `SMTP` (sem TLS) é o default porque o alvo padrão é o Mailpit interno
+    #   do staging, que não faz TLS. Em produção vira `SMTPTLS` ou `SMTPS`
+    #   mudando `ZNUNY_SMTP_MODULE` — nenhuma outra linha muda.
+    $Self->{SendmailModule}       = 'Kernel::System::Email::__SMTP_MODULE__';
+    $Self->{'SendmailModule::Host'} = '__SMTP_HOST__';
+    $Self->{'SendmailModule::Port'} = __SMTP_PORT__;
+    $Self->{'SendmailModule::AuthUser'}     = '__SMTP_USER__';
+    $Self->{'SendmailModule::AuthPassword'} = '__SMTP_PASSWORD__';
+    #   Remetente de último recurso. O remetente REAL de um chamado sai do
+    #   endereço de sistema da fila (é a invariante "entrou pelo suporte, sai
+    #   pelo suporte" do 06:38, e é nativa do Znuny) — isto aqui só cobre
+    #   notificação sem fila associada.
+    $Self->{NotificationSenderEmail} = '__SMTP_FROM__';
+    $Self->{NotificationSenderName}  = 'Gerti Service Desk';
+
     # ── Dev-friendly checks ──────────────────────────────────────────
     $Self->{CheckMXRecord}       = 0;
     $Self->{CheckEmailAddresses} = 1;

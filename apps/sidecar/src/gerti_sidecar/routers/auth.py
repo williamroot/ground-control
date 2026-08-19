@@ -12,6 +12,7 @@ from gerti_sidecar.domain.portal_role_service import resolve_role
 from gerti_sidecar.integrations.znuny_gi import (
     ZnunyUnavailable,
     authenticate_customer,
+    resolve_email_from_login,
     resolve_login_from_email,
 )
 
@@ -45,9 +46,14 @@ async def login(
     znuny_login = (
         await resolve_login_from_email(body.username) if "@" in body.username else body.username
     )
+    # ...e o caminho inverso, para o papel: quem entra com o login curto pode
+    # ter o papel gravado sob o e-mail (e vice-versa). Sem os dois, a mesma
+    # pessoa enxerga coisas diferentes conforme o formato que digitou — defeito
+    # achado ao vivo na Onda 0.
+    email_alias = None if "@" in body.username else await resolve_email_from_login(znuny_login)
     # Resolve o papel sob sessão tenant-scoped (RLS). Failure-safe: erro ⇒ helpdesk.
     async with tenant_session_scope(tenant.id) as s:
-        role = await resolve_role(s, body.username)
+        role = await resolve_role(s, body.username, znuny_login, email_alias)
     token = encode_session(
         str(tenant.id), body.username, role.value, settings, znuny_login=znuny_login
     )

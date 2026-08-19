@@ -33,6 +33,7 @@ from gerti_sidecar.routers import (
     admin_tenants,
     admin_timer,
     admin_znuny,
+    admin_znuny_mail,
     admin_znuny_people,
     agent,
     agent_dist,
@@ -154,6 +155,9 @@ def create_app() -> FastAPI:
     # Console como capa de administração do Znuny (Spec #4, Blocos C/D) —
     # agentes/grupos + calendário/jornada; idem, sem persistência local.
     app.include_router(admin_znuny_people.router, prefix=settings.api_v1_prefix)
+    # Configuração de e-mail do Znuny (R9): contas de recebimento e filtros de
+    # domínio. Router separado porque é o único que lida com segredo de caixa.
+    app.include_router(admin_znuny_mail.router, prefix=settings.api_v1_prefix)
     app.add_middleware(TenantMiddleware)
 
     return app

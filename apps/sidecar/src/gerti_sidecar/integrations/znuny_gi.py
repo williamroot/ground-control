@@ -78,6 +78,39 @@ async def resolve_login_from_email(email: str) -> str:
     return email
 
 
+async def resolve_email_from_login(login: str) -> str | None:
+    """O caminho INVERSO: e-mail do customer a partir do login (READ-ONLY).
+
+    Existe por causa de um defeito real, achado ao vivo na Onda 0 e explicado
+    na Onda 1: `gerti.portal_user_role` pode estar chaveado pelo **e-mail**
+    (`eduardo.salvi@auroramoveis.com.br`) enquanto a pessoa entra com o
+    **login curto** do Znuny (`eduardo.salvi`). São strings diferentes, não uma
+    diferença de caixa — então a mesma pessoa caía no papel default `helpdesk`
+    ou no papel `admin` conforme o formato que digitou.
+
+    Com isto, a resolução de papel passa a tentar os dois identificadores.
+
+    Mesmo contrato do irmão `resolve_login_from_email`: SELECT-only, e
+    failure-safe — devolve `None` em qualquer erro, nunca derruba o login.
+    """
+    factory = db.SessionLocal
+    if factory is None:
+        return None
+    sql = text(
+        f"SELECT email FROM {_CUSTOMER_USER_TABLE} "  # noqa: S608 — tabela é constante de módulo
+        "WHERE lower(login) = lower(:login) LIMIT 1"
+    )
+    try:
+        async with factory() as session:
+            row = (await session.execute(sql, {"login": login})).first()
+    except Exception as exc:  # best-effort
+        logger.warning("resolução login→e-mail falhou (%s); segue sem alias", exc)
+        return None
+    if row is not None and row[0]:
+        return str(row[0])
+    return None
+
+
 async def authenticate_customer(login: str, password: str) -> bool:
     # Login sempre por e-mail: se parece e-mail, resolve o CustomerUserLogin real.
     customer_login = login
