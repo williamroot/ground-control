@@ -44,3 +44,13 @@ export function isCustomerLogin(value: string | null | undefined): boolean {
   if (/[\u0000-\u001f\u007f]/.test(value)) return false
   return value.includes('@')
 }
+
+/**
+ * Nome de filtro de PostMaster (Onda 2, R9). É a CHAVE do objeto no Znuny e
+ * vai interpolada no path do sidecar — mesmo cuidado do login de cliente.
+ * Espelha o `_FILTER_NAME_RE` do router; recusar aqui economiza um round-trip
+ * e impede que `../` chegue a virar requisição.
+ */
+export function isFilterName(value: string | null | undefined): boolean {
+  return !!value && /^[A-Za-z0-9][A-Za-z0-9 ._:-]{0,63}$/.test(value)
+}

@@ -214,6 +214,19 @@ COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGroupSet.pm \
 # Fail-closed em ambiguidade — nunca escolhe entre múltiplos agentes válidos.
 COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentResolveLogin.pm \
      ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentResolveLogin.pm
+# Onda 2 (R9) — configuração de e-mail pela capa de administração.
+# MailAccount tem op DEDICADA porque o MailAccountGet nativo devolve a senha em
+# texto claro: a op remove o campo antes de responder, e o Set relê a senha
+# atual dentro do Znuny quando o console não manda uma nova. PostMasterFilter
+# idem, porque a API nativa é por NOME e não tem FilterUpdate.
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminMailAccountList.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminMailAccountList.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminMailAccountSet.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminMailAccountSet.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminPostMasterFilterList.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminPostMasterFilterList.pm
+COPY Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminPostMasterFilterSet.pm \
+     ${OTRS_HOME}/Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminPostMasterFilterSet.pm
 RUN set -eux; \
     chown -R otrs:www-data ${OTRS_HOME}/Custom; \
     for m in \
@@ -239,6 +252,10 @@ RUN set -eux; \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentSetPassword.pm \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminGroupList.pm \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentGroupSet.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminMailAccountList.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminMailAccountSet.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminPostMasterFilterList.pm \
+        Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminPostMasterFilterSet.pm \
         Custom/Kernel/GenericInterface/Operation/GertiAdmin/AdminAgentResolveLogin.pm ; \
     do \
         perl -I${OTRS_HOME} -I${OTRS_HOME}/Kernel/cpan-lib -I${OTRS_HOME}/Custom \

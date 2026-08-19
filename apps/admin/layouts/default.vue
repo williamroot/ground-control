@@ -28,13 +28,15 @@ const navLinks = [
 // existem nesta etapa; as outras cinco são de outros agentes em paralelo e
 // entram no menu mesmo antes de existirem, conforme o contrato da spec.
 const znunyLinks = [
-  { to: '/znuny/filas', label: 'Filas' },
+  { to: '/znuny/filas', label: 'Filas (mesas de serviço)' },
   { to: '/znuny/sla', label: 'SLA' },
   { to: '/znuny/servicos', label: 'Serviços' },
   { to: '/znuny/classificacao', label: 'Classificação' },
   { to: '/znuny/classes-ci', label: 'Classes de CI' },
   { to: '/znuny/agentes', label: 'Agentes' },
   { to: '/znuny/calendario', label: 'Calendário' },
+  // Onda 2 (R9) — entrada, saída e domínios autorizados numa tela só.
+  { to: '/znuny/email', label: 'E-mail' },
 ]
 const znunyMenuOpen = ref(false)
 const isZnunyRoute = computed(() => route.path.startsWith('/znuny/'))

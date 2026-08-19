@@ -1807,3 +1807,96 @@ $DC build znuny-web sidecar admin && $DC up -d znuny-web znuny-daemon sidecar ad
 >
 > **Nada a limpar:** a onda é somente-leitura. Nenhum chamado, usuário ou
 > registro foi criado no staging para a verificação.
+
+### Deploy da Onda 2 — e-mail (profile `gerti`, + serviço Mailpit)
+
+Onda 2 da campanha (R9 · resto do R10 · T-R2.6). **Sem migration.** Serviço
+novo (`mailpit`), quatro operações GI novas no `GertiAdmin` e a primeira
+configuração de SMTP da história desta stack.
+
+> **O ponto de partida:** o Znuny **não enviava e-mail nenhum**. O padrão é
+> `sendmail`, e o binário não existe na imagem. Nem resposta a chamado nem
+> notificação saíam — em silêncio, com as mensagens acumulando na `mail_queue`.
+
+**Pré-requisitos.** Nenhuma variável obrigatória nova; todas têm padrão:
+
+| Chave | Padrão | Para quê |
+|---|---|---|
+| `ZNUNY_SMTP_MODULE` | `SMTP` | `SMTPTLS`/`SMTPS` em produção |
+| `ZNUNY_SMTP_HOST` / `_PORT` | `mailpit` / `1025` | relay real em produção |
+| `ZNUNY_SMTP_USER` / `_PASSWORD` | vazios | credencial do relay (só `.env.prod`) |
+| `ZNUNY_SMTP_FROM` | `suporte@<FQDN>` | remetente de última instância |
+| `MAILPIT_POP3_USER` / `_PASSWORD` | `gerti` / `gerti` | caixa de staging |
+
+```bash
+ssh gc 'cd ~/ground-control && git fetch origin && git checkout campanha/onda-2-email && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 1) Mailpit primeiro: o Znuny sobe apontando o SMTP para ele.
+ssh gc "cd ~/ground-control && $DC up -d mailpit"
+
+# 2) Znuny: rebuild (4 ops GI novas + SMTP no Config.pm) e recria web+daemon.
+ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-daemon"
+
+# 3) CRÍTICO — atualizar o GertiAdmin (JÁ EXISTE: id 2). O contrato MUDOU
+#    nesta onda (4 Operation + 4 Route novos), então a reimportação é
+#    obrigatória, ao contrário da Onda 3.
+ssh gc 'cd ~/ground-control && docker compose exec -T znuny-web su otrs -s /bin/bash -c \
+  "cd /opt/otrs && \
+   WSID=\$(bin/otrs.Console.pl Admin::WebService::List | sed -n \"s/.*GertiAdmin (\\([0-9]\\+\\)).*/\\1/p\"); \
+   bin/otrs.Console.pl Admin::WebService::Update --webservice-id \"\$WSID\" \
+     --source-path /opt/otrs/webservices/GertiAdmin.yml"'
+
+# 4) sidecar + admin (sem migration):
+ssh gc "cd ~/ground-control && $DC build sidecar admin && $DC up -d sidecar admin && $DC ps"
+```
+
+**Configuração pós-deploy, pelo console** (`/znuny/email`, ou pela API):
+cadastrar a caixa de recebimento amarrada a uma fila, e a regra de domínio de
+cada cliente. Não há script de seed de propósito — configurar isso **é** o
+requisito R9.
+
+**Rollback.** Sem schema a desfazer. `git checkout campanha/onda-3-relatorios`
++ rebuild + reimportar o YAML anterior. Para desligar só o e-mail sem voltar
+código: `ZNUNY_SMTP_HOST` apontando para um host inexistente devolve a stack ao
+comportamento anterior (nada sai), o que **não** é recomendado — é melhor
+manter e apontar para o relay certo.
+
+> **Status (2026-08-19): DEPLOYADO em staging e verificado ao vivo.** Branch
+> `campanha/onda-2-email` (`d996d7c`). Sem migration; alembic segue em `0030`.
+>
+> **Provas ao vivo:**
+>
+> - **A9.1 — o Znuny envia.** `Email->Send` entrega no Mailpit, e a
+>   `mail_queue` **drenou**: havia mensagem presa falhando com
+>   `No such binary: /usr/sbin/sendmail`. `Maint::Email::MailQueue --send
+>   --force` → *"2 message(s) successfully sent"*, fila em 0. Isso prova o
+>   caminho de **resposta de chamado**, não só o envio direto.
+> - **A9.2** — caixa cadastrada **pelo console** (`POST /mail-accounts` → 201),
+>   amarrada à fila `Suporte::N1`.
+> - **A9.4** — a listagem não traz **nenhum** campo de senha, só
+>   `has_password: true`. E o `PUT` **sem senha** manteve a guardada: a conta
+>   seguiu autenticando no POP3 depois da edição — a senha nunca trafegou de
+>   volta.
+> - **A9.5** — regra `aurora-dominio` (`From =~ @auroramoveis\.com\.br$` →
+>   `X-OTRS-CustomerNo = AURORA`) criada pelo console; a tela lista todos os
+>   domínios com o cliente de cada um.
+> - **A2.2 — O ACEITE QUE ENCERRA A RECLAMAÇÃO DO KLEBER.** E-mail de
+>   `mariana.bianchi@auroramoveis.com.br` para o suporte → `MailAccountFetch` →
+>   **chamado 2026081910000017**, `customer_id=AURORA`,
+>   `customer_user_id=mariana.bianchi`, fila `Suporte::N1`. Login no portal da
+>   Aurora como `mariana.bianchi`: o chamado aparece **na lista dela**, ao lado
+>   dos três que ela abriu pelo portal. Um cadastro, dois canais.
+>
+> **Dois achados operacionais** (detalhe em
+> `../docs/DECISOES-ASSUMIDAS-ONDAS-2-A-6.md`):
+> 1. o `MailAccount` do Znuny **não tem campo de porta** — porta não-padrão
+>    exige `host:porta` no campo de servidor (`mailpit:1110`);
+> 2. ligar o SMTP fez o cron do daemon **entregar** a saída dele por e-mail, e
+>    a caixa catch-all do staging devolveu isso como chamado. Resolvido com o
+>    filtro `zz-ignora-cron-do-znuny`. Em produção, conferir se a caixa é
+>    dedicada.
+>
+> **Limpeza:** os 5 chamados descartáveis (o de teste + 4 de cron) apagados. A
+> caixa `gerti@mailpit:1110` e as duas regras de domínio **ficam** — são a
+> configuração que faz o R9 existir no staging.
