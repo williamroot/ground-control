@@ -347,6 +347,27 @@ services:
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-https://ollama.com}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-gpt-oss:120b}
       AI_FEATURES_ENABLED: ${AI_FEATURES_ENABLED:-false}
+      # ── Chaves que a documentação promete como reversíveis por ambiente ──
+      #
+      # Estas quatro são as "suposições atrás de chave" da campanha: a
+      # disciplina inteira depende de trocar de ideia custar uma variável, não
+      # um deploy de código. Elas ESTAVAM AUSENTES daqui — o `Settings` as
+      # lia, o `.env.prod` podia declará-las, e o container nunca as recebia,
+      # porque este bloco lista cada variável uma a uma. A verificação ao vivo
+      # da Onda 6 encontrou isso; `test_config_switches_reach_the_container`
+      # impede que volte.
+      #
+      # S1 (Onda 4) — teto de níveis do catálogo. `0` desliga.
+      ZNUNY_SERVICE_MAX_DEPTH: ${ZNUNY_SERVICE_MAX_DEPTH:-2}
+      # S2 (Onda 3) — qual dimensão é o "principais tipos de chamado".
+      REPORT_TOP_DIMENSION: ${REPORT_TOP_DIMENSION:-service}
+      # S3 (Onda 3) — "últimos três meses" são ciclos ou meses-calendário.
+      CONSUMPTION_WINDOW_MODE: ${CONSUMPTION_WINDOW_MODE:-cycles}
+      CONSUMPTION_WINDOW_COUNT: ${CONSUMPTION_WINDOW_COUNT:-3}
+      # R16 (Onda 6) — o gate de módulos por agente barra de verdade?
+      # Padrão `false`: ligar sem licenças atribuídas tranca todos os agentes
+      # para fora do inventário.
+      LICENSE_ENFORCEMENT_ENABLED: ${LICENSE_ENFORCEMENT_ENABLED:-false}
       # Contratação + Asaas (Spec #2) — feature opt-in. Sem ASAAS_ENABLED=true
       # ou sem chave => /v1/checkout responde 404 (fail-safe, kill-switch).
       # ASAAS_API_KEY/WEBHOOK_TOKEN são SEGREDOS: só em .env.prod (nunca commitar).

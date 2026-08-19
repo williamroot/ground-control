@@ -106,6 +106,14 @@ class Settings(BaseSettings):
     # `2` = "Categoria::Item" (o que ele mostrou). `0` = sem teto.
     # Vira com ZNUNY_SERVICE_MAX_DEPTH no .env.prod, sem tocar em código.
     znuny_service_max_depth: int = 2
+    # R16 (Onda 6) — o gate de módulos por agente vale de verdade?
+    #
+    # **Padrão `false`, e isso é deliberado.** Ligar o gate num ambiente onde
+    # ninguém tem licença atribuída trancaria TODOS os agentes para fora do
+    # inventário no primeiro deploy — a mesma classe de acidente que o
+    # anti-lockout de permissões de grupo evita. A Gerti atribui as licenças
+    # primeiro e liga a chave depois.
+    license_enforcement_enabled: bool = False  # LICENSE_ENFORCEMENT_ENABLED
 
     # Contratação + Asaas (Spec #2) — opt-in. Vazio/false => checkout 404, fail-safe.
     asaas_enabled: bool = False  # ASAAS_ENABLED (kill-switch)

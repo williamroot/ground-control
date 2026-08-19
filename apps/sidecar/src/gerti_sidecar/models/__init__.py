@@ -27,6 +27,7 @@ from gerti_sidecar.models.csat import CsatResponse
 from gerti_sidecar.models.cycle import ContractCycle
 from gerti_sidecar.models.invoice import Invoice, InvoiceLine
 from gerti_sidecar.models.kb import KbArticle
+from gerti_sidecar.models.licensing import AgentLicense, PlatformLicense
 from gerti_sidecar.models.notification import Notification
 from gerti_sidecar.models.portal_user_role import PortalUserRole
 from gerti_sidecar.models.recurring_task import RecurringTask, RecurringTaskRun
@@ -42,6 +43,7 @@ from gerti_sidecar.models.znuny_instance import ZnunyInstance
 
 __all__ = [
     "AgentEnrollToken",
+    "AgentLicense",
     "AgentTimer",
     "AiGenerationLog",
     "AsaasWebhookEvent",
@@ -71,6 +73,7 @@ __all__ = [
     "Payment",
     "PaymentProviderAccount",
     "Plan",
+    "PlatformLicense",
     "PortalUserRole",
     "RecurringTask",
     "RecurringTaskRun",

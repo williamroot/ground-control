@@ -22,7 +22,11 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from gerti_sidecar import db
-from gerti_sidecar.auth.admin_session import AdminSessionPayload, get_admin_session
+from gerti_sidecar.auth.admin_session import (
+    AdminSessionPayload,
+    get_admin_session,
+    require_module,
+)
 from gerti_sidecar.config import get_settings
 from gerti_sidecar.db import tenant_session_scope
 from gerti_sidecar.domain import audit_service
@@ -217,10 +221,15 @@ async def disable_token(
     return out
 
 
+# R16 — as três rotas de INVENTÁRIO passam pelo gate de módulo. É aqui que o
+# caso da Georgia é decidido: sem o módulo `inventory` na licença, a resposta é
+# 403 mesmo com a URL digitada à mão. As rotas de token de enrolamento ficam
+# fora do gate de propósito — elas são a administração do agente coletor, não a
+# leitura do inventário.
 @router.get("/tenants/{tenant_id}/devices")
 async def list_devices(
     tenant_id: str,
-    admin: AdminSessionPayload = Depends(get_admin_session),
+    admin: AdminSessionPayload = Depends(require_module("inventory")),
 ) -> list[DeviceOut]:
     tid = await _require_tenant(tenant_id)
     async with tenant_session_scope(tid, factory=db.AdminSessionLocal) as s:
@@ -236,7 +245,7 @@ async def list_devices(
 async def approve_device(
     tenant_id: str,
     device_id: str,
-    admin: AdminSessionPayload = Depends(get_admin_session),
+    admin: AdminSessionPayload = Depends(require_module("inventory")),
 ) -> DeviceOut:
     tid = await _require_tenant(tenant_id)
     try:
@@ -260,7 +269,7 @@ async def approve_device(
 async def revoke_device(
     tenant_id: str,
     device_id: str,
-    admin: AdminSessionPayload = Depends(get_admin_session),
+    admin: AdminSessionPayload = Depends(require_module("inventory")),
 ) -> DeviceOut:
     tid = await _require_tenant(tenant_id)
     try:

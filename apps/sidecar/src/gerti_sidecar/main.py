@@ -29,6 +29,7 @@ from gerti_sidecar.routers import (
     admin_import,
     admin_invoices,
     admin_kb,
+    admin_licensing,
     admin_recurring,
     admin_reports,
     admin_search,
@@ -145,6 +146,7 @@ def create_app() -> FastAPI:
     app.include_router(kb.router, prefix=settings.api_v1_prefix)
     # Base de Conhecimento — console CRUD (Spec #3 V1), cross-tenant.
     app.include_router(admin_kb.router, prefix=settings.api_v1_prefix)
+    app.include_router(admin_licensing.router, prefix=settings.api_v1_prefix)
     # Catálogo de Serviços (Spec #3 V2) — portal: vitrine de itens ativos.
     app.include_router(catalog.router, prefix=settings.api_v1_prefix)
     # Catálogo de Serviços — console CRUD (Spec #3 V2), cross-tenant.
