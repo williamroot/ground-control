@@ -19,6 +19,9 @@ const navLinks = [
   // Onda 4 (R8) — a migração do TIFLUX são 60 clientes; não dá para um a um.
   { to: '/importacoes', label: 'Importações' },
   { to: '/automacoes', label: 'Automações' },
+  // Onda 6 (R16) — o quadro de licenças da operação: "isso aqui impacta no
+  // faturamento da plataforma para a gente" (09:24).
+  { to: '/licencas', label: 'Licenças' },
   // Spec #3 — telas de outros agentes (V5/V6); linkadas aqui mesmo antes de
   // existirem, conforme o contrato da spec.
   { to: '/auditoria', label: 'Auditoria' },

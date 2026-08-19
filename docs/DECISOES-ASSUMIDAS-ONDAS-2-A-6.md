@@ -405,3 +405,78 @@ para o lado de liberar crédito que não existe, não.
 
 **Se ele discordar:** a renovação por ciclo é a evolução natural, e os campos
 de ciclo já estão no modelo.
+
+---
+
+# Onda 6 — Licenciamento (R16)
+
+## A6.1 — O gate de módulos nasce DESLIGADO
+
+**Assumimos** que `LICENSE_ENFORCEMENT_ENABLED` começa em `false`: os módulos
+aparecem no quadro, ficam registrados por agente, e **ainda não barram nada**
+até alguém ligar a chave.
+
+**Por quê.** Ligar o gate num ambiente onde ninguém tem licença atribuída
+trancaria **todos** os agentes para fora do inventário no primeiro deploy — a
+mesma classe de acidente que o anti-lockout de permissões de grupo evita. A
+sequência segura é: atribuir as licenças, conferir o quadro, ligar a chave.
+
+**O que a tela faz com isso.** Enquanto a chave está desligada, o quadro
+**diz** que os módulos não restringem nada. Um quadro que promete controle sem
+controlar é pior do que nenhum quadro — alguém confiaria nele.
+
+**Custo de reverter:** uma variável de ambiente e recriar o sidecar.
+
+## A6.2 — Só `tickets` e `inventory`; WhatsApp e acesso remoto ficam de fora
+
+**Assumimos** o catálogo de módulos limitado ao que o produto **tem hoje**, com
+o CHECK no banco recusando qualquer outro valor.
+
+**Por quê.** Ele cita WhatsApp e acesso remoto ao descrever o quadro, mas
+nenhum dos dois existe no produto. Um botão "WhatsApp: ativo" numa licença
+seria uma promessa que o sistema não cumpre — e a Gerti descobriria isso pela
+reclamação de um cliente.
+
+**Se ele discordar** (isto é, se quiser os módulos listados desde já, mesmo
+inativos): é uma migration de uma linha no CHECK e uma entrada no catálogo.
+
+## A6.3 — Reduzir o total contratado abaixo do que está em uso é recusado
+
+**Assumimos** que baixar `seats_total` para menos do que há de licenças ativas
+é **erro**, não uma operação que revoga o excedente sozinha.
+
+**Por quê.** Revogar sozinho é tirar o acesso de alguém sem ninguém ter
+decidido quem. O operador revoga primeiro — escolhendo — e reduz depois.
+
+## A6.4 — Reativar um agente revogado consome um seat
+
+**Assumimos** que reativar conta como atribuição nova para efeito de teto, e
+que **editar os módulos** de quem já tem licença ativa, não.
+
+**Por quê.** Sem a primeira regra o teto seria burlável (revogar e reativar em
+sequência); sem a segunda, ninguém no teto conseguiria corrigir um módulo
+errado.
+
+## A6.5 — Licença é dado da operação e o banco garante isso
+
+**Assumimos** que as tabelas de licença **não** pertencem a cliente nenhum: sem
+`tenant_id`, sem RLS, e `REVOKE ALL ... FROM gerti_app`.
+
+**Por quê.** A conexão que atende o portal do cliente **não consegue ler**
+licenciamento. É o aceite A16.5/A16.6 imposto pelo banco em vez de confiado à
+disciplina de quem escreve rota — o que sobra de proteção se um dia alguém
+expuser licença num endpoint de cliente por engano. Um teste bate exatamente
+nisso (`permission denied`), e outro verifica o conjunto de rotas do app.
+
+## A6.6 — MFA: decidido não construir agora, com o caminho escrito
+
+A tarefa T-R16.6 pedia **investigação com decisão escrita**, e é o que existe:
+`docs/decisions/0002-mfa.md`. Em uma linha: **o MFA mora no Znuny**, porque as
+três superfícies de login (Znuny, console, portal) autenticam contra ele — um
+segundo fator só no sidecar deixaria a porta do Znuny aberta ao lado, o que é
+pior que não ter, porque parece proteção.
+
+O ADR lista as três perguntas que precisam de resposta dele antes de qualquer
+código: obrigatório ou opcional, qual fator (TOTP/e-mail/SMS), e se vale
+também para o usuário do cliente — a terceira muda o tamanho do trabalho em
+uma ordem de grandeza.

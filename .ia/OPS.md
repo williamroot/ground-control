@@ -2070,3 +2070,26 @@ curl -fsS -H 'host: gerti.was.dev.br' -H "cookie: gsid_adm=$TOK" http://127.0.0.
 > Aurora de volta a `false`. O `consumption_event` é append-only por trigger —
 > a remoção exigiu desligar `trg_consumption_event_append_only` **dentro da
 > mesma transação** que o religa (conferido: `tgenabled='O'` depois).
+
+### Deploy da Onda 6 — licenciamento (profile `gerti`)
+
+Onda 6 da campanha (R16). **Uma migration nova (0033).** Nada muda no Znuny —
+não há rebuild da imagem nem reimportação de webservice.
+
+**Chave nova:** `LICENSE_ENFORCEMENT_ENABLED` (padrão `false`). Enquanto
+desligada, os módulos aparecem no quadro e **não barram nada**. Ligar antes de
+atribuir as licenças trancaria **todos** os agentes para fora do inventário —
+a sequência segura é atribuir, conferir o quadro, e só então ligar.
+
+```bash
+ssh gc 'cd ~/ground-control && git fetch origin && git checkout campanha/onda-6-licenciamento && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# migration 0033, ANTES do app (invariante 8):
+ssh gc "cd ~/ground-control && $DC build sidecar admin"
+ssh gc "cd ~/ground-control && $DC up -d sidecar-migrate && $DC ps -a sidecar-migrate"  # Exit (0)
+ssh gc "cd ~/ground-control && $DC up -d sidecar sidecar-worker admin && $DC ps"
+```
+
+**Rollback.** A migration é aditiva (duas tabelas novas): voltar o código sem
+voltar o schema é seguro. `git checkout campanha/onda-5-financeiro` + rebuild.
