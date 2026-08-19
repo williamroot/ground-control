@@ -96,6 +96,17 @@ class Settings(BaseSettings):
     consumption_window_mode: Literal["cycles", "months"] = "cycles"
     consumption_window_count: int = 3
 
+    # S1 — teto de níveis do catálogo de serviço (R12, Onda 4)
+    # ------------------------------------------------------------------
+    # A suposição de MAIOR RISCO do vídeo: ele descreveu o limite de dois
+    # níveis do TIFLUX, e não necessariamente um requisito dele. Impor um teto
+    # que ninguém pediu vira dívida; não impor deixa o catálogo virar árvore de
+    # cinco níveis que ninguém navega.
+    #
+    # `2` = "Categoria::Item" (o que ele mostrou). `0` = sem teto.
+    # Vira com ZNUNY_SERVICE_MAX_DEPTH no .env.prod, sem tocar em código.
+    znuny_service_max_depth: int = 2
+
     # Contratação + Asaas (Spec #2) — opt-in. Vazio/false => checkout 404, fail-safe.
     asaas_enabled: bool = False  # ASAAS_ENABLED (kill-switch)
     asaas_api_key: str = ""  # ASAAS_API_KEY (conta Gerti default; vazio = off)

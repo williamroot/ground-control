@@ -26,6 +26,11 @@ use parent qw(Kernel::GenericInterface::Operation::Common);
 
 our $ObjectManagerDisabled = 1;
 
+# Os tipos de permissão que o Znuny 7.2 conhece por grupo. Allowlist explícita:
+# um tipo inventado viraria coluna inexistente e erro obscuro lá dentro.
+# `rw` é superconjunto — o Znuny o trata como "tudo" naquele grupo.
+my @PERMISSION_TYPES = qw(ro move_into create note owner priority rw);
+
 sub new {
     my ( $Type, %Param ) = @_;
     my $Self = {};
@@ -56,6 +61,43 @@ sub Run {
         return $Self->ReturnError(
             ErrorCode => 'AdminAgentGroupSet.MissingParameter', ErrorMessage => 'GroupIDs must be an array!',
         );
+    }
+
+    # ── T-R14.1: permissões GRANULARES, opcionais e retrocompatíveis. ──
+    #
+    # Até a Onda 4 esta op só sabia `rw`, que o Znuny trata como superconjunto
+    # de tudo. Funciona, mas é tudo-ou-nada: não dava para dizer "este agente
+    # LÊ a fila do financeiro, mas não move chamado nela" — que é a
+    # "estratégia de permissionamento" de que ele fala em 04:39.
+    #
+    # `Permissions` é um mapa `{ GroupID => [tipos] }`. Ausente => `rw`, e o
+    # comportamento é EXATAMENTE o de antes; nenhum chamador existente muda.
+    my %PermissionByGroup;
+    if ( exists $D->{Permissions} ) {
+        if ( ref $D->{Permissions} ne 'HASH' ) {
+            return $Self->ReturnError(
+                ErrorCode    => 'AdminAgentGroupSet.MissingParameter',
+                ErrorMessage => 'Permissions must be an object { GroupID: [types] }',
+            );
+        }
+        for my $GroupID ( keys %{ $D->{Permissions} } ) {
+            my $Types = $D->{Permissions}->{$GroupID};
+            if ( ref $Types ne 'ARRAY' || !@{$Types} ) {
+                return $Self->ReturnError(
+                    ErrorCode    => 'AdminAgentGroupSet.MissingParameter',
+                    ErrorMessage => "Permissions[$GroupID] must be a non-empty array",
+                );
+            }
+            for my $Type ( @{$Types} ) {
+                if ( !grep { $_ eq $Type } @PERMISSION_TYPES ) {
+                    return $Self->ReturnError(
+                        ErrorCode    => 'AdminAgentGroupSet.UnknownPermission',
+                        ErrorMessage => "unknown permission '$Type' (allowed: @PERMISSION_TYPES)",
+                    );
+                }
+            }
+            $PermissionByGroup{$GroupID} = { map { $_ => 1 } @{$Types} };
+        }
     }
 
     my $UserObject  = $Kernel::OM->Get('Kernel::System::User');
@@ -110,6 +152,24 @@ sub Run {
         );
     }
 
+    # Anti-lockout ESTENDIDO (T-R14.1): com permissão granular, dá para
+    # continuar "no grupo admin" e mesmo assim perder o `rw` — o que tranca
+    # exatamente igual, só que por um caminho novo. Bloqueamos os dois.
+    if (
+        $AdminGroupID
+        && $ActorUserID eq $D->{TargetUserID}
+        && $CurrentRw{$AdminGroupID}
+        && $Desired{$AdminGroupID}
+        && $PermissionByGroup{$AdminGroupID}
+        && !$PermissionByGroup{$AdminGroupID}->{rw}
+        )
+    {
+        return $Self->ReturnError(
+            ErrorCode    => 'AdminAgentGroupSet.AntiLockout',
+            ErrorMessage => 'you cannot drop your own rw permission on the admin group.',
+        );
+    }
+
     # ── Diff and write only the delta. ──
     my %Touch = ( %CurrentRw, %Desired );
     for my $GroupID ( sort { $a <=> $b } keys %Touch ) {
@@ -117,10 +177,24 @@ sub Run {
         my $IsDesired = exists $Desired{$GroupID}   ? 1 : 0;
         next if $IsCurrent == $IsDesired;
 
+        # Sem `Permissions` para este grupo, mantém o comportamento histórico
+        # (`rw`). Com, grava exatamente os tipos pedidos e zera os demais — a
+        # ausência de um tipo na lista É a remoção dele.
+        my %Grant;
+        if ( $IsDesired && $PermissionByGroup{$GroupID} ) {
+            %Grant = map { $_ => ( $PermissionByGroup{$GroupID}->{$_} ? 1 : 0 ) } @PERMISSION_TYPES;
+        }
+        elsif ($IsDesired) {
+            %Grant = ( rw => 1 );
+        }
+        else {
+            %Grant = map { $_ => 0 } @PERMISSION_TYPES;
+        }
+
         my $OK = $GroupObject->PermissionGroupUserAdd(
             GID        => $GroupID,
             UID        => $D->{TargetUserID},
-            Permission => { rw => $IsDesired ? 1 : 0 },
+            Permission => \%Grant,
             UserID     => $ActorUserID,
         );
         if ( !$OK ) {

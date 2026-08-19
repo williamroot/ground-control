@@ -259,6 +259,47 @@ cláusula.
 
 ---
 
+## Ondas 2 e 4 — resumo de execução
+
+Feitas em sequência depois da Onda 3, com autorização explícita do William
+(16/08) para **assumir o que estava aberto e implementar até o fim**, deixando
+cada escolha registrada em
+[`DECISOES-ASSUMIDAS-ONDAS-2-A-6.md`](DECISOES-ASSUMIDAS-ONDAS-2-A-6.md).
+
+### Onda 2 — E-mail (`d996d7c`, mergeada em `94e7563`)
+
+| Tarefa | Estado | Evidência ao vivo |
+|---|---|---|
+| T-R9.0/9.1 — Mailpit + SMTP | ✅ | O Znuny **passou a enviar**. A `mail_queue` drenou: havia mensagem presa falhando com `No such binary: /usr/sbin/sendmail` |
+| T-R9.4 — contas de recebimento (GI) | ✅ | Caixa cadastrada pelo console (201); listagem **sem nenhum campo de senha** |
+| T-R9.5 — filtros de domínio (GI) | ✅ | `aurora-dominio` criada; e-mail do domínio virou chamado da AURORA |
+| T-R9.6/9.7 — rotas e tela de 3 abas | ✅ | Entrada, saída e domínios numa tela só |
+| **T-R2.6 → A2.2** | ✅ | **E-mail da Mariana virou chamado e apareceu no portal dela**, ao lado dos que ela abriu pelo portal |
+| T-R10.2/10.3 | ✅ | Coluna "atendida por" (Onda 1) e rótulo "Filas (mesas de serviço)" |
+| Dívida: papel por string exata de login | ✅ | Resolução por login **ou** e-mail, com o digitado tendo prioridade |
+| Dívida: guarda de posse byte a byte | ✅ | Comparação alinhada à da lista |
+
+### Onda 4 — Configuração (`7b01d89`)
+
+| Tarefa | Estado | Evidência |
+|---|---|---|
+| T-R11.1..11.5 — agenda recorrente | ✅ | **O processador abriu o chamado sozinho ao vivo, e a segunda execução não duplicou** |
+| T-R8.1..8.4 — importação CSV | ✅ | Simulação não grava (provado contando chamadas ao GI); coluna de senha recusada; cabeçalho errado lista as colunas esperadas |
+| T-R12.3 — teto de dois níveis | ✅ | 3 níveis → 422 com a mensagem completa; testado nos três estados da chave |
+| T-R14.1 — permissões granulares | ✅ | Opcional e retrocompatível; anti-lockout estendido |
+
+**Três erros de desenho pegos por teste, antes de qualquer deploy** — todos na
+agenda recorrente: abrir chamados retroativos desde o cadastro; deixar
+ocorrências antigas pendentes voltando a cada execução; e a convergência que
+só veio com a comparação `>=`.
+
+**Dois defeitos que só a execução ao vivo revelou:** preventiva sem contrato
+não abria chamado nenhum (`ContractId` era obrigatório no Perl), e
+`native TicketCreate failed` escondia a causa real. Os dois corrigidos e
+redeployados.
+
+---
+
 ## Dívida registrada, com dono e onda
 
 O que a revisão adversarial encontrou e **não** entrou nesta onda. Está aqui para não virar

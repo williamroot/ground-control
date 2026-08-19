@@ -336,12 +336,27 @@ def _memberships(rows: Any) -> list[GroupMembership]:
 
 
 async def set_agent_groups(
-    agent_id: int, group_ids: list[int], *, agent_login: str
+    agent_id: int,
+    group_ids: list[int],
+    *,
+    agent_login: str,
+    permissions: dict[int, list[str]] | None = None,
 ) -> AgentGroupsChange:
-    data = await _post(
-        "/Agent/Group/Set",
-        {"AgentLogin": agent_login, "TargetUserID": agent_id, "GroupIDs": group_ids},
-    )
+    """Grupos do agente. `permissions` é opcional e retrocompatível (T-R14.1).
+
+    Sem ele, cada grupo recebe `rw` — o comportamento de antes da Onda 4, que o
+    Znuny trata como superconjunto. Com ele, grava exatamente os tipos pedidos
+    por grupo: é a "estratégia de permissionamento" de 04:39, onde um agente
+    pode LER a fila do financeiro sem poder mover chamado nela.
+    """
+    body: dict[str, Any] = {
+        "AgentLogin": agent_login,
+        "TargetUserID": agent_id,
+        "GroupIDs": group_ids,
+    }
+    if permissions:
+        body["Permissions"] = {str(gid): types for gid, types in permissions.items()}
+    data = await _post("/Agent/Group/Set", body)
     before = _memberships(data.get("Before"))
     after = _memberships(data.get("After"))
     return AgentGroupsChange(agent_id=agent_id, before=before, after=after)

@@ -41,7 +41,18 @@ sub Run {
     return $TokenError if $TokenError;
 
     my $D = $Param{Data};
-    for my $Needed (qw(CustomerUser CustomerID Title Body ContractId)) {
+    # `ContractId` saiu da lista de obrigatórios na Onda 4, e a razão importa:
+    # ele não é obrigatório do ponto de vista do ZNUNY — é uma invariante do
+    # fluxo do PORTAL ("todo chamado do cliente nasce vinculado a um
+    # contrato"), e ela continua sendo garantida onde nasceu, no
+    # `TicketingService._resolve_contract` do sidecar.
+    #
+    # O que forçou a mudança foi a agenda de atividades recorrentes (R11):
+    # manutenção preventiva NÃO consome contrato por padrão (suposição S4), e
+    # com `ContractId` obrigatório aqui ela simplesmente não conseguia abrir
+    # chamado nenhum. Achado na verificação ao vivo da Onda 4 — o teste
+    # unitário usava um GI falso, que aceitava qualquer coisa.
+    for my $Needed (qw(CustomerUser CustomerID Title Body)) {
         if ( !IsStringWithData( $D->{$Needed} ) ) {
             return $Self->ReturnError(
                 ErrorCode    => 'TicketCreate.MissingParameter',
@@ -88,17 +99,28 @@ sub Run {
 
     my $TicketID = $TicketObject->TicketCreate(%CreateArgs);
     if ( !$TicketID ) {
+        # A mensagem ORIGINAL do Znuny, não um erro genérico. "native
+        # TicketCreate failed" custou uma rodada inteira de diagnóstico na
+        # verificação da Onda 4 para descobrir que a causa era uma fila
+        # inexistente — informação que o Znuny tinha e nós jogávamos fora.
+        my $Msg = $Kernel::OM->Get('Kernel::System::Log')->GetLogEntry(
+            Type => 'error',
+            What => 'Message',
+        ) || 'native TicketCreate failed';
+        my $Queue = $CreateArgs{Queue} // $CreateArgs{QueueID} // '(default)';
         return $Self->ReturnError(
             ErrorCode    => 'TicketCreate.CreateError',
-            ErrorMessage => 'TicketCreate: native TicketCreate failed.',
+            ErrorMessage => "TicketCreate falhou (fila: $Queue): $Msg",
         );
     }
 
-    # Stamp the contract on the ticket (DynamicField GertiContractId).
+    # Carimba o contrato no chamado (DynamicField GertiContractId) — só quando
+    # existe um. Chamado de preventiva sem contrato fica sem o campo, que é o
+    # estado correto: ele não debita saldo de ninguém.
     my $DFObject      = $Kernel::OM->Get('Kernel::System::DynamicField');
     my $DFBackend     = $Kernel::OM->Get('Kernel::System::DynamicField::Backend');
     my $DFConfig      = $DFObject->DynamicFieldGet( Name => 'GertiContractId' );
-    if ( IsHashRefWithData($DFConfig) ) {
+    if ( IsHashRefWithData($DFConfig) && IsStringWithData( $D->{ContractId} ) ) {
         $DFBackend->ValueSet(
             DynamicFieldConfig => $DFConfig,
             ObjectID           => $TicketID,

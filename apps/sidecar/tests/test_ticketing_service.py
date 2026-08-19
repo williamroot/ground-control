@@ -239,3 +239,36 @@ async def test_queue_not_associated_is_rejected(engine, app_session_factory, ses
                     queue="Financeiro",
                 ),
             )
+
+
+@pytest.mark.asyncio
+async def test_portal_still_requires_a_contract(engine, app_session_factory, session, monkeypatch):
+    """A invariante do portal continua no SIDECAR, não no Perl.
+
+    A Onda 4 tirou `ContractId` da lista de obrigatórios do `TicketCreate.pm`,
+    porque a manutenção preventiva (R11) não consome contrato e não conseguia
+    abrir chamado nenhum. Este teste existe para provar que afrouxar o Perl
+    **não** afrouxou o portal: sem contrato ativo, o cliente continua sem
+    conseguir abrir chamado.
+    """
+    t = await _seed_tenant(session, n_contracts=0)
+    monkeypatch.setattr(
+        znuny_ticket,
+        "create_ticket",
+        lambda **kw: (_ for _ in ()).throw(AssertionError("não pode criar sem contrato")),
+    )
+    async with tenant_session_scope(t.id, factory=app_session_factory) as s:
+        with pytest.raises(NoActiveContract):
+            await TicketingService(s, znuny_ticket).open_ticket(
+                OpenTicketInput(
+                    customer_user="joe",
+                    customer_id="ACME",
+                    title="t",
+                    body="b",
+                    service=None,
+                    type_=None,
+                    priority=None,
+                    contract_id=None,
+                    attachments=[],
+                ),
+            )

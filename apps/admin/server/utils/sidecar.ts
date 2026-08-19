@@ -60,3 +60,40 @@ export async function sidecarFetchRaw(
     contentType: res.headers.get('content-type') || 'application/octet-stream',
   }
 }
+
+// Encaminha um upload multipart para o sidecar (Onda 4, R8 — importação CSV).
+//
+// `sidecarFetch` serializa JSON, então não serve: o corpo aqui é um arquivo.
+// Reconstruímos o FormData a partir do que o nitro leu e deixamos o `fetch`
+// montar o boundary — copiar o `content-type` original quebraria, porque o
+// boundary do corpo novo é outro.
+export async function sidecarUpload<T>(
+  event: H3Event,
+  path: string,
+  file: { name: string, filename: string, type: string, data: Buffer },
+): Promise<{ status: number, data: T | null }> {
+  const cfg = useRuntimeConfig()
+  const fwdHost
+    = getRequestHeader(event, 'x-forwarded-host')
+      || getRequestHeader(event, 'host')
+      || ''
+  const cookie = getRequestHeader(event, 'cookie') || ''
+
+  const form = new FormData()
+  const bytes = new Uint8Array(file.data)
+  form.append('file', new Blob([bytes], { type: file.type || 'text/csv' }), file.filename)
+
+  const res = await fetch(`${cfg.sidecarUrl}${path}`, {
+    method: 'POST',
+    headers: { 'x-forwarded-host': fwdHost, cookie },
+    body: form,
+  })
+  let data: T | null = null
+  try {
+    data = (await res.json()) as T
+  }
+  catch {
+    data = null
+  }
+  return { status: res.status, data }
+}

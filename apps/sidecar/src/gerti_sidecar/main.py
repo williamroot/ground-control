@@ -24,8 +24,10 @@ from gerti_sidecar.routers import (
     admin_branding,
     admin_catalog,
     admin_contracts,
+    admin_import,
     admin_invoices,
     admin_kb,
+    admin_recurring,
     admin_reports,
     admin_search,
     admin_system,
@@ -106,9 +108,13 @@ def create_app() -> FastAPI:
     # Relatório executivo mensal (R18b). Mesmo prefixo /admin/tenants; router
     # separado porque é a única superfície que devolve PDF.
     app.include_router(admin_reports.router, prefix=settings.api_v1_prefix)
+    # Agenda de atividades recorrentes (R11) — o dia a dia dos técnicos.
+    app.include_router(admin_recurring.router, prefix=settings.api_v1_prefix)
     app.include_router(admin_contracts.router, prefix=settings.api_v1_prefix)
     # Faturas internas — console gera/gerencia (Spec #1P).
     app.include_router(admin_invoices.router, prefix=settings.api_v1_prefix)
+    # Carga em lote por CSV (R8) — a migração do TIFLUX são 60 clientes.
+    app.include_router(admin_import.router, prefix=settings.api_v1_prefix)
     # Time tracker do agente (Spec #1J).
     app.include_router(admin_timer.router, prefix=settings.api_v1_prefix)
     # IA: sumarização + resposta sugerida (Spec #1N) — opt-in.

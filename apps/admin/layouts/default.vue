@@ -16,6 +16,8 @@ const navLinks = [
   { to: '/analytics', label: 'Analytics' },
   // Onda 3 (R18b) — o entregável que a Gerti manda para os clientes todo mês.
   { to: '/relatorios', label: 'Relatórios' },
+  // Onda 4 (R8) — a migração do TIFLUX são 60 clientes; não dá para um a um.
+  { to: '/importacoes', label: 'Importações' },
   { to: '/automacoes', label: 'Automações' },
   // Spec #3 — telas de outros agentes (V5/V6); linkadas aqui mesmo antes de
   // existirem, conforme o contrato da spec.

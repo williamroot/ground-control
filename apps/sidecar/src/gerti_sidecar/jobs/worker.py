@@ -23,6 +23,7 @@ from gerti_sidecar.config import get_settings
 from gerti_sidecar.domain.cycle_closer import CycleCloser
 from gerti_sidecar.domain.invoice_overdue import InvoiceOverdueMarker
 from gerti_sidecar.domain.reconciliation_service import ReconciliationService
+from gerti_sidecar.domain.recurring_task_runner import materialize_due_tasks
 from gerti_sidecar.domain.worker_heartbeat import WORKER_CONSUMPTION, record_heartbeat
 from gerti_sidecar.integrations import znuny_ticket
 
@@ -55,6 +56,17 @@ async def tick(state: WorkerState, *, today: dt.date | None = None) -> None:
         except Exception as exc:
             log.warning("close_cycles.error", error=str(exc))
             error = error or f"close_cycles: {exc}"
+
+        # Agenda de atividades recorrentes (R11): materializa as vencidas em
+        # chamados, 1x/dia. Uma agenda não precisa de granularidade de minuto —
+        # a tarefa é "backup de segunda", não "às 08:00:03". Failure-soft.
+        try:
+            opened = await materialize_due_tasks(today=day)
+            if opened:
+                log.info("recurring.opened", count=opened)
+        except Exception as exc:
+            log.warning("recurring.error", error=str(exc))
+            error = error or f"recurring: {exc}"
 
         # Faturas vencidas: open → overdue (cross-tenant, 1x/dia). Failure-soft.
         try:

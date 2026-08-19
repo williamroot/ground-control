@@ -54,3 +54,8 @@ export function isCustomerLogin(value: string | null | undefined): boolean {
 export function isFilterName(value: string | null | undefined): boolean {
   return !!value && /^[A-Za-z0-9][A-Za-z0-9 ._:-]{0,63}$/.test(value)
 }
+
+/** Tipos de importação aceitos (Onda 4, R8). Allowlist fechada. */
+export function isImportKind(value: string | null | undefined): boolean {
+  return value === 'tenants' || value === 'tenant_users'
+}
