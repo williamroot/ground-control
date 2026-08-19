@@ -248,3 +248,160 @@ financeiro sem poder mover chamado nela.
 continuar "no grupo admin" e ainda assim perder o `rw` — o que tranca a
 instância exatamente como sair do grupo. O anti-lockout foi estendido para
 barrar os dois caminhos.
+
+---
+
+# Onda 5 — Financeiro e fluxo (R3 restante, R15, R6, R7)
+
+Esta é a onda que mexe em **dinheiro**. Cada suposição abaixo muda o valor que
+sai na fatura de alguém, então nenhuma delas foi cravada no código: todas são
+**coluna do contrato** ou **chave de configuração**, e o padrão de cada uma
+preserva o comportamento anterior. Discordar custa um `UPDATE`, não um deploy.
+
+## A5.1 — O valor de contrato fixo é MENSAL (decisão D-Q)
+
+**Assumimos** que o "Valor inicial (R$)" de um contrato de valor fechado ou
+SaaS é o valor **por mês**. Um ciclo trimestral emite quantidade 3 e cobra 3×.
+
+**Por quê.** É como o mercado de MSP cota: "R$ 1.500 por mês". Antes desta
+onda o contrato trimestral cobrava **um** mês — um erro de 66% para baixo que
+não tinha como ser percebido, porque não havia gerador de ciclos que tornasse
+o caso observável.
+
+**Se ele discordar:** o contrato cotado "por fechamento" muda
+`billing_amount_period` para `'cycle'` e volta a cobrar 1×. É por contrato, não
+global — dá para ter os dois tipos na mesma base.
+
+**Custo de reverter:** um `UPDATE` por contrato. Zero código.
+
+**Chave:** `contract.billing_amount_period` ∈ `('month', 'cycle')`, padrão
+`'month'`. Testado nos dois estados.
+
+## A5.2 — Saldo acumulado é ilimitado e não vence, até alguém dizer o contrário (D-R)
+
+**Assumimos** que hora que sobra continua acumulando **sem teto e sem prazo** —
+o comportamento de hoje —, mas que teto e validade passam a existir e ficam
+prontos para serem ligados por contrato.
+
+**Por quê.** Contratos de MSP costumam ter cap ou prazo, e nada disso estava
+modelado; ao mesmo tempo, ligar um teto que ninguém pediu tira saldo do cliente
+sem aviso. O padrão nulo mantém tudo como estava.
+
+**O que isso obrigou a mudar por baixo.** Validade não tem como ser aplicada
+sobre um número só: o acúmulo é em cadeia (o saldo do mês N já embute o de
+N-1), e a cadeia apaga a data de origem — todo saldo pareceria ter nascido no
+último fechamento e nunca venceria. O saldo virou uma **lista de baldes
+datados**. Duas escolhas dentro da regra, ambas a favor do cliente:
+
+- **consumo é FIFO** — gasta primeiro o que vence antes, para não perder saldo
+  por expiração tendo saldo em caixa;
+- **quando o teto corta, sobrevive o mais NOVO** — o de maior vida útil.
+
+O que expira e o que o teto descarta ficam **registrados no fechamento**
+(`carry_expired`, `carry_capped`). Saldo que some sem ninguém poder ver por quê
+é discussão com o cliente sem resposta.
+
+**Se ele discordar:** três colunas por contrato —
+`carry_over_cap_minutes`, `carry_over_cap_amount_brl`,
+`carry_over_expires_days`. Nulo em todas = como está hoje.
+
+**Custo de reverter:** um `UPDATE`. Ciclos fechados antes desta onda seguem
+valendo: o número antigo vira um balde datado no fim daquele ciclo, senão
+ligar a validade apagaria o saldo histórico de todos de uma vez.
+
+## A5.3 — "Atendimento" é o CHAMADO, não o apontamento de hora
+
+**Assumimos** que, num contrato por pacote de atendimentos, a unidade
+consumida é o **chamado**: um chamado com três apontamentos de hora gasta
+**um** atendimento do pacote, não três.
+
+**Por quê.** É como o cliente conta ("tenho 10 atendimentos no mês"). Contar
+apontamentos faria o pacote acabar em dias, por um detalhe interno de como o
+técnico registra o tempo.
+
+**Se ele discordar** (isto é, se ele quiser contar visitas/execuções em vez de
+chamados): é uma consulta, não um redesenho — o evento de consumo já guarda o
+chamado de origem.
+
+## A5.4 — Lançamento avulso NÃO consome o pacote de atendimentos
+
+**Assumimos** que um deslocamento, uma despesa ou um item de catálogo lançado
+à parte é cobrado pelo próprio valor e **não** baixa um atendimento do pacote.
+
+**Por quê.** Se baixasse, o cliente pagaria os R$ 80 da visita **e** perderia
+uma visita do pacote — cobrança em dobro pela mesma coisa. Este foi um defeito
+real: a verificação ao vivo mostrou o saldo do `AUR-PACOTE-2026` caindo de 50
+para 49 por causa de um deslocamento, e foi assim que a regra errada apareceu.
+
+**Se ele discordar** (por exemplo: "deslocamento consome uma visita do pacote,
+sim"): é uma condição a mais na contagem.
+
+## A5.5 — Contrato "livre" em vez de consumo sem contrato
+
+**Assumimos** que o cliente avulso — o que não tem contrato formal — recebe um
+contrato do tipo **livre**: sem franquia, sem mensalidade, em que tudo o que
+for feito é cobrado como lançamento.
+
+**Por quê.** A alternativa seria permitir consumo órfão, e isso quebraria a
+invariante de que todo trabalho pertence a algum contrato — a mesma invariante
+que garante que nada é feito sem alguém para cobrar. O contrato livre dá o
+efeito que ele pediu sem abrir esse buraco.
+
+**Se ele discordar:** o tipo existe e pode simplesmente não ser usado.
+
+## A5.6 — Boleto primeiro, nota fiscal depois; a nota exige configuração da conta
+
+**Assumimos** a ordem recomendada: a cobrança (boleto) é emitida primeiro, e a
+nota fiscal é **uma ação separada**, sobre a cobrança já existente.
+
+**Por quê.** A nota do Asaas pendura numa cobrança, então não há como emitir
+nota de uma fatura que nunca virou cobrança. Poderíamos emitir o boleto por
+baixo ao pedir a nota — e ninguém deve descobrir que cobrou o cliente porque
+pediu uma nota fiscal.
+
+**O que depende dele, não de nós.** A nota exige, na **conta Asaas**:
+inscrição municipal, certificado digital, regime tributário e serviço/alíquota
+do município. Sem isso o Asaas **aceita a cobrança e recusa a nota** — e o erro
+só aparece na hora de emitir. A mensagem do Asaas é repassada inteira para a
+tela justamente por causa disso.
+
+**Padrão de imposto assumido:** ISS não retido e alíquotas zeradas, que é o
+caso do Simples Nacional. Município que exija retenção precisa dos valores
+reais — já é parâmetro da chamada.
+
+**Chave:** `ASAAS_ENABLED` (padrão `false`) e `ASAAS_API_KEY`. Desligado, a
+emissão recusa dizendo que está desligada, em vez de tentar e falhar torto.
+
+## A5.7 — Aprovação: o chamado nasce esperando, e o SLA não corre
+
+**Assumimos** que, com a exigência de aprovação ligada, o chamado é criado no
+Znuny em um estado **real** de espera (`aguardando aprovacao`), do tipo
+`pending reminder`.
+
+**Por quê.** Duas coisas de uma vez. Primeira: se o chamado nascesse normal e
+apenas sumisse do portal, um agente o pegaria e atenderia algo que o cliente
+ainda não autorizou. Segunda: o tipo `pending reminder` **para o relógio de
+SLA** — quem demora a aprovar não queima o SLA da Gerti.
+
+**Regras que vêm junto:** a decisão é única (a segunda vira 409, não
+sobrescrita silenciosa); reprovar **exige motivo**, e o motivo vai como nota no
+próprio chamado, para o autor ler por que o pedido dele não passou; quem
+decide é o papel `approver` ou o admin do portal — help-desk recebe 403, e
+chamado de outro cliente recebe 404 (403 confirmaria que ele existe).
+
+**Se ele discordar:** a exigência é uma chave por cliente
+(`tenant.approval_required`), desligada por padrão.
+
+## A5.8 — A bolsa compartilhada acumula desde o início e não renova sozinha
+
+**Assumimos** que o saldo da bolsa de crédito compartilhada é o total comprado
+menos tudo o que os contratos ligados consumiram, **sem renovação automática
+por ciclo**.
+
+**Por quê.** A bolsa tem ciclo próprio no modelo, mas renovar automaticamente
+faria um cliente que gastou tudo em maio ver crédito novo em junho sem ter
+comprado. Errar para o lado de cobrar a mais é percebido e corrigido; errar
+para o lado de liberar crédito que não existe, não.
+
+**Se ele discordar:** a renovação por ciclo é a evolução natural, e os campos
+de ciclo já estão no modelo.
