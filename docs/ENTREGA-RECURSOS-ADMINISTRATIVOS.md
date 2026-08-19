@@ -1,15 +1,21 @@
 # Recursos administrativos — o que mudou, o que assumimos e como testar
 
-Este documento fecha a campanha aberta a partir do seu vídeo. Os 18 requisitos
-que levantamos dele foram executados em seis ondas, todas **no ar no ambiente
-de homologação** e verificadas ao vivo — não apenas em teste automatizado.
+Este documento fecha a campanha aberta a partir do seu vídeo. Dos 18 requisitos
+que levantamos dele, **17 estão entregues** e **1 foi adiado por você mesmo**
+(a integração com inventário externo, R4). Tudo está **no ar no ambiente de
+homologação** e foi verificado ao vivo — não apenas em teste automatizado.
 
 Ele tem três partes, e a segunda é a que mais precisa de você:
 
 1. **O que mudou** — requisito por requisito, com o que dá para ver na tela.
 2. **O que assumimos** — as decisões que tomamos no seu lugar para não parar a
    obra, cada uma com o que muda se você discordar e quanto custa mudar.
-3. **Como testar** — um roteiro para você conferir com as próprias mãos.
+3. **Como testar** — seis roteiros para você conferir com as próprias mãos, com
+   o que esperar em cada passo.
+
+> **Uma correção de percurso, para o registro.** Os checklists (R13b) tinham
+> ficado de fora sem ninguém notar; achamos ao conferir requisito por requisito
+> e fechamos junto com as arestas de calendário. Está tudo aqui.
 
 > **Por que existe a parte 2.** Várias coisas do vídeo admitiam mais de uma
 > leitura, e esperar resposta teria travado tudo. Em vez disso, escolhemos uma
@@ -37,6 +43,8 @@ enxerga e qual é a padrão. Antes, **todo chamado de todo cliente caía na mesm
 fila** (`Raw`), sem como configurar. Agora o chamado nasce onde você definiu, e
 tentar abrir numa fila que não é do cliente é recusado.
 
+![Filas de um cliente, com a padrão marcada](assets/telas/filas-cliente.png)
+
 ### E-mail
 
 **Entrada e saída de e-mail (R9).** A instância **não enviava e-mail nenhum** —
@@ -47,22 +55,42 @@ caixas de entrada e as regras de triagem sem sair do console.
 > agendador interno do Znuny virarem chamados, num laço. Já está resolvido com
 > uma regra de triagem, mas vale saber que existe.
 
+![Administração de e-mail: caixas de entrada, remetentes e regras de triagem](assets/telas/email.png)
+
 ### Relatórios
 
 **Consumo dos últimos ciclos (R18a)** e **relatório executivo mensal em PDF
 (R18b)**, com o que foi consumido, os principais serviços e o resumo do
 período — o entregável que você manda para o cliente todo mês.
 
+![Relatório executivo mensal, pronto para enviar ao cliente](assets/telas/relatorios.png)
+
 ### Configuração da plataforma
 
 **Atividades recorrentes (R11).** "Toda segunda às 8h" abre o chamado sozinho.
 Ele não abre chamados retroativos ao cadastrar, e rodar duas vezes não duplica.
 
+![Atividades recorrentes de um cliente, com a agenda dos próximos dias](assets/telas/atividades.png)
+
 **Importação em massa (R8).** São 60 clientes vindos do TIFLUX; não dá um a um.
 A importação tem simulação (que não grava nada) antes de valer.
 
+![Importação com simulação antes de gravar](assets/telas/importacoes.png)
+
 **Permissões por fila (R14).** Um agente pode ler a fila do financeiro sem
 poder mexer nela.
+
+**Feriados e jornada, com nome no calendário (R13a).** Agora dá para chamar o
+calendário de "Feriados de São Paulo" em vez de "Calendar 3" — era uma aresta
+que tinha ficado. São nove calendários, que é o limite do próprio Znuny.
+
+![Jornada de trabalho e feriados, com o nome do calendário](assets/telas/calendario.png)
+
+**Checklists personalizáveis (R13b).** Procedimentos que o técnico segue
+durante o atendimento: "onboarding de estação", "troca de servidor". O modelo é
+seu; a execução é por chamado, com progresso visível.
+
+![Modelos de checklist](assets/telas/checklists.png)
 
 ### Financeiro
 
@@ -97,6 +125,10 @@ parte 2.)*
 **Avisos de cobrança (R6).** Por e-mail e por SMS, configuráveis por cliente.
 *(O SMS ainda sai em modo simulado — ver a parte 2.)*
 
+![Aba de faturamento: avisos, lançamentos avulsos e bolsa compartilhada](assets/telas/faturamento.png)
+
+![Faturas, com boleto e nota fiscal](assets/telas/faturas.png)
+
 ### Fluxo e licenciamento
 
 **Aprovação de chamados (R7).** Com a chave ligada para um cliente, todo chamado
@@ -113,6 +145,8 @@ o total contratado, clientes cadastrados e contratos ativos. Por agente, quais
 módulos ficam ativos. E o caso da Georgia funciona de verdade: **sem o módulo
 de inventário, ela não entra no inventário nem digitando o endereço na barra do
 navegador.**
+
+![O quadro de licenças: 7 de 9 agentes, clientes e contratos ativos](assets/telas/licencas.png)
 
 ---
 
@@ -206,15 +240,26 @@ licenças, conferir o quadro, e aí ligar. O quadro avisa, em letras, enquanto
 estiver desligado.
 → *Quando quiser ligar, avise — é uma configuração.*
 
-**14. Só existem dois módulos: chamados e inventário.**
+**14. Checklist é procedimento da Gerti, não do cliente.**
+O modelo ("onboarding de estação") é cadastrado uma vez e serve para todos os
+clientes; a execução é por chamado. O cliente **não** vê o checklist no portal
+dele — é ferramenta interna do técnico.
+→ *Confere, ou o cliente deveria acompanhar o progresso?*
+
+**15. Editar um modelo não muda checklist já executado.**
+Os itens são copiados na hora de aplicar. Se você renomear um passo amanhã, o
+chamado de ontem continua mostrando o que o técnico realmente viu e marcou.
+→ Mesma lógica do preço registrado no lançamento: o passado não se reescreve.
+
+**16. Só existem dois módulos: chamados e inventário.**
 Você citou WhatsApp e acesso remoto, mas nenhum dos dois existe no produto
 hoje. Um botão "WhatsApp: ativo" seria uma promessa que o sistema não cumpre.
 → *Confere deixar de fora até o recurso existir?*
 
-**15. O total de licenças é definido por você, no console.**
+**17. O total de licenças é definido por você, no console.**
 Não é herdado de contrato externo. Toda mudança fica registrada na auditoria.
 
-**16. MFA: decidimos onde ele mora, e não construímos ainda.**
+**18. MFA: decidimos onde ele mora, e não construímos ainda.**
 As três telas de entrada (Znuny, console e portal do cliente) autenticam contra
 o Znuny. Um segundo fator só no console deixaria a porta do Znuny aberta ao
 lado — pior que não ter, porque parece proteção. Então o MFA vai no Znuny,
@@ -288,10 +333,17 @@ aparece na lista.
 
 ### Roteiro C — a aprovação de chamados (R7)
 
-10. Console → Aurora → **Faturamento** → ligue **"Exigir aprovação antes de
-    atender"** e salve.
+> **Já deixamos preparado.** A exigência de aprovação está **ligada** para a
+> Aurora e há **dois chamados aguardando decisão**, para você poder ir direto
+> ao passo 12. Para desligar depois: Console → Aurora → Faturamento → desmarque
+> "Exigir aprovação antes de atender".
 
-11. Portal da Aurora → abra um chamado.
+10. Console → Aurora → **Faturamento**.
+
+✅ **Esperado:** "Exigir aprovação antes de atender" está ligado, e os avisos de
+cobrança por e-mail também.
+
+11. Portal da Aurora → abra um chamado novo.
 
 ✅ **Esperado:** o chamado é criado e volta como **aguardando aprovação**.
 
@@ -301,8 +353,10 @@ aparece na lista.
 ✅ **Esperado:** é um estado real, não um chamado escondido. Nenhum técnico o
 pega antes da decisão. E o relógio de SLA **não** corre nesse estado.
 
-13. No portal, com um usuário **aprovador**, abra **Aprovações** e reprove sem
-    escrever motivo.
+13. No portal, abra **Aprovações** — o item novo no menu.
+
+✅ **Esperado:** os chamados aguardando decisão, com Aprovar e Reprovar. Reprove
+um deles **sem escrever motivo**.
 
 ✅ **Esperado:** recusa. Reprovar sem motivo deixaria o cliente sem saber o que
 fazer a seguir.
@@ -319,30 +373,68 @@ motivo aparece **dentro do chamado**, para o autor ler.
 > Ao terminar, **desligue** a exigência de aprovação para não atrapalhar os
 > outros testes.
 
-### Roteiro D — o licenciamento e o caso da Georgia (R16)
+### Roteiro D — checklists (R13b)
 
-16. Console → **Licenças**.
+16. Console → **Checklists**.
+
+✅ **Esperado:** dois modelos já cadastrados — "Onboarding de estação" e "Troca
+de servidor" — com os passos numerados.
+
+17. Crie um modelo novo escrevendo **um item por linha**. Tente salvar sem
+    nenhum item.
+
+✅ **Esperado:** recusa. Um modelo vazio só seria descoberto depois de aplicado
+a um chamado.
+
+18. Console → **Atendimento** → abra o chamado #84.
+
+✅ **Esperado:** o painel **Checklists** mostra "Onboarding de estação" com 2 de
+5 feitos, os dois primeiros riscados e com o nome de quem marcou.
+
+19. Marque mais um item.
+
+✅ **Esperado:** a barra anda na hora. Recarregue a página: continua marcado.
+
+20. Aplique o **mesmo** modelo de novo no mesmo chamado.
+
+✅ **Esperado:** nada duplica — continua uma lista só.
+
+### Roteiro E — o nome do calendário (R13a)
+
+21. Console → **Znuny → Calendário** → escolha "Calendário 3" e dê um nome,
+    por exemplo "Feriados de São Paulo". Salve.
+
+✅ **Esperado:** o seletor passa a mostrar "Calendário 3 — Feriados de São
+Paulo" em vez de só o número. O calendário **Padrão** não tem campo de nome —
+ele é "o calendário", e o Znuny não guarda nome para ele.
+
+### Roteiro F — o licenciamento e o caso da Georgia (R16)
+
+22. Console → **Licenças**.
 
 ✅ **Esperado:** o quadro com agentes licenciados / total, clientes e contratos
 ativos. E um aviso, em destaque, de que **os módulos ainda não restringem o
 acesso** enquanto a chave estiver desligada.
 
-17. Defina o total como **2** e atribua licença a dois agentes. Tente um
-    terceiro.
+✅ **Esperado:** o quadro já vem preenchido — **7 de 9 agentes**, com os
+clientes e contratos ativos. É um estado de demonstração que deixamos pronto;
+os números reais são você quem define.
 
-✅ **Esperado:** recusa **com a contagem na mensagem** ("2 de 2 em uso").
+23. Reduza o total para **7** e tente atribuir mais uma licença.
+
+✅ **Esperado:** recusa **com a contagem na mensagem** ("7 de 7 em uso").
 Não é um aviso que dá para clicar por cima — o teto é o que você fatura.
 
-18. Tente atribuir um módulo chamado `whatsapp`.
+24. Tente atribuir um módulo chamado `whatsapp`.
 
 ✅ **Esperado:** recusa listando os módulos que existem.
 
-19. Tente reduzir o total para 1.
+25. Tente reduzir o total para 1.
 
 ✅ **Esperado:** recusa pedindo que você revogue antes. O sistema não escolhe
 sozinho quem perde o acesso.
 
-20. **O caso da Georgia.** Peça para ligarmos a chave de licenciamento. Dê a um
+26. **O caso da Georgia.** Peça para ligarmos a chave de licenciamento. Dê a um
     agente só o módulo de **chamados** e, com ele, tente abrir o inventário —
     inclusive **colando o endereço direto na barra do navegador**.
 
@@ -355,7 +447,7 @@ menu escondido: é a porta trancada.
 
 - **Cobrança proporcional por dias** (contrato assinado no meio do mês).
   Ninguém pediu, e inventá-la mudaria valores sem decisão sua.
-- **MFA.** Decidido onde mora, não construído — ver o item 16 da parte 2.
+- **MFA.** Decidido onde mora, não construído — ver o item 18 da parte 2.
 - **WhatsApp e acesso remoto** como módulos. Não existem no produto.
 - **Renovação automática da bolsa de crédito por ciclo.** Se renovasse sozinha,
   um cliente que gastou tudo em maio veria crédito novo em junho sem ter
@@ -365,7 +457,7 @@ menu escondido: é a porta trancada.
 
 ## Um pedido
 
-Se alguma das 16 suposições da parte 2 estiver errada, **quanto antes soubermos,
+Se alguma das 18 suposições da parte 2 estiver errada, **quanto antes soubermos,
 mais barato é**. Todas foram construídas para serem revertidas com um ajuste de
 configuração ou de campo — mas isso vale enquanto não houver dado real em cima
 delas. Depois de faturar um mês inteiro com a regra errada, corrigir deixa de
