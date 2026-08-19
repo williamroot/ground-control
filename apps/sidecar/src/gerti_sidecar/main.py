@@ -25,6 +25,7 @@ from gerti_sidecar.routers import (
     admin_branding,
     admin_catalog,
     admin_charges,
+    admin_checklists,
     admin_contracts,
     admin_import,
     admin_invoices,
@@ -113,6 +114,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_reports.router, prefix=settings.api_v1_prefix)
     # Agenda de atividades recorrentes (R11) — o dia a dia dos técnicos.
     app.include_router(admin_recurring.router, prefix=settings.api_v1_prefix)
+    app.include_router(admin_checklists.router, prefix=settings.api_v1_prefix)
     app.include_router(admin_contracts.router, prefix=settings.api_v1_prefix)
     # Faturas internas — console gera/gerencia (Spec #1P).
     app.include_router(admin_charges.router, prefix=settings.api_v1_prefix)

@@ -22,6 +22,8 @@ const navLinks = [
   // Onda 6 (R16) — o quadro de licenças da operação: "isso aqui impacta no
   // faturamento da plataforma para a gente" (09:24).
   { to: '/licencas', label: 'Licenças' },
+  // R13b — procedimentos que o técnico segue durante o atendimento.
+  { to: '/checklists', label: 'Checklists' },
   // Spec #3 — telas de outros agentes (V5/V6); linkadas aqui mesmo antes de
   // existirem, conforme o contrato da spec.
   { to: '/auditoria', label: 'Auditoria' },

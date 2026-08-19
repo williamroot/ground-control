@@ -99,6 +99,10 @@ const poolName = ref('')
 const poolAmount = ref(0)
 const savingPool = ref(false)
 
+// Erro só depois que a pessoa mexeu — ver o mesmo cuidado em /licencas.
+const touched = ref(false)
+watch(draft, () => { touched.value = true }, { deep: true })
+
 const chargeErrors = computed(() => validateCharge(draft.value))
 const chargeWarning = computed(() => timeWarning(draft.value))
 const total = computed(() => chargeTotal(draft.value))
@@ -359,7 +363,7 @@ const linkTarget = ref<Record<string, string>>({})
         icon="i-lucide-alert-triangle"
         :description="chargeWarning"
       />
-      <ul v-if="chargeErrors.length" class="mt-3 list-disc pl-5 text-sm text-error">
+      <ul v-if="touched && chargeErrors.length" class="mt-3 list-disc pl-5 text-sm text-error">
         <li v-for="err in chargeErrors" :key="err">{{ err }}</li>
       </ul>
 
@@ -384,24 +388,26 @@ const linkTarget = ref<Record<string, string>>({})
       <table class="w-full text-sm">
         <thead class="text-left text-xs uppercase text-muted">
           <tr>
-            <th class="py-2">Data</th>
-            <th class="py-2">Tipo</th>
-            <th class="py-2">Contrato</th>
-            <th class="py-2 text-right">Valor</th>
+            <th class="py-2 pr-4">Data</th>
+            <th class="py-2 pr-4">Tipo</th>
+            <th class="py-2 pr-4">Contrato</th>
+            <th class="py-2 pr-4 text-right">Valor</th>
             <th class="py-2">Lançado por</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="c in charges" :key="c.id" class="border-t border-default">
-            <td class="py-2 text-muted">{{ fmtDate(c.occurred_at) }}</td>
-            <td class="py-2">
+            <td class="py-2 pr-4 text-muted">{{ fmtDate(c.occurred_at) }}</td>
+            <td class="py-2 pr-4">
               {{ chargeKindLabel(c.kind) }}
               <UBadge v-if="c.glosa_id" color="warning" variant="soft" size="sm" class="ml-1">
                 contestado
               </UBadge>
             </td>
-            <td class="py-2 font-mono text-xs text-muted">{{ contractCode(c.contract_id) }}</td>
-            <td class="py-2 text-right font-semibold text-highlighted">{{ money(c.amount_brl) }}</td>
+            <td class="py-2 pr-4 font-mono text-xs text-muted">{{ contractCode(c.contract_id) }}</td>
+            <td class="py-2 pr-4 text-right font-semibold text-highlighted">
+              {{ money(c.amount_brl) }}
+            </td>
             <td class="py-2 text-muted">{{ c.recorded_by }}</td>
           </tr>
         </tbody>

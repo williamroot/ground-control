@@ -137,6 +137,10 @@ class CalendarPayload(BaseModel):
     time_working_hours: dict[str, Any] = Field(default_factory=dict)
     time_vacation_days: dict[str, Any] = Field(default_factory=dict)
     time_vacation_days_one_time: dict[str, Any] = Field(default_factory=dict)
+    # T-R13.2 — nome legível do calendário. `None` no calendário PADRÃO (que
+    # não tem nome no Znuny) e, no PUT, `None` significa "não mexer no nome" —
+    # não "apagar o nome".
+    name: str | None = Field(default=None, max_length=200)
 
 
 def _agent_out(a: people_gi.Agent) -> AgentOut:
@@ -380,6 +384,24 @@ async def set_agent_password(
 # --------------------------------------------------------------------------- #
 # Bloco D — SysConfig: calendário e jornada (forma COMPOSTA)
 # --------------------------------------------------------------------------- #
+async def _calendar_name(setting: str | None, agent_login: str) -> str | None:
+    """Nome do calendário, em leitura SEPARADA e tolerante (T-R13.2).
+
+    Separada porque um calendário sem nome configurado não pode derrubar a
+    leitura da jornada e dos feriados — que é o que a tela realmente precisa.
+    Instalação anterior a esta onda não tem o nome gravado, e o GET tem de
+    continuar respondendo 200.
+    """
+    if setting is None:
+        return None  # calendário padrão: não tem nome no Znuny
+    try:
+        found = await sysconfig_gi.get_settings([setting], agent_login=agent_login)
+    except (ZnunyUnavailable, ZnunyWriteError, KeyError):
+        return None
+    entry = found.get(setting)
+    return str(entry.value or "") if entry is not None else None
+
+
 @router.get("/calendar")
 async def get_calendar(
     calendar: str = Query(""),
@@ -403,6 +425,7 @@ async def get_calendar(
         time_working_hours=settings[names.working_hours].value or {},
         time_vacation_days=settings[names.vacation_days].value or {},
         time_vacation_days_one_time=settings[names.vacation_days_one_time].value or {},
+        name=await _calendar_name(names.name, admin["agent_login"]),
     )
 
 
@@ -420,11 +443,16 @@ async def set_calendar(
     # pontual. É a mesma ordem usada nas duas guardas abaixo (validação e
     # escrita), então "a chamada N" nos comentários/erros é sempre uma destas
     # três, nesta ordem.
-    to_write = [
+    to_write: list[tuple[str, Any]] = [
         (names.working_hours, body.time_working_hours),
         (names.vacation_days, body.time_vacation_days),
         (names.vacation_days_one_time, body.time_vacation_days_one_time),
     ]
+    # T-R13.2 — o nome vai por último de propósito: se a gravação parar no
+    # meio, é melhor ter a jornada correta sem nome do que o nome sem a
+    # jornada. E só entra se o corpo o trouxe: `None` não apaga o que existe.
+    if names.name and body.name is not None:
+        to_write.append((names.name, body.name.strip()))
 
     # Guarda #1 (contrato Bloco D): valida a FORMA dos TRÊS valores ANTES de
     # escrever qualquer um. Se qualquer um reprovar, nada é escrito — nem os

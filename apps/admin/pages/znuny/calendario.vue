@@ -15,6 +15,7 @@ import type {
 } from '../../composables/useWorkingHours'
 import {
   CALENDAR_OPTIONS,
+  calendarLabel,
   DEFAULT_CALENDAR,
   calendarToQuery,
   emptyGrid,
@@ -37,6 +38,7 @@ definePageMeta({ middleware: 'admin-auth' })
 
 interface CalendarResponse {
   calendar: string
+  name?: string | null
   time_working_hours: Record<string, number[]>
   time_vacation_days: Record<string, Record<string, string>>
   time_vacation_days_one_time: Record<string, Record<string, Record<string, string>>>
@@ -77,11 +79,13 @@ watch(data, (d) => {
   grid.value = payloadToGrid(d.time_working_hours)
   recurring.value = payloadToRecurring(d.time_vacation_days)
   oneTime.value = payloadToOneTime(d.time_vacation_days_one_time)
+  calendarName.value = d.name ?? ''
   loadedPayload.value = {
     calendar: d.calendar ?? calendarToQuery(selectedCalendar.value),
     time_working_hours: d.time_working_hours ?? {},
     time_vacation_days: d.time_vacation_days ?? {},
     time_vacation_days_one_time: d.time_vacation_days_one_time ?? {},
+    name: selectedCalendar.value === DEFAULT_CALENDAR ? null : (d.name ?? ''),
   }
 }, { immediate: true })
 
@@ -90,11 +94,16 @@ const isEmpty = computed(() => {
   return weeklyTotalHours(grid.value) === 0 && recurring.value.length === 0 && oneTime.value.length === 0
 })
 
+const calendarName = ref('')
+
 const draftPayload = computed<CalendarPayload>(() => ({
   calendar: calendarToQuery(selectedCalendar.value),
   time_working_hours: gridToPayload(grid.value),
   time_vacation_days: recurringToPayload(recurring.value),
   time_vacation_days_one_time: oneTimeToPayload(oneTime.value),
+  // O calendário PADRÃO não tem nome no Znuny — mandar um faria o PUT tentar
+  // gravar um setting que não existe.
+  name: selectedCalendar.value === DEFAULT_CALENDAR ? null : calendarName.value,
 }))
 
 const clientErrors = computed(() => validateCalendarPayload(draftPayload.value))
@@ -109,7 +118,7 @@ const summary = computed(() => (loadedPayload.value
   : null))
 
 const calendarLabel = computed(() =>
-  CALENDAR_OPTIONS.find(o => o.value === selectedCalendar.value)?.label ?? 'Padrão')
+  calendarLabel(selectedCalendar.value, calendarName.value))
 
 const confirmOpen = ref(false)
 const saving = ref(false)
@@ -179,9 +188,24 @@ async function confirmSave() {
       class="mb-6"
     />
 
-    <div class="mb-6 max-w-xs">
-      <label class="mb-1 block text-xs font-medium text-muted">Calendário</label>
-      <USelect v-model="selectedCalendar" :items="CALENDAR_OPTIONS" :disabled="pending" />
+    <div class="mb-6 flex flex-wrap items-end gap-4">
+      <div class="max-w-xs">
+        <label class="mb-1 block text-xs font-medium text-muted">Calendário</label>
+        <USelect v-model="selectedCalendar" :items="CALENDAR_OPTIONS" :disabled="pending" />
+      </div>
+      <!-- T-R13.2 — sem nome, a tela de filas mostra "Calendar 3 - " e
+           ninguém sabe qual é o de São Paulo. O padrão não tem nome no Znuny. -->
+      <div v-if="selectedCalendar !== DEFAULT_CALENDAR" class="max-w-xs flex-1">
+        <label class="mb-1 block text-xs font-medium text-muted">
+          Nome deste calendário
+        </label>
+        <UInput
+          v-model="calendarName"
+          placeholder="Feriados de São Paulo"
+          :disabled="pending"
+          class="w-full"
+        />
+      </div>
     </div>
 
     <!-- Carregando -->

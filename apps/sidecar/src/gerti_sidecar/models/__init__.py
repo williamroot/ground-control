@@ -8,6 +8,12 @@ from gerti_sidecar.models.automation import AutomationRule, AutomationRun
 from gerti_sidecar.models.base import Base
 from gerti_sidecar.models.catalog import ServiceCatalogItem, SharedCreditPool
 from gerti_sidecar.models.catalog_item import CatalogItem
+from gerti_sidecar.models.checklist import (
+    ChecklistTemplate,
+    ChecklistTemplateItem,
+    TicketChecklist,
+    TicketChecklistItem,
+)
 from gerti_sidecar.models.consumption import ConsumptionEvent, Glosa
 from gerti_sidecar.models.consumption_orphan import ConsumptionOrphan
 from gerti_sidecar.models.contract import Contract, ContractBillingParty
@@ -52,6 +58,8 @@ __all__ = [
     "AutomationRun",
     "Base",
     "CatalogItem",
+    "ChecklistTemplate",
+    "ChecklistTemplateItem",
     "CheckoutSession",
     "ConsumptionEvent",
     "ConsumptionOrphan",
@@ -84,6 +92,8 @@ __all__ = [
     "TenantBranding",
     "TenantQueue",
     "TicketApproval",
+    "TicketChecklist",
+    "TicketChecklistItem",
     "TicketContractLink",
     "UserPreference",
     "WorkerHeartbeat",

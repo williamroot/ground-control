@@ -441,6 +441,21 @@ export interface CalendarPayload {
   time_working_hours: WorkingHoursPayload
   time_vacation_days: RecurringPayload
   time_vacation_days_one_time: OneTimePayload
+  // T-R13.2 — nome legível. `null` no calendário PADRÃO (que não tem nome no
+  // Znuny) e, na escrita, `null` significa "não mexer no nome".
+  name?: string | null
+}
+
+/**
+ * Rótulo do calendário no seletor: usa o nome quando existe.
+ *
+ * Sem isto a tela de filas mostra "Calendar 3 - " e ninguém sabe qual é o de
+ * São Paulo — foi a aresta registrada no levantamento (T-R13.2).
+ */
+export function calendarLabel(value: string, name?: string | null): string {
+  if (value === DEFAULT_CALENDAR || value === '') return 'Padrão'
+  const trimmed = (name ?? '').trim()
+  return trimmed ? `Calendário ${value} — ${trimmed}` : `Calendário ${value}`
 }
 
 export function validateCalendarPayload(payload: CalendarPayload): string[] {

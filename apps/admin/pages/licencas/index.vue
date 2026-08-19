@@ -42,6 +42,11 @@ watchEffect(() => {
 const notice = computed(() => (overview.value ? enforcementNotice(overview.value) : null))
 const usage = computed(() => (overview.value ? seatUsagePercent(overview.value) : 0))
 const tone = computed(() => (overview.value ? seatTone(overview.value) : 'neutral'))
+// Erro só depois que a pessoa mexeu: um formulário recém-aberto mostrando
+// "Informe o login do agente" em vermelho parece defeito, não orientação.
+const touchedLogin = ref(false)
+watch(login, () => { touchedLogin.value = true })
+
 const seatErrors = computed(() =>
   overview.value ? validateSeats(seats.value, overview.value) : [])
 const existing = computed(() =>
@@ -227,7 +232,7 @@ async function revoke(row: AgentLicense) {
           recurso existir — botão que não faz nada é pior do que botão nenhum.
         </p>
       </div>
-      <ul v-if="assignErrors.length" class="mt-3 list-disc pl-5 text-sm text-error">
+      <ul v-if="touchedLogin && assignErrors.length" class="mt-3 list-disc pl-5 text-sm text-error">
         <li v-for="err in assignErrors" :key="err">{{ err }}</li>
       </ul>
       <template #footer>
