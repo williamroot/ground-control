@@ -34,6 +34,7 @@ from gerti_sidecar.models.sync_cursor import ConsumptionSyncCursor
 from gerti_sidecar.models.tenant import Tenant
 from gerti_sidecar.models.tenant_branding import TenantBranding
 from gerti_sidecar.models.tenant_queue import TenantQueue
+from gerti_sidecar.models.ticket_approval import TenantBillingConfig, TicketApproval
 from gerti_sidecar.models.ticket_link import TicketContractLink
 from gerti_sidecar.models.user_preference import UserPreference
 from gerti_sidecar.models.worker_heartbeat import WorkerHeartbeat
@@ -76,8 +77,10 @@ __all__ = [
     "ServiceCatalogItem",
     "SharedCreditPool",
     "Tenant",
+    "TenantBillingConfig",
     "TenantBranding",
     "TenantQueue",
+    "TicketApproval",
     "TicketContractLink",
     "UserPreference",
     "WorkerHeartbeat",

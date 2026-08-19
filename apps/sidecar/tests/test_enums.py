@@ -18,6 +18,9 @@ def test_enum_values_match_db_contract():
         "hour_bank",
         "saas_product",
         "service_count",
+        # D-D (Onda 5): "livre". Acrescentar aqui é deliberado — este teste
+        # existe para que um tipo novo não entre sem alguém decidir.
+        "free",
     ]
     assert [e.value for e in ContractStatus] == [
         "draft",

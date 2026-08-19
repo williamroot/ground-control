@@ -273,6 +273,9 @@ class ReconciliationService:
                             recorded_by="worker:reconcile",
                             billable_amount_brl=amount,
                             webhook_event_id=event_id,
+                            # T-R3.3: sem isto, `service_count` não tem como
+                            # contar atendimentos — `ref` aponta para o artigo.
+                            znuny_ticket_id=e.ticket_id,
                         )
                     )
                     written += 1

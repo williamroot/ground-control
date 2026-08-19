@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
@@ -24,6 +25,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from gerti_sidecar.auth.session import SessionPayload, get_current_session
 from gerti_sidecar.db import get_tenant_session, tenant_session_scope
+from gerti_sidecar.domain.approval_service import (
+    AlreadyDecided,
+    ApprovalError,
+    ApprovalNotFound,
+    ApprovalService,
+    NotAllowed,
+)
 from gerti_sidecar.domain.csat_service import (
     CsatAlreadyExists,
     CsatError,
@@ -41,6 +49,7 @@ from gerti_sidecar.domain.ticketing_service import (
 from gerti_sidecar.integrations import znuny_ticket
 from gerti_sidecar.integrations.znuny_customer_admin import ZnunyUnavailable, ZnunyWriteError
 from gerti_sidecar.models import Tenant
+from gerti_sidecar.models.enums import PortalRole
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
@@ -68,6 +77,10 @@ class OpenedTicketOut(BaseModel):
     znuny_ticket_id: int
     ticket_number: str
     contract_id: str
+    # "pending" quando o cliente exige aprovação (R7). O portal usa isto para
+    # dizer ao autor que o chamado está esperando decisão, em vez de deixá-lo
+    # achar que já está sendo atendido.
+    approval: str | None = None
 
 
 def _customer_id(request: Request) -> str:
@@ -120,6 +133,9 @@ async def open_ticket(
             )
         )
 
+    # R7: o cliente exige aprovação? A chave é do TENANT, resolvida aqui —
+    # o portal não escolhe, ele obedece.
+    tenant: Tenant = request.state.tenant
     data = OpenTicketInput(
         customer_user=session_payload["znuny_login"],
         customer_id=_customer_id(request),
@@ -132,6 +148,7 @@ async def open_ticket(
         attachments=attachments,
         config_item_id=config_item_id,
         queue=queue,
+        requires_approval=bool(getattr(tenant, "approval_required", False)),
     )
     try:
         out = await TicketingService(session, znuny_ticket).open_ticket(data)
@@ -149,6 +166,7 @@ async def open_ticket(
         znuny_ticket_id=out.znuny_ticket_id,
         ticket_number=out.ticket_number,
         contract_id=out.contract_id,
+        approval=out.approval,
     )
 
 
@@ -174,6 +192,48 @@ async def list_tickets(
             "created": r.created,
             "contract_id": r.contract_id,
         }
+        for r in rows
+    ]
+
+
+# ── R7: aprovação de chamado (Onda 5) ───────────────────────────────────────
+
+
+class ApprovalDecisionIn(BaseModel):
+    decision: Literal["approved", "rejected"]
+    reason: str | None = Field(default=None, max_length=1000)
+
+
+class ApprovalOut(BaseModel):
+    znuny_ticket_id: int
+    status: str
+    requested_by: str
+    approver_login: str | None = None
+    reason: str | None = None
+    created_at: str
+
+
+# ORDEM IMPORTA: `/approvals` precisa ser declarada ANTES de `/{ticket_id}`.
+# O FastAPI casa as rotas na ordem de registro, e `/{ticket_id}` (que é `int`)
+# engoliria `/v1/tickets/approvals` devolvendo 422 — a fila de aprovação do
+# portal simplesmente nunca carregaria. Coberto por
+# `test_approvals_route_is_not_swallowed_by_the_ticket_id_route`.
+@router.get("/approvals", response_model=list[ApprovalOut])
+async def list_pending_approvals(
+    session_payload: SessionPayload = Depends(get_current_session),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> list[ApprovalOut]:
+    """A fila de aprovação do portal — o que espera decisão deste cliente."""
+    rows = await ApprovalService(session, znuny_ticket).pending_for_tenant()
+    return [
+        ApprovalOut(
+            znuny_ticket_id=r.znuny_ticket_id,
+            status=r.status,
+            requested_by=r.requested_by,
+            approver_login=r.approver_login,
+            reason=r.reason,
+            created_at=r.created_at.isoformat(),
+        )
         for r in rows
     ]
 
@@ -291,3 +351,46 @@ async def submit_csat(
     except ZnunyUnavailable as exc:
         raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
     return CsatOut(score=row.score)
+
+
+@router.post("/{ticket_id}/approval", response_model=ApprovalOut)
+async def decide_approval(
+    ticket_id: int,
+    body: ApprovalDecisionIn,
+    session_payload: SessionPayload = Depends(get_current_session),
+    session: AsyncSession = Depends(get_tenant_session),
+) -> ApprovalOut:
+    """Aprova ou reprova. **Uma vez só** — a segunda chamada é 409.
+
+    Só papel `approver` ou `admin` decide. Chamado de outro cliente devolve
+    **404**, não 403: 403 confirmaria que o chamado existe.
+    """
+    role = PortalRole(session_payload.get("role") or "helpdesk")
+    svc = ApprovalService(session, znuny_ticket)
+    try:
+        approval = await svc.decide(
+            znuny_ticket_id=ticket_id,
+            decision=body.decision,
+            approver_login=session_payload["znuny_login"],
+            approver_role=role,
+            reason=body.reason,
+        )
+    except NotAllowed as exc:
+        raise HTTPException(status_code=403, detail="not_an_approver") from exc
+    except AlreadyDecided as exc:
+        raise HTTPException(status_code=409, detail=f"já decidido: {exc}") from exc
+    except ApprovalNotFound as exc:
+        raise HTTPException(status_code=404, detail="approval_not_found") from exc
+    except ApprovalError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ZnunyUnavailable as exc:
+        raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
+
+    return ApprovalOut(
+        znuny_ticket_id=approval.znuny_ticket_id,
+        status=approval.status,
+        requested_by=approval.requested_by,
+        approver_login=approval.approver_login,
+        reason=approval.reason,
+        created_at=approval.created_at.isoformat(),
+    )

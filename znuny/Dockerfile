@@ -351,7 +351,18 @@ RUN chmod +x ${OTRS_HOME}/scripts/ensure-itsm.sh && \
 
 # ── CMDB Computer fields helper (#1L, R1L): idempotent append of Disco/Memoria.
 COPY scripts/ensure-cmdb-fields.pl ${OTRS_HOME}/scripts/ensure-cmdb-fields.pl
-RUN chown otrs:www-data ${OTRS_HOME}/scripts/ensure-cmdb-fields.pl
+# R7 (Onda 5) — estado "aguardando aprovacao", do tipo `pending reminder` para
+# o relógio de SLA não correr enquanto o cliente decide. Idempotente (D6).
+COPY scripts/ensure-approval-state.pl ${OTRS_HOME}/scripts/ensure-approval-state.pl
+RUN set -eux; \
+    chown otrs:www-data \
+        ${OTRS_HOME}/scripts/ensure-cmdb-fields.pl \
+        ${OTRS_HOME}/scripts/ensure-approval-state.pl; \
+    # Gate de build. O entrypoint roda este script com `|| log WARN ... continuando`,
+    # então um erro de sintaxe NÃO derrubaria o container: o R7 simplesmente
+    # não funcionaria, em silêncio. Aqui a build quebra.
+    perl -I${OTRS_HOME} -I${OTRS_HOME}/Kernel/cpan-lib -I${OTRS_HOME}/Custom \
+         -c ${OTRS_HOME}/scripts/ensure-approval-state.pl
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY Config.pm.tmpl ${OTRS_HOME}/Kernel/Config.pm.tmpl

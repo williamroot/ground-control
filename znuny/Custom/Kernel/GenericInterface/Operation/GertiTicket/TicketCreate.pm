@@ -77,6 +77,16 @@ sub Run {
     );
     $CreateArgs{Queue} = $D->{Queue} || 'Raw';
 
+    # Estado inicial (R7, Onda 5). O padrão continua `new`; um chamado que
+    # exige aprovação nasce no estado de espera — REAL, não escondido. O tipo
+    # do estado é `pending reminder`, então o relógio de SLA não corre
+    # enquanto o cliente não decide: quem demora a aprovar não queima o SLA
+    # da Gerti.
+    if ( IsStringWithData( $D->{State} ) ) {
+        $CreateArgs{State} = $D->{State};
+        delete $CreateArgs{StateType};
+    }
+
     # O portal (#1E) envia os IDs (Keys do form-meta) de prioridade/tipo/serviço,
     # não os nomes. O Znuny aceita PriorityID/TypeID/ServiceID (numérico) OU o nome —
     # então detectamos: dígitos puros → *ID; caso contrário → nome (retrocompat).

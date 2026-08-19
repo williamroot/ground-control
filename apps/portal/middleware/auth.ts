@@ -17,4 +17,10 @@ export default defineNuxtRouteMiddleware(async (to) => {
   // neste predicado (não use startsWith aqui sem checar contra essa lista).
   const adminOnly = path === '/' || path.startsWith('/contratos')
   if (adminOnly && me.value.role !== 'admin') return navigateTo('/tickets')
+
+  // R7 — /aprovacoes é de quem decide: aprovador ou admin. Help-desk não entra.
+  // A guarda de verdade é o 403 do sidecar; esta só evita a tela vazia.
+  if (path.startsWith('/aprovacoes') && !canDecide(me.value.role)) {
+    return navigateTo('/tickets')
+  }
 })

@@ -21,6 +21,7 @@ from sqlalchemy import (
     LargeBinary,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
@@ -72,6 +73,16 @@ class Invoice(Base):
     currency: Mapped[str] = mapped_column(String(3), nullable=False, server_default="BRL")
     subtotal_cents: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     total_cents: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # T-R15.5 — cobrança e nota fiscal no Asaas. Tudo nullable: fatura só
+    # interna (o caso de hoje) nunca vê o Asaas, e `ASAAS_ENABLED=false` é o
+    # padrão fail-safe.
+    asaas_payment_id: Mapped[str | None] = mapped_column(Text)
+    asaas_charge_status: Mapped[str | None] = mapped_column(Text)
+    asaas_bank_slip_url: Mapped[str | None] = mapped_column(Text)
+    asaas_invoice_url: Mapped[str | None] = mapped_column(Text)
+    nfe_id: Mapped[str | None] = mapped_column(Text)
+    nfe_status: Mapped[str | None] = mapped_column(Text)
+    nfe_pdf_url: Mapped[str | None] = mapped_column(Text)
     pdf_bytes: Mapped[bytes | None] = mapped_column(LargeBinary)
     pdf_generated_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[dt.datetime] = mapped_column(

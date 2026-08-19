@@ -18,7 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gerti_sidecar import db
 from gerti_sidecar.domain.provisioning_service import ProvisioningService
+from gerti_sidecar.models import Invoice
 from gerti_sidecar.models.contratacao import AsaasWebhookEvent, Payment
+from gerti_sidecar.models.enums import InvoiceStatus
 
 # Eventos que processamos (os demais são ack 200 e ignorados).
 _PAID_EVENTS = {"PAYMENT_RECEIVED", "PAYMENT_CONFIRMED"}
@@ -114,8 +116,45 @@ class AsaasWebhookService:
             tenant_id = await self._provisioner.provision(checkout_session_id, now=now)
             return {"status": "provisioned", "tenant_id": str(tenant_id)}
 
-        # Pagamento recorrente vinculado a fatura/contrato (#1P) — fase 2.
+        # T-R15.5 — baixa da fatura interna cobrada por boleto.
+        #
+        # O webhook não tem tenant: ele chega de fora, sem sessão e sem
+        # subdomínio. A busca é pelo `asaas_payment_id`, que é globalmente
+        # único (índice único parcial em `gerti.invoice`) — é uma busca global
+        # LEGÍTIMA, e o `tenant_id` sai da fatura encontrada, nunca de nada que
+        # tenha vindo no corpo do webhook. Confiar num tenant informado pelo
+        # payload deixaria qualquer um dar baixa na fatura de qualquer cliente.
+        settled = await self._settle_invoice(asaas_payment_id, event_type, paid=is_paid_event)
+        if settled is not None:
+            return {"status": settled, "event": event_type}
         return {"status": "ok", "event": event_type}
+
+    async def _settle_invoice(
+        self, asaas_payment_id: str, event_type: str, *, paid: bool
+    ) -> str | None:
+        """Reflete o evento na `gerti.invoice` correspondente, se houver."""
+        async with _factory()() as s:
+            async with s.begin():
+                invoice = (
+                    await s.execute(
+                        select(Invoice).where(Invoice.asaas_payment_id == asaas_payment_id)
+                    )
+                ).scalar_one_or_none()
+                if invoice is None:
+                    return None
+                invoice.asaas_charge_status = event_type
+                if paid:
+                    # `void` é terminal: uma fatura cancelada que receber
+                    # pagamento NÃO vira paga sozinha — isso é caso de alguém
+                    # olhar, não de o sistema decidir.
+                    if invoice.status == InvoiceStatus.void:
+                        return "invoice_void_payment_received"
+                    invoice.status = InvoiceStatus.paid
+                    return "invoice_paid"
+                if event_type == "PAYMENT_OVERDUE" and invoice.status == InvoiceStatus.open:
+                    invoice.status = InvoiceStatus.overdue
+                    return "invoice_overdue"
+                return "invoice_touched"
 
     async def _mark(
         self, event_id: str, status: str, now: dt.datetime, *, error: str | None = None

@@ -5,7 +5,16 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -46,6 +55,11 @@ class Tenant(Base):
     contact_name: Mapped[str | None] = mapped_column(Text)
     contact_email: Mapped[str | None] = mapped_column(Text)
     contact_phone: Mapped[str | None] = mapped_column(Text)
+    # R7 (Onda 5): este cliente exige que todo chamado passe por aprovação
+    # antes de virar trabalho. Desligado por padrão — ligar é decisão dele.
+    approval_required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

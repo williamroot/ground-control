@@ -177,6 +177,12 @@ provision_all() {
     su otrs -s /bin/bash -c "cd ${OTRS_HOME} && perl scripts/ensure-cmdb-fields.pl" \
         && log "CMDB Computer fields (Disco/Memoria) ensured." \
         || log "WARN: ensure-cmdb-fields falhou — continuando."
+    # ── Estado de aprovação (R7, Onda 5): cria "aguardando aprovacao" do tipo
+    #    `pending reminder` — nele o relógio de SLA NÃO corre, então o cliente
+    #    que demora a aprovar não queima o SLA da Gerti. Idempotente.
+    su otrs -s /bin/bash -c "cd ${OTRS_HOME} && perl scripts/ensure-approval-state.pl" \
+        && log "Estado de aprovação garantido." \
+        || log "WARN: ensure-approval-state falhou — R7 pode não funcionar; continuando."
     # ── Motor de automação (#1Q): registra/verifica o Event module GertiAutomation
     #    (XML SysConfig declarativo) + checa o segredo HMAC. Idempotente.
     su otrs -s /bin/bash -c "cd ${OTRS_HOME} && perl scripts/ensure-automation-invoker.pl" \

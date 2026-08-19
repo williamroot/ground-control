@@ -155,6 +155,14 @@ const contactLine = computed(() => {
             Faturas
           </UButton>
           <UButton
+            :to="`/clientes/${tenant.id}/faturamento`"
+            color="neutral"
+            variant="soft"
+            icon="i-lucide-wallet"
+          >
+            Faturamento
+          </UButton>
+          <UButton
             :to="`/clientes/${tenant.id}/conhecimento`"
             color="neutral"
             variant="soft"

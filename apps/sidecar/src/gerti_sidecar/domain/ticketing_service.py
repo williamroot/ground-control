@@ -15,6 +15,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gerti_sidecar.domain.approval_service import PENDING_STATE, ApprovalService
 from gerti_sidecar.models import Contract, TenantQueue, TicketContractLink
 from gerti_sidecar.models.enums import ContractStatus
 
@@ -44,6 +45,10 @@ class OpenTicketInput:
     attachments: list[Any]
     config_item_id: int | None = None
     queue: str | None = None
+    # R7: quando o cliente exige aprovação, o chamado nasce em estado real de
+    # espera no Znuny — nunca "criado e escondido", que faria um agente
+    # atender algo não autorizado.
+    requires_approval: bool = False
 
 
 @dataclass(frozen=True)
@@ -51,6 +56,10 @@ class OpenedTicket:
     znuny_ticket_id: int
     ticket_number: str
     contract_id: str
+    # "pending" quando o cliente exige aprovação (R7); None quando não exige.
+    # O portal usa isto para dizer ao autor que o chamado está esperando
+    # alguém decidir, em vez de deixá-lo achar que já está sendo atendido.
+    approval: str | None = None
 
 
 class TicketingService:
@@ -125,6 +134,7 @@ class TicketingService:
             attachments=data.attachments or None,
             config_item_id=data.config_item_id,
             queue=queue,
+            state=PENDING_STATE if data.requires_approval else None,
         )
 
         # tenant_id vem do GUC app.current_tenant; a FK + RLS garantem o escopo.
@@ -140,5 +150,20 @@ class TicketingService:
                 linked_by_rule=f"portal:{data.customer_user}",
             )
         )
+        approval_status: str | None = None
+        if data.requires_approval:
+            svc = ApprovalService(self._session, self._gi)
+            await svc.open_pending(
+                tenant_id=tenant_id,
+                znuny_ticket_id=created.znuny_ticket_id,
+                requested_by=data.customer_user,
+            )
+            approval_status = "pending"
+
         await self._session.flush()
-        return OpenedTicket(created.znuny_ticket_id, created.ticket_number, str(contract_id))
+        return OpenedTicket(
+            created.znuny_ticket_id,
+            created.ticket_number,
+            str(contract_id),
+            approval=approval_status,
+        )
