@@ -99,9 +99,18 @@ sub Run {
 
     my $TicketID = $TicketObject->TicketCreate(%CreateArgs);
     if ( !$TicketID ) {
+        # A mensagem ORIGINAL do Znuny, não um erro genérico. "native
+        # TicketCreate failed" custou uma rodada inteira de diagnóstico na
+        # verificação da Onda 4 para descobrir que a causa era uma fila
+        # inexistente — informação que o Znuny tinha e nós jogávamos fora.
+        my $Msg = $Kernel::OM->Get('Kernel::System::Log')->GetLogEntry(
+            Type => 'error',
+            What => 'Message',
+        ) || 'native TicketCreate failed';
+        my $Queue = $CreateArgs{Queue} // $CreateArgs{QueueID} // '(default)';
         return $Self->ReturnError(
             ErrorCode    => 'TicketCreate.CreateError',
-            ErrorMessage => 'TicketCreate: native TicketCreate failed.',
+            ErrorMessage => "TicketCreate falhou (fila: $Queue): $Msg",
         );
     }
 
