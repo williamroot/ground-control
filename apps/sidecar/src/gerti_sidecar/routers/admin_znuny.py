@@ -30,6 +30,7 @@ from typing import Any, TypeVar
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from gerti_sidecar.auth.admin_session import AdminSessionPayload, get_admin_session
+from gerti_sidecar.config import get_settings
 from gerti_sidecar.domain import audit_service
 from gerti_sidecar.integrations import znuny_admin_objects as zao
 
@@ -58,6 +59,43 @@ _ALLOWED_OBJECTS = {
 _ID_RE = re.compile(r"^[0-9]+$")
 
 _T = TypeVar("_T")
+
+
+def service_depth(name: str) -> int:
+    """Profundidade de um serviço do Znuny. "A::B" = 2 níveis.
+
+    A hierarquia de serviço no Znuny é convenção de NOME, com `::` separando
+    os níveis — não há coluna de pai. Contar é dividir.
+    """
+    return len([p for p in str(name).split("::") if p.strip()])
+
+
+def check_service_depth(fields: dict[str, Any]) -> None:
+    """Impõe o teto de níveis do catálogo (T-R12.3, suposição S1).
+
+    **Esta é a suposição de maior risco da campanha.** O Kleber descreveu o
+    limite de dois níveis *do TIFLUX* — pode ter sido descrição de uma
+    limitação que ele tolera, não um requisito dele. Por isso o teto é uma
+    chave (`ZNUNY_SERVICE_MAX_DEPTH`), e `0` o desliga por completo.
+
+    A recusa é 422 com a mensagem explicando o que aconteceu, nunca um erro
+    genérico — se o teto estiver errado, o operador precisa entender por que
+    foi barrado para poder reclamar.
+    """
+    max_depth = get_settings().znuny_service_max_depth
+    if max_depth <= 0:
+        return
+    name = str(fields.get("Name") or "")
+    depth = service_depth(name)
+    if depth > max_depth:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"o catálogo aceita no máximo {max_depth} níveis "
+                f'("{name}" tem {depth}). Ajuste o serviço-pai, ou peça para '
+                "elevar o limite na configuração da plataforma."
+            ),
+        )
 
 
 def _check_object(object_key: str) -> None:
@@ -139,6 +177,8 @@ async def create_object(
     admin: AdminSessionPayload = Depends(get_admin_session),
 ) -> dict[str, Any]:
     _check_object(object)
+    if object == "Service":
+        check_service_depth(body)
     created = await _call(zao.object_add(object, body, agent_login=admin["agent_login"]))
     created_id = created.get("ID") if isinstance(created, dict) else None
     await audit_service.record(
@@ -166,6 +206,10 @@ async def update_object(
 ) -> dict[str, Any]:
     _check_object(object)
     object_id = _check_id(id)
+    if object == "Service":
+        # Também no update: renomear "A::B" para "A::B::C" é criar o terceiro
+        # nível por outro caminho.
+        check_service_depth(body)
     updated = await _call(
         zao.object_update(object, object_id, body, agent_login=admin["agent_login"])
     )

@@ -98,8 +98,16 @@ class GroupOut(BaseModel):
     rw_user_count: int | None = None
 
 
+# Tipos de permissão por grupo (T-R14.1). Espelha a allowlist do Perl; um tipo
+# inventado morre aqui, antes de virar chamada GI.
+PERMISSION_TYPES = ("ro", "move_into", "create", "note", "owner", "priority", "rw")
+
+
 class AgentGroupsIn(BaseModel):
     group_ids: list[int] = []
+    # Opcional e retrocompatível: ausente => `rw` em cada grupo, exatamente o
+    # comportamento anterior à Onda 4.
+    permissions: dict[int, list[str]] | None = None
 
 
 class GroupMembershipOut(BaseModel):
@@ -286,9 +294,25 @@ async def set_agent_groups(
     admin: AdminSessionPayload = Depends(get_admin_session),
 ) -> AgentGroupsOut:
     aid = _agent_id_or_404(agent_id)
+    # Tipo fora da allowlist é 422 aqui, antes de virar chamada GI (T-R14.1).
+    for gid, types in (body.permissions or {}).items():
+        unknown = [t for t in types if t not in PERMISSION_TYPES]
+        if unknown:
+            raise HTTPException(
+                status_code=422,
+                detail=f"permissão desconhecida no grupo {gid}: {', '.join(unknown)}",
+            )
+        if gid not in body.group_ids:
+            raise HTTPException(
+                status_code=422,
+                detail=f"grupo {gid} tem permissões mas não está na lista de grupos",
+            )
     try:
         change = await people_gi.set_agent_groups(
-            aid, body.group_ids, agent_login=admin["agent_login"]
+            aid,
+            body.group_ids,
+            agent_login=admin["agent_login"],
+            permissions=body.permissions,
         )
     except ZnunyUnavailable as exc:
         raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
@@ -312,6 +336,7 @@ async def set_agent_groups(
         metadata={
             "before": [m.model_dump() for m in before_out],
             "after": [m.model_dump() for m in after_out],
+            "permissions": {str(k): v for k, v in (body.permissions or {}).items()} or None,
         },
     )
     return AgentGroupsOut(agent_id=change.agent_id, before=before_out, after=after_out)

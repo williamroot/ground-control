@@ -162,3 +162,89 @@ filtro é obrigatório lá.
 > e-mail do Znuny, falhando em silêncio desde sempre. Há quanto tempo respostas
 > de chamado deixaram de chegar aos clientes dele? Pode ser bem mais tempo do
 > que parece.
+
+
+---
+
+# Onda 4 — Configuração da plataforma (R11, R8, R12, R14)
+
+## A4.1 — A agenda recupera no máximo uma semana, e abre UM chamado por atividade
+
+**Assumimos** que o processador de atividades recorrentes: (a) ignora
+ocorrências mais velhas que 7 dias; (b) abre **um** chamado por atividade em
+cada execução, referente à ocorrência mais recente pendente.
+
+**Por quê.** As duas regras vieram de erros que o teste pegou antes do deploy.
+A primeira versão caminhava desde a data de início do cadastro — uma tarefa
+criada em janeiro e processada em agosto abriria, uma por vez, todas as
+segundas-feiras do período. A segunda versão limitou a janela, mas ainda
+deixava as ocorrências antigas pendentes, e elas voltavam a cada execução.
+
+A regra final: se três verificações de backup venceram, o técnico precisa de
+*um* chamado dizendo "verifique o backup", não de três idênticos. O trabalho é
+o mesmo.
+
+**Se ele discordar** — se quiser um chamado por ocorrência perdida —, muda o
+serviço, não o modelo: a tabela de ocorrências já registra cada data.
+
+**Custo de reverter:** baixo, localizado em `due_tasks`.
+
+**Chave:** `catch_up_days` é parâmetro do serviço (padrão 7); virar chave de
+ambiente é uma linha, se ele pedir.
+
+## A4.2 — Falha ao abrir o chamado NÃO é tentada de novo automaticamente
+
+**Assumimos** que, se a ocorrência foi marcada e a criação do chamado falhou, a
+linha fica com o erro registrado e **não** é retentada.
+
+**Por quê.** É a contrapartida honesta de gravar a marca antes de chamar o
+Znuny — que é o que impede a duplicata. Preferimos a falha visível (uma linha
+com erro, que a tela mostra) ao risco de abrir o mesmo chamado duas vezes para
+o técnico.
+
+**Se ele discordar:** dá para acrescentar retentativa com limite. Reprocessar
+hoje é apagar a linha de erro — ato deliberado.
+
+## A4.3 — Senha não entra por planilha; o importador gera e mostra uma vez
+
+**Assumimos** que uma coluna `password` no CSV é motivo para **recusar o
+arquivo inteiro**, com explicação, e que o importador gera uma senha por
+usuário devolvida uma única vez na tela.
+
+**Por quê.** Senha em planilha fica no disco de quem exportou, no anexo do
+e-mail que mandou o arquivo e no histórico do navegador de quem baixou. A
+alternativa (criar sem senha e mandar convite) depende de e-mail funcionando —
+o que só passou a valer na Onda 2 — e continua sendo o caminho melhor no
+futuro.
+
+**Se ele discordar:** dá para trocar por convite por e-mail agora que o SMTP
+existe. Custo médio (fluxo de convite + token).
+
+## A4.4 — O teto de dois níveis do catálogo é imposto, mas é uma chave (S1)
+
+**Assumimos** o teto de dois níveis, com recusa explícita ao criar o terceiro.
+
+**Por quê.** É a **suposição de maior risco da campanha**: ele descreveu o
+limite *do TIFLUX*, e pode ter sido a descrição de uma limitação que ele
+tolera, não um requisito dele. Impor um teto que ninguém pediu vira dívida.
+
+**Mitigação já construída:** `ZNUNY_SERVICE_MAX_DEPTH`. `2` é o padrão, `0`
+desliga por completo, `3` eleva. O teste roda nos três estados.
+
+**Custo de reverter:** uma variável de ambiente e recriar o sidecar.
+
+## A4.5 — Permissões granulares são opcionais; sem elas, tudo segue como antes
+
+**Assumimos** que o payload de permissões por grupo é **opcional** e que a
+ausência dele mantém o comportamento histórico (`rw`, que o Znuny trata como
+superconjunto).
+
+**Por quê.** Retrocompatibilidade sem bifurcação: nenhuma tela existente muda
+de comportamento, e a granularidade fica disponível para quem precisar da
+"estratégia de permissionamento" de 04:39 — um agente que LÊ a fila do
+financeiro sem poder mover chamado nela.
+
+**Cuidado que valeu código extra:** com permissão granular, um agente pode
+continuar "no grupo admin" e ainda assim perder o `rw` — o que tranca a
+instância exatamente como sair do grupo. O anti-lockout foi estendido para
+barrar os dois caminhos.

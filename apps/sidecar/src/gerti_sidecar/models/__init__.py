@@ -29,6 +29,7 @@ from gerti_sidecar.models.invoice import Invoice, InvoiceLine
 from gerti_sidecar.models.kb import KbArticle
 from gerti_sidecar.models.notification import Notification
 from gerti_sidecar.models.portal_user_role import PortalUserRole
+from gerti_sidecar.models.recurring_task import RecurringTask, RecurringTaskRun
 from gerti_sidecar.models.sync_cursor import ConsumptionSyncCursor
 from gerti_sidecar.models.tenant import Tenant
 from gerti_sidecar.models.tenant_branding import TenantBranding
@@ -70,6 +71,8 @@ __all__ = [
     "PaymentProviderAccount",
     "Plan",
     "PortalUserRole",
+    "RecurringTask",
+    "RecurringTaskRun",
     "ServiceCatalogItem",
     "SharedCreditPool",
     "Tenant",
