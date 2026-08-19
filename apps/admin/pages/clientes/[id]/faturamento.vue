@@ -99,6 +99,10 @@ const poolName = ref('')
 const poolAmount = ref(0)
 const savingPool = ref(false)
 
+// Erro só depois que a pessoa mexeu — ver o mesmo cuidado em /licencas.
+const touched = ref(false)
+watch(draft, () => { touched.value = true }, { deep: true })
+
 const chargeErrors = computed(() => validateCharge(draft.value))
 const chargeWarning = computed(() => timeWarning(draft.value))
 const total = computed(() => chargeTotal(draft.value))
@@ -359,7 +363,7 @@ const linkTarget = ref<Record<string, string>>({})
         icon="i-lucide-alert-triangle"
         :description="chargeWarning"
       />
-      <ul v-if="chargeErrors.length" class="mt-3 list-disc pl-5 text-sm text-error">
+      <ul v-if="touched && chargeErrors.length" class="mt-3 list-disc pl-5 text-sm text-error">
         <li v-for="err in chargeErrors" :key="err">{{ err }}</li>
       </ul>
 

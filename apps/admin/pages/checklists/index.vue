@@ -20,6 +20,10 @@ const description = ref('')
 const itemsText = ref('')
 const saving = ref(false)
 
+// Erro só depois que a pessoa mexeu — ver o mesmo cuidado em /licencas.
+const touched = ref(false)
+watch([name, itemsText], () => { touched.value = true })
+
 const errors = computed(() => validateTemplate(name.value, itemsText.value))
 const preview = computed(() => parseItems(itemsText.value))
 
@@ -100,7 +104,7 @@ async function deactivate(t: ChecklistTemplate) {
         {{ preview.length }} {{ preview.length === 1 ? 'item' : 'itens' }} —
         o técnico vai marcar um a um.
       </p>
-      <ul v-if="errors.length" class="mt-3 list-disc pl-5 text-sm text-error">
+      <ul v-if="touched && errors.length" class="mt-3 list-disc pl-5 text-sm text-error">
         <li v-for="err in errors" :key="err">{{ err }}</li>
       </ul>
 
