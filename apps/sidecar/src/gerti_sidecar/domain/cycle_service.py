@@ -40,12 +40,12 @@ from gerti_sidecar.models.enums import ContractType, CycleKind, CycleStatus, Glo
 def _service_units(rows: list[ConsumptionEvent]) -> int:
     """Quantos ATENDIMENTOS os eventos representam (T-R3.3).
 
-    Chamado distinto conta uma vez, por mais apontamentos que tenha. Evento
-    sem chamado (item de catálogo, deslocamento avulso) conta um cada.
+    Chamado distinto conta uma vez, por mais apontamentos que tenha.
+    Lançamento avulso (deslocamento, despesa) **não** consome o pacote: ele já
+    é cobrado à parte, e descontar um atendimento junto cobraria duas vezes
+    pela mesma coisa. Mesma regra de `ConsumptionService.balance`.
     """
-    tickets = {r.znuny_ticket_id for r in rows if r.znuny_ticket_id is not None}
-    loose = sum(1 for r in rows if r.znuny_ticket_id is None)
-    return len(tickets) + loose
+    return len({r.znuny_ticket_id for r in rows if r.znuny_ticket_id is not None})
 
 
 class CycleService:

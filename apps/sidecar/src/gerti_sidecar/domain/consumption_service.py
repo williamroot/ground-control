@@ -112,21 +112,18 @@ class ConsumptionService:
         #
         # Contar EVENTOS também estaria errado — um chamado com três
         # apontamentos de hora gera três eventos e continua sendo **um**
-        # atendimento. Daí o DISTINCT no chamado. Consumo avulso, sem chamado
-        # (item de catálogo, deslocamento), entra como uma unidade cada, pelo
-        # id do evento.
+        # atendimento. Daí o DISTINCT no chamado.
+        #
+        # **Lançamento avulso NÃO consome o pacote.** Um deslocamento é cobrado
+        # à parte, com valor próprio; se ele também baixasse um atendimento, o
+        # cliente pagaria os R$ 80 *e* perderia uma visita do pacote — cobrança
+        # em dobro pela mesma coisa. A verificação ao vivo da Onda 5 mostrou o
+        # saldo do AUR-PACOTE-2026 cair de 50 para 49 por causa de um
+        # deslocamento, e foi o que revelou a regra errada.
         consumed_count = await self.session.scalar(
-            select(
-                func.count(
-                    sa.distinct(
-                        func.coalesce(
-                            sa.cast(ConsumptionEvent.znuny_ticket_id, sa.Text),
-                            sa.literal("evento:") + sa.cast(ConsumptionEvent.id, sa.Text),
-                        )
-                    )
-                )
-            ).where(
+            select(func.count(sa.distinct(ConsumptionEvent.znuny_ticket_id))).where(
                 ConsumptionEvent.contract_id == contract_id,
+                ConsumptionEvent.znuny_ticket_id.is_not(None),
                 not_written_off,
             )
         )

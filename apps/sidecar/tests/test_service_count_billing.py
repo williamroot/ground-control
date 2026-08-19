@@ -133,10 +133,13 @@ async def test_one_ticket_with_many_work_entries_is_one_service(
 
 
 @pytest.mark.asyncio
-async def test_consumption_without_a_ticket_counts_as_one_each(
-    engine, app_session_factory, session
-):
-    """Item avulso (deslocamento, item de catálogo) não tem chamado e conta um."""
+async def test_an_extra_charge_does_not_eat_the_package(engine, app_session_factory, session):
+    """Deslocamento é cobrado à parte — não pode ainda baixar um atendimento.
+
+    A verificação ao vivo da Onda 5 pegou isto: o saldo do AUR-PACOTE-2026 caiu
+    de 50 para 49 por causa de um deslocamento de R$ 80. O cliente pagaria a
+    visita **e** perderia uma do pacote — cobrança em dobro pela mesma coisa.
+    """
     t, c = await _seed(session, initial_service_count=10)
     async with tenant_session_scope(t.id, factory=app_session_factory) as s:
         for i in range(2):
@@ -147,11 +150,12 @@ async def test_consumption_without_a_ticket_counts_as_one_each(
                     source_kind="travel",
                     source_ref=f"manual:{i}",
                     billable_minutes=0.0,
+                    billable_amount_brl=80.0,
                     recorded_by="ana",
                 )
             )
         bal = await ConsumptionService(s).balance(c.id)
-    assert bal.remaining == 8
+    assert bal.remaining == 10, "o lançamento avulso consumiu o pacote"
 
 
 # ── o fechamento calcula ────────────────────────────────────────────────────
