@@ -2093,3 +2093,44 @@ ssh gc "cd ~/ground-control && $DC up -d sidecar sidecar-worker admin && $DC ps"
 
 **Rollback.** A migration é aditiva (duas tabelas novas): voltar o código sem
 voltar o schema é seguro. `git checkout campanha/onda-5-financeiro` + rebuild.
+
+> **Status (2026-08-19): DEPLOYADO em staging e verificado ao vivo.** Branch
+> `campanha/onda-6-licenciamento`. Migration **0033** aplicada (`Exit 0`).
+>
+> **Provas ao vivo:**
+>
+> - **A16.1 — o quadrinho.** `GET /v1/admin/licensing/overview` devolve
+>   `seats_used/seats_total`, `tenants_total` e `contracts_active`, e os
+>   números batem com a contagem direta no banco.
+> - **A16.2 — recusa, não aviso.** Com 2 de 2 seats em uso, atribuir ao
+>   terceiro agente → **422** com a contagem na mensagem: *"não há licença
+>   disponível: 2 de 2 em uso"*. Reduzir o total abaixo do uso → **422**
+>   *"há 2 licenças em uso — revogue antes de reduzir"*.
+> - **A16.4 — módulo inventado.** `whatsapp` → **422** listando os
+>   disponíveis.
+> - **A16.3 — o caso da Georgia, pela URL direta.** Com o gate ligado:
+>   `william` (que tem `inventory`) → **200**; `georgia` (só `tickets`), na
+>   **mesma URL**, → **403** *"licença sem o módulo 'inventory'"*; e aprovar
+>   dispositivo → **403** também (gatear só a leitura deixaria a agente
+>   aprovar o que não vê).
+> - **A16.6 — a conexão da aplicação não lê licenciamento.** `psql -U
+>   gerti_sidecar` em `gerti.agent_license` e `gerti.platform_license` →
+>   **`permission denied for table`** nas duas. Imposto pelo banco, não pelo
+>   código.
+>
+> **Um defeito que só a execução ao vivo revelou — e que valia por quatro.**
+> O gate não ligava: `enforcement_enabled` seguia `false` com a variável
+> declarada no `.env.prod`. Causa: o bloco `environment:` do
+> `docker-compose.yml` lista cada variável **uma a uma**, e a chave não estava
+> lá. Auditando as demais, **quatro** chaves documentadas como "reverte com uma
+> variável de ambiente" estavam no mesmo estado — incluindo
+> `ZNUNY_SERVICE_MAX_DEPTH`, que é a suposição de maior risco da campanha
+> inteira. A promessa de reversibilidade barata era falsa para elas, e ninguém
+> teria descoberto até tentar mudar de ideia. Corrigido, e
+> `test_config_switches.py` confere os dois lados (a chave está no compose, e o
+> `Settings` a lê).
+>
+> **Estado deixado no staging:** o quadro começa **vazio** (`seats_total = 0`,
+> nenhuma licença) e `LICENSE_ENFORCEMENT_ENABLED` ausente do `.env.prod`
+> (= `false`). Número inventado num quadro que "impacta o faturamento" é pior
+> do que quadro vazio — quem preenche é a Gerti.

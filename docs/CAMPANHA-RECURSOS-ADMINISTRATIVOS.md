@@ -374,3 +374,26 @@ porque **todo teste de domínio usa um espião com `**kw`, que aceita qualquer
 argumento** — o dublê é mais permissivo que o original, e é por aí que passa o
 defeito. Entrou `test_gi_signature_conformance.py`, que lê da árvore sintática
 os argumentos que o serviço manda e confere contra a assinatura real.
+
+---
+
+### Onda 6 — Licenciamento (`campanha/onda-6-licenciamento`)
+
+| Tarefa | Estado | Evidência |
+|---|---|---|
+| T-R16.1 — modelar licenças e módulos | ✅ | Tabelas sem `tenant_id`, sem RLS, `REVOKE ALL ... FROM gerti_app` — `permission denied` provado ao vivo |
+| T-R16.2 — atribuir e revogar | ✅ | Sem seat livre → 422 **com a contagem**; reativar consome seat; editar módulos não |
+| T-R16.3 — o quadrinho | ✅ | Números batem com a contagem direta no banco |
+| T-R16.4 — módulos gateiam de verdade | ✅ | **403 na URL direta** do inventário, leitura e escrita |
+| T-R16.5 — telas de licenciamento | ✅ | Quadro, total contratado, atribuição e lista; avisa quando o gate está desligado |
+| T-R16.6 — MFA (investigação) | ✅ | `docs/decisions/0002-mfa.md`: o MFA mora no Znuny; três perguntas listadas antes de qualquer código |
+
+**O defeito que a onda encontrou e que valia por quatro.** O gate não ligava —
+`LICENSE_ENFORCEMENT_ENABLED` estava no `.env.prod` e não chegava ao container,
+porque o `environment:` do compose lista cada variável uma a uma. Auditando as
+demais, **quatro chaves documentadas como reversíveis por ambiente** estavam no
+mesmo estado, incluindo `ZNUNY_SERVICE_MAX_DEPTH` — a suposição de **maior
+risco** da campanha. Ou seja: a promessa que sustenta a disciplina inteira de
+suposições ("discordar custa uma variável, não um deploy") era falsa para
+quatro delas, e ninguém teria descoberto até tentar mudar de ideia.
+
