@@ -253,3 +253,37 @@ async def test_alias_does_not_cross_tenants(engine, app_session_factory, session
     async with tenant_session_scope(beta_id, factory=app_session_factory) as s:
         short = AURORA_ADMIN.split("@")[0]
         assert await resolve_role(s, short, AURORA_ADMIN) == PortalRole.helpdesk
+
+
+# ── Onda 5: a allowlist de papéis da sessão não pode ficar para trás ─────────
+
+
+def test_every_portal_role_survives_a_session_round_trip(monkeypatch):
+    """Papel novo no enum precisa atravessar a sessão, não virar help-desk.
+
+    Quando `approver` entrou (R7), a allowlist de `decode_session` ainda
+    listava só `admin` e `helpdesk`: todo aprovador era rebaixado em silêncio e
+    a decisão voltava 403 com o domínio inteiro correto. Este teste falha se
+    alguém acrescentar um papel ao enum e esquecer da sessão.
+    """
+    monkeypatch.setenv("SESSION_SECRET", "test-secret-32-chars-minimum-xxxx")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    get_settings.cache_clear()
+    st = get_settings()
+    for role in PortalRole:
+        token = sess.encode_session("11111111-1111-1111-1111-111111111111", "u", role.value, st)
+        decoded = sess.decode_session(token, st)
+        assert decoded is not None
+        assert decoded["role"] == role.value, f"o papel {role.value} foi rebaixado na sessão"
+
+
+def test_an_unknown_role_still_falls_back_to_helpdesk(monkeypatch):
+    """A defesa continua: papel que não existe no enum vira o menor privilégio."""
+    monkeypatch.setenv("SESSION_SECRET", "test-secret-32-chars-minimum-xxxx")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    get_settings.cache_clear()
+    st = get_settings()
+    token = sess.encode_session("11111111-1111-1111-1111-111111111111", "u", "superuser", st)
+    decoded = sess.decode_session(token, st)
+    assert decoded is not None
+    assert decoded["role"] == "helpdesk"

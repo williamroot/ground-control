@@ -282,5 +282,7 @@ def test_contract_type_in_is_a_closed_literal_matching_the_enum() -> None:
     )
     args = get_args(ContractTypeIn)
     assert set(args) == {e.value for e in ContractType}
-    assert len(args) == len(set(args)) == 6  # os seis tipos, sem repetição
+    # SETE tipos desde a Onda 5, quando o "livre" (D-D) entrou. O número é
+    # explícito de propósito: um tipo novo tem que passar por aqui.
+    assert len(args) == len(set(args)) == 7
     assert all(isinstance(a, str) for a in args)

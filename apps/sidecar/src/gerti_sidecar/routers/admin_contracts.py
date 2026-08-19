@@ -26,6 +26,11 @@ from gerti_sidecar.models.enums import ContractType
 
 router = APIRouter(prefix="/admin/tenants", tags=["admin"])
 
+# Catálogo FECHADO de tipos de contrato (R3). O teste-guarda
+# `test_contract_type_in_is_a_closed_literal_matching_the_enum` falha se este
+# literal e o enum divergirem — foi ele que forçou esta linha a existir quando
+# o tipo `free` entrou na Onda 5, em vez de o tipo novo ficar aceito no banco
+# e recusado na API, ou vice-versa.
 ContractTypeIn = Literal[
     "credit_brl",
     "credit_shared",
@@ -33,6 +38,9 @@ ContractTypeIn = Literal[
     "service_count",
     "closed_value",
     "saas_product",
+    # D-D (Onda 5): "livre" — cobrança sem contrato formal, preservando a
+    # invariante do #1C de que todo consumo pertence a algum contrato.
+    "free",
 ]
 
 
@@ -50,6 +58,12 @@ class NewContractBody(BaseModel):
     closing_period_months: int = 1
     billing_in_advance: bool = True
     accumulate_balance_between_cycles: bool = False
+    # D-Q / D-R (Onda 5) — sem estes campos aqui, as colunas existiriam no
+    # banco e seriam inalcançáveis pelo console.
+    billing_amount_period: Literal["month", "cycle"] = "month"
+    carry_over_cap_minutes: float | None = None
+    carry_over_cap_amount_brl: float | None = None
+    carry_over_expires_days: int | None = None
 
 
 class ContractOut(BaseModel):
@@ -104,6 +118,10 @@ async def create_contract(
         closing_period_months=body.closing_period_months,
         billing_in_advance=body.billing_in_advance,
         accumulate_balance_between_cycles=body.accumulate_balance_between_cycles,
+        billing_amount_period=body.billing_amount_period,
+        carry_over_cap_minutes=body.carry_over_cap_minutes,
+        carry_over_cap_amount_brl=body.carry_over_cap_amount_brl,
+        carry_over_expires_days=body.carry_over_expires_days,
     )
 
     # Escrita sob o papel RLS-subject, com app.current_tenant = tenant_uuid.

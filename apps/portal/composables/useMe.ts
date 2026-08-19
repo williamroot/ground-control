@@ -1,7 +1,9 @@
 // Sessão atual do portal (Spec #1H). Busca /api/portal/me UMA vez por request
 // (useAsyncData dedupe pela key 'me') — usado pela guarda global, pelo layout
 // (nav por papel) e pelas páginas. Retorna null quando não há sessão.
-export type PortalRole = 'admin' | 'helpdesk'
+// R7 (Onda 5) — `approver` entrou junto com a aprovação de chamados. Ele NÃO
+// é um admin reduzido: só decide pedidos, e não vê contratos nem faturas.
+export type PortalRole = 'admin' | 'helpdesk' | 'approver'
 
 export interface Me {
   tenant_id: string

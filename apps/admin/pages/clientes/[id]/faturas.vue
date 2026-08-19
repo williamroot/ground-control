@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { invoiceStatusColor, invoiceStatusLabel, moneyBRLFromCents } from '#shared/contracts'
+import { canCharge, canIssueNfe, chargeStatusLabel, nfeStatusLabel } from '#imports'
 
 // #1P — Gestão de faturas internas no console (agente Gerti). Lista as faturas
 // do cliente, gera uma a partir de um ciclo (cycle_id), marca paga / cancela.
@@ -22,6 +23,13 @@ interface InvoiceRow {
   currency: string
   subtotal_cents: number
   total_cents: number
+  // T-R15.5 — cobrança e nota no Asaas. Nulos enquanto a fatura só existe
+  // aqui dentro, que é o caso com ASAAS_ENABLED=false (o padrão).
+  asaas_payment_id?: string | null
+  asaas_charge_status?: string | null
+  bank_slip_url?: string | null
+  nfe_status?: string | null
+  nfe_pdf_url?: string | null
 }
 
 const { data: invoices, refresh, pending } = await useAsyncData(`admin-invoices-${tenantId}`, () =>
@@ -64,6 +72,33 @@ async function generate() {
   }
   finally {
     generating.value = false
+  }
+}
+
+const busy = ref<number | null>(null)
+
+/** Ações do Asaas: boleto, nota e releitura. Erro do sidecar é repassado. */
+async function asaasAction(inv: InvoiceRow, action: 'charge' | 'nfe' | 'refresh', ok: string) {
+  busy.value = inv.number
+  try {
+    await $fetch(`/api/admin/tenants/${tenantId}/invoices/${inv.number}/${action}`, {
+      method: 'POST',
+      body: {},
+    })
+    toast.add({ title: ok, color: 'success' })
+    await refresh()
+  }
+  catch (e) {
+    const err = e as { statusCode?: number, data?: { detail?: string } }
+    const msg = err.statusCode === 503
+      // 503 aqui é quase sempre a chave do Asaas ausente; dizer isso poupa
+      // o operador de abrir chamado achando que a fatura quebrou.
+      ? 'Asaas indisponível ou desligado (ASAAS_ENABLED / ASAAS_API_KEY).'
+      : err.data?.detail || 'Falha na operação.'
+    toast.add({ title: 'Não foi possível concluir', description: msg, color: 'error' })
+  }
+  finally {
+    busy.value = null
   }
 }
 
@@ -143,6 +178,7 @@ async function markVoid(inv: InvoiceRow) {
             <th class="px-4 py-2.5">Vencimento</th>
             <th class="px-4 py-2.5 text-right">Total</th>
             <th class="px-4 py-2.5">Status</th>
+            <th class="px-4 py-2.5">Cobrança</th>
             <th class="px-4 py-2.5 text-right">Ações</th>
           </tr>
         </thead>
@@ -164,7 +200,49 @@ async function markVoid(inv: InvoiceRow) {
               </UBadge>
             </td>
             <td class="px-4 py-3">
+              <div class="text-xs">
+                <p class="text-muted">{{ chargeStatusLabel(inv.asaas_charge_status) }}</p>
+                <p class="text-muted">{{ nfeStatusLabel(inv.nfe_status) }}</p>
+                <div class="mt-1 flex gap-2">
+                  <ULink v-if="inv.bank_slip_url" :to="inv.bank_slip_url" target="_blank" class="text-primary">
+                    Boleto
+                  </ULink>
+                  <ULink v-if="inv.nfe_pdf_url" :to="inv.nfe_pdf_url" target="_blank" class="text-primary">
+                    Nota
+                  </ULink>
+                </div>
+              </div>
+            </td>
+            <td class="px-4 py-3">
               <div class="flex justify-end gap-2">
+                <UButton
+                  v-if="canCharge(inv)"
+                  size="xs"
+                  variant="soft"
+                  icon="i-lucide-barcode"
+                  label="Emitir boleto"
+                  :loading="busy === inv.number"
+                  @click="asaasAction(inv, 'charge', `Boleto da fatura #${inv.number} emitido`)"
+                />
+                <UButton
+                  v-if="canIssueNfe(inv)"
+                  size="xs"
+                  variant="soft"
+                  icon="i-lucide-file-text"
+                  label="Emitir nota"
+                  :loading="busy === inv.number"
+                  @click="asaasAction(inv, 'nfe', `Nota da fatura #${inv.number} agendada`)"
+                />
+                <UButton
+                  v-if="inv.asaas_payment_id"
+                  size="xs"
+                  color="neutral"
+                  variant="ghost"
+                  icon="i-lucide-refresh-cw"
+                  label="Atualizar"
+                  :loading="busy === inv.number"
+                  @click="asaasAction(inv, 'refresh', 'Estado atualizado')"
+                />
                 <UButton
                   v-if="!isTerminal(inv.status)"
                   size="xs"

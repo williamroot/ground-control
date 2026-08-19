@@ -202,3 +202,56 @@ class AsaasClient:
     async def get_billing_info(self, payment_id: str) -> dict[str, Any]:
         """→ {bankSlip:{bankSlipUrl, barCode, identificationField}, ...} (boleto)."""
         return await self._request("GET", f"/payments/{payment_id}/billingInfo")
+
+    # --- Nota fiscal de serviço (T-R15.5) ---------------------------------
+    #
+    # A API de notas do Asaas é separada da de cobrança e depende de
+    # configuração FISCAL da conta — inscrição municipal, certificado digital,
+    # regime tributário e o serviço/alíquota do município. Sem isso a cobrança
+    # é aceita normalmente e só a emissão da nota falha, com erro do Asaas.
+    # Por isso o `schedule_invoice` erra alto em vez de engolir: nota fiscal
+    # que "sumiu" é problema contábil, não detalhe de integração.
+    async def schedule_invoice(
+        self,
+        *,
+        payment_id: str,
+        service_description: str,
+        value_cents: int,
+        deductions_cents: int = 0,
+        effective_date: str | None = None,
+        municipal_service_code: str | None = None,
+        municipal_service_name: str | None = None,
+        observations: str | None = None,
+        taxes: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Agenda a NFS-e de uma cobrança já criada. → {id, status, pdfUrl, ...}."""
+        body: dict[str, Any] = {
+            "payment": payment_id,
+            "serviceDescription": service_description,
+            "value": _cents_to_str(value_cents),
+            "deductions": _cents_to_str(deductions_cents),
+        }
+        if effective_date:
+            body["effectiveDate"] = effective_date
+        if municipal_service_code:
+            body["municipalServiceCode"] = municipal_service_code
+        if municipal_service_name:
+            body["municipalServiceName"] = municipal_service_name
+        if observations:
+            body["observations"] = observations
+        # `taxes` é obrigatório na API; o default zerado vale para o Simples
+        # Nacional, em que o ISS não é retido na nota. Município que exige
+        # retenção precisa dos valores reais — daí ser parâmetro.
+        body["taxes"] = taxes or {
+            "retainIss": False,
+            "iss": 0,
+            "cofins": 0,
+            "csll": 0,
+            "inss": 0,
+            "ir": 0,
+            "pis": 0,
+        }
+        return await self._request("POST", "/invoices", json=body)
+
+    async def get_invoice(self, invoice_id: str) -> dict[str, Any]:
+        return await self._request("GET", f"/invoices/{invoice_id}")

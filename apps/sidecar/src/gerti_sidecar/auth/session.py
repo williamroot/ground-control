@@ -65,8 +65,16 @@ def decode_session(token: str, settings: Settings) -> SessionPayload | None:
     ):
         return None
     # Token sem `role` (emitido antes do #1H, TTL em trânsito) ⇒ least-privilege.
+    #
+    # A allowlist sai do PRÓPRIO enum, não de uma tupla escrita à mão. A versão
+    # anterior listava `admin` e `helpdesk` literalmente, e quando `approver`
+    # entrou no enum (R7, Onda 5) todo aprovador era rebaixado a help-desk aqui,
+    # em silêncio: o domínio, a rota e a tela funcionavam, e a decisão voltava
+    # 403 sem que nada indicasse por quê. Papel desconhecido continua caindo
+    # para help-desk — a defesa é a mesma, só deixou de exigir que alguém
+    # lembre de editar dois lugares.
     role = data.get("role")
-    if role not in (PortalRole.admin.value, PortalRole.helpdesk.value):
+    if role not in {r.value for r in PortalRole}:
         role = PortalRole.helpdesk.value
     # Token sem `znuny_login` (emitido antes do #1F, TTL em trânsito) ⇒ fallback
     # para customer_login (comportamento correto para TechNova onde login == e-mail).

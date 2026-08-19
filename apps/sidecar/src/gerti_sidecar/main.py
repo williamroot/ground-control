@@ -21,8 +21,10 @@ from gerti_sidecar.routers import (
     admin_audit,
     admin_auth,
     admin_automation,
+    admin_billing_config,
     admin_branding,
     admin_catalog,
+    admin_charges,
     admin_contracts,
     admin_import,
     admin_invoices,
@@ -112,6 +114,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_recurring.router, prefix=settings.api_v1_prefix)
     app.include_router(admin_contracts.router, prefix=settings.api_v1_prefix)
     # Faturas internas — console gera/gerencia (Spec #1P).
+    app.include_router(admin_charges.router, prefix=settings.api_v1_prefix)
     app.include_router(admin_invoices.router, prefix=settings.api_v1_prefix)
     # Carga em lote por CSV (R8) — a migração do TIFLUX são 60 clientes.
     app.include_router(admin_import.router, prefix=settings.api_v1_prefix)
@@ -148,6 +151,8 @@ def create_app() -> FastAPI:
     app.include_router(admin_catalog.router, prefix=settings.api_v1_prefix)
     # Identidade visual editável (Spec #3 V4) — console, reusa tenant_branding.
     app.include_router(admin_branding.router, prefix=settings.api_v1_prefix)
+    # Configuração de faturamento por cliente (R6) + fila de aprovação (R7).
+    app.include_router(admin_billing_config.router, prefix=settings.api_v1_prefix)
     # Trilha de auditoria (Spec #3 V5) — console, cross-tenant, sem RLS.
     app.include_router(admin_audit.router, prefix=settings.api_v1_prefix)
     # Saúde do sistema (Spec #3 V6) — console, sondas com falha isolada.

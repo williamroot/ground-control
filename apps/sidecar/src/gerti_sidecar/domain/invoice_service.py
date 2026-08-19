@@ -18,16 +18,15 @@ Além do consumo, a fatura reflete o que foi **contratado** (T-R15.4):
   Ambos os números saem de `cycle.totals` (`CycleService.close`) — fonte única.
   Dentro da franquia não há linha de excedente (fatura zerada aí é legítima).
 
+- `service_count` → mesma forma de duas linhas, em **atendimentos**:
+  `Atendimentos do pacote` (dentro da franquia, R$ 0,00) e `Atendimentos
+  excedentes` (precificados pelo `unit_price_brl`). A unidade é o CHAMADO, não
+  o apontamento de hora (**T-R3.3**).
+
 Antes disso, só o consumo era somado — e o worker (`reconciliation_service`) só
 precifica tipos de crédito, então `hour_bank`/`closed_value`/`saas_product`
-faturavam R$ 0,00 sem erro nem alarme.
-
-**`service_count` continua faturando R$ 0,00 — de propósito, por ora.** Contrato
-por limite de atendimento não gera nenhuma linha aqui: não há mensalidade fixa
-(o tipo não exige `initial_amount_brl`) nem excedente calculado no fechamento, e
-o consumo desses contratos não é precificado pelo worker. Fazer `service_count`
-consumir e cobrar de verdade é a tarefa **T-R3.3 (Onda 5)**; até lá, a fatura
-desse tipo sai zerada e isso é conhecido, não um defeito silencioso.
+faturavam R$ 0,00 sem erro nem alarme; `service_count` faturava R$ 0,00 até a
+Onda 5, porque não tinha franquia, excedente nem consumo contado.
 
 Valores monetários da fatura ficam em centavos (int). billable_amount_brl (Numeric
 BRL) é convertido com arredondamento HALF_UP.
@@ -47,6 +46,7 @@ from sqlalchemy import CursorResult, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from gerti_sidecar.domain.contract_read_service import not_written_off_predicate
 from gerti_sidecar.domain.errors import (
     CycleNotClosable,
     InvoiceAlreadyExists,
@@ -61,7 +61,13 @@ from gerti_sidecar.models import (
     InvoiceLine,
     PortalUserRole,
 )
-from gerti_sidecar.models.enums import ContractType, CycleStatus, InvoiceStatus, PortalRole
+from gerti_sidecar.models.enums import (
+    ContractStatus,
+    ContractType,
+    CycleStatus,
+    InvoiceStatus,
+    PortalRole,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +78,8 @@ DEFAULT_DUE_DAYS = 15
 KIND_MONTHLY_FEE = "monthly_fee"
 KIND_HOUR_BANK_OVERAGE = "hour_bank_overage"
 KIND_HOUR_BANK_INCLUDED = "hour_bank_included"
+KIND_SERVICE_INCLUDED = "service_included"
+KIND_SERVICE_OVERAGE = "service_overage"
 
 # Tipos de contrato que faturam um valor fixo contratado por ciclo.
 _FIXED_FEE_TYPES = (ContractType.closed_value, ContractType.saas_product)
@@ -83,6 +91,8 @@ _KIND_LABELS = {
     KIND_MONTHLY_FEE: "Mensalidade",
     KIND_HOUR_BANK_INCLUDED: "Horas dentro da franquia",
     KIND_HOUR_BANK_OVERAGE: "Horas excedentes",
+    KIND_SERVICE_INCLUDED: "Atendimentos do pacote",
+    KIND_SERVICE_OVERAGE: "Atendimentos excedentes",
 }
 
 # Unidade exibida por source_kind.
@@ -92,6 +102,8 @@ _KIND_UNIT = {
     KIND_MONTHLY_FEE: "mês",
     KIND_HOUR_BANK_INCLUDED: "h",
     KIND_HOUR_BANK_OVERAGE: "h",
+    KIND_SERVICE_INCLUDED: "atendimento",
+    KIND_SERVICE_OVERAGE: "atendimento",
 }
 
 
@@ -114,19 +126,48 @@ def _hours(minutes: Decimal) -> Decimal:
     return (minutes / Decimal(60)).quantize(Decimal("0.01"))
 
 
-def _fixed_fee_lines(contract: Contract) -> list[_LineSpec]:
-    """Mensalidade contratada de closed_value/saas_product (1 por ciclo faturado).
+def cycle_months(cycle: ContractCycle) -> int:
+    """Quantos meses o ciclo cobre. Trimestral = 3.
+
+    Contagem por meses-calendário tocados, não por dias / 30: um ciclo de
+    01/01 a 31/03 são três meses, e 90 dias arredondados dariam o mesmo por
+    acidente — mas 01/02 a 30/04 (89 dias) também são três, e a divisão daria
+    dois. O contrato fala em meses, então contamos meses.
+    """
+    start, end = cycle.period_start, cycle.period_end
+    months = (end.year - start.year) * 12 + (end.month - start.month) + 1
+    return max(1, months)
+
+
+def _fixed_fee_lines(contract: Contract, cycle: ContractCycle) -> list[_LineSpec]:
+    """Mensalidade contratada de closed_value/saas_product.
 
     O valor vem de `contract.initial_amount_brl` — o único campo do modelo que
-    carrega o valor fixo contratado nesses dois tipos (exigido por
-    `contract_service._REQUIRED`, rotulado "Valor inicial (R$)" na UI).
+    carrega o valor fixo contratado nesses dois tipos.
+
+    **D-Q, decidido na Onda 5:** o valor contratado é interpretado como
+    MENSAL por padrão, então um ciclo trimestral emite quantidade 3. Antes
+    disso, a fatura de um contrato trimestral cobrava um mês — a Onda 0
+    registrou a dúvida e ela ficou aberta porque não havia gerador de ciclos
+    para tornar o erro observável. Contrato cotado por fechamento muda
+    `billing_amount_period` para `'cycle'` e volta a cobrar 1x.
+
+    **Contrato suspenso não fatura mensalidade.** Era a terceira dívida da
+    Onda 0: `suspended` cobrava o mês cheio. Consumo já registrado continua
+    sendo cobrado — o trabalho foi feito —, mas a assinatura de um serviço
+    suspenso, não.
     """
     if contract.type not in _FIXED_FEE_TYPES:
+        return []
+    if contract.status != ContractStatus.active:
         return []
     amount = Decimal(str(contract.initial_amount_brl or 0))
     if amount <= 0:
         return []
-    return [_LineSpec(kind=KIND_MONTHLY_FEE, quantity=Decimal(1), amount_brl=amount)]
+    quantity = (
+        Decimal(cycle_months(cycle)) if contract.billing_amount_period == "month" else Decimal(1)
+    )
+    return [_LineSpec(kind=KIND_MONTHLY_FEE, quantity=quantity, amount_brl=amount * quantity)]
 
 
 def _franchise_minutes(contract: Contract, cycle: ContractCycle) -> Decimal | None:
@@ -155,6 +196,11 @@ def _consumption_lines(
     linha de excedente (`_overage_lines`). Assim consumo + excedente somam
     exatamente o consumido; sem o recorte, o cliente lia as horas duas vezes.
     """
+    if contract.type == ContractType.service_count:
+        # A fatura de um pacote de atendimentos é contada em atendimentos. As
+        # horas continuam registradas no consumo (e aparecem no relatório), mas
+        # cobrar hora aqui misturaria duas unidades na mesma fatura.
+        return _service_count_lines(cycle)
     franchise_left = _franchise_minutes(contract, cycle)
     specs: list[_LineSpec] = []
     for kind, bucket in agg.items():
@@ -175,6 +221,35 @@ def _consumption_lines(
         # quantity em horas p/ kinds medidos em tempo; senão 1 (nº de eventos como proxy).
         quantity = _hours(bucket["minutes"]) if unit == "h" else Decimal(1)
         specs.append(_LineSpec(kind=kind, quantity=quantity, amount_brl=bucket["amount"]))
+    return specs
+
+
+def _service_count_lines(cycle: ContractCycle) -> list[_LineSpec]:
+    """Linhas de um contrato por pacote de atendimentos (T-R3.3).
+
+    Fonte única: o snapshot do fechamento (`CycleService.close`), pelo mesmo
+    motivo do banco de horas — recalcular aqui divergiria do que foi fechado.
+    Ciclo sem `totals` (fechado por versão anterior à Onda 5) não gera linha:
+    é melhor uma fatura vazia e explicável do que um número inventado agora
+    sobre um fechamento que não contou atendimento nenhum.
+    """
+    totals = cycle.totals or {}
+    if "consumed_services" not in totals:
+        return []
+    consumed = Decimal(str(totals.get("consumed_services") or 0))
+    franchise = Decimal(str(totals.get("franchise_services") or 0))
+    overage_qty = Decimal(str(totals.get("overage_services") or 0))
+    overage_amount = Decimal(str(totals.get("overage_amount_brl") or 0))
+    specs: list[_LineSpec] = []
+    included = min(consumed, franchise)
+    if included > 0:
+        specs.append(
+            _LineSpec(kind=KIND_SERVICE_INCLUDED, quantity=included, amount_brl=Decimal(0))
+        )
+    if overage_qty > 0:
+        specs.append(
+            _LineSpec(kind=KIND_SERVICE_OVERAGE, quantity=overage_qty, amount_brl=overage_amount)
+        )
     return specs
 
 
@@ -222,6 +297,17 @@ class InvoiceService:
                         ConsumptionEvent.contract_id == contract.id,
                         ConsumptionEvent.occurred_at >= start,
                         ConsumptionEvent.occurred_at <= end,
+                        # GLOSA APROVADA NÃO ENTRA NA FATURA. Dívida grave
+                        # registrada na Onda 0: o fechamento do ciclo já
+                        # excluía o glosado, mas a fatura agregava por janela
+                        # de data e cobrava assim mesmo. Ou seja: o cliente
+                        # contestava 2 h, o gestor aprovava a glosa, e a
+                        # cobrança saía com as 2 h dentro.
+                        #
+                        # A regra é a MESMA de `balance()` e da série —
+                        # centralizada em `not_written_off_predicate()`, nunca
+                        # reescrita aqui (o `NULL NOT IN (..)` é armadilha).
+                        not_written_off_predicate(),
                     )
                     .order_by(ConsumptionEvent.occurred_at.asc(), ConsumptionEvent.id.asc())
                 )
@@ -265,7 +351,7 @@ class InvoiceService:
             raise InvoiceAlreadyExists("ciclo já possui fatura") from exc
 
         # Ordem da fatura: mensalidade contratada → consumo → excedente do ciclo.
-        specs: list[_LineSpec] = _fixed_fee_lines(contract)
+        specs: list[_LineSpec] = _fixed_fee_lines(contract, cycle)
         specs.extend(_consumption_lines(contract, cycle, agg))
         specs.extend(_overage_lines(contract, cycle))
 

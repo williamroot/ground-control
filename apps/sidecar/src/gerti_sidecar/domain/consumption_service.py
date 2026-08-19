@@ -26,6 +26,9 @@ class RecordConsumption:
     webhook_event_id: uuid.UUID | None = None
     billable_amount_brl: float = 0.0
     service_id: uuid.UUID | None = None
+    # T-R3.3: chamado de origem, quando o consumo nasce de um. É o que torna
+    # `service_count` contável — ver `ConsumptionService.balance`.
+    znuny_ticket_id: int | None = None
 
 
 @dataclasses.dataclass(slots=True)
@@ -64,6 +67,7 @@ class ConsumptionService:
             unit_price_at_event=contract.unit_price_brl,
             recorded_by=data.recorded_by,
             webhook_event_id=data.webhook_event_id,
+            znuny_ticket_id=data.znuny_ticket_id,
         )
         self.session.add(ev)
         await self.session.flush()
@@ -100,17 +104,48 @@ class ConsumptionService:
                 not_written_off,
             )
         )
+        # T-R3.3 — ATENDIMENTOS, contados por CHAMADO DISTINTO.
+        #
+        # Antes desta onda esta contagem filtrava `source_kind == 'service_item'`,
+        # um kind que nada no sistema jamais gravou: o saldo de todo contrato
+        # `service_count` ficava eternamente cheio e a fatura saía R$ 0,00.
+        #
+        # Contar EVENTOS também estaria errado — um chamado com três
+        # apontamentos de hora gera três eventos e continua sendo **um**
+        # atendimento. Daí o DISTINCT no chamado.
+        #
+        # **Lançamento avulso NÃO consome o pacote.** Um deslocamento é cobrado
+        # à parte, com valor próprio; se ele também baixasse um atendimento, o
+        # cliente pagaria os R$ 80 *e* perderia uma visita do pacote — cobrança
+        # em dobro pela mesma coisa. A verificação ao vivo da Onda 5 mostrou o
+        # saldo do AUR-PACOTE-2026 cair de 50 para 49 por causa de um
+        # deslocamento, e foi o que revelou a regra errada.
         consumed_count = await self.session.scalar(
-            select(func.count()).where(
+            select(func.count(sa.distinct(ConsumptionEvent.znuny_ticket_id))).where(
                 ConsumptionEvent.contract_id == contract_id,
+                ConsumptionEvent.znuny_ticket_id.is_not(None),
                 not_written_off,
-                ConsumptionEvent.source_kind == "service_item",
             )
         )
         if contract.type == ContractType.hour_bank:
             initial = float(contract.initial_hours or 0)
             return Balance("hours", initial - float(consumed_min or 0) / 60.0)
         if contract.type in (ContractType.credit_brl, ContractType.credit_shared):
+            # T-R3.2 — bolsa compartilhada: o saldo é do GRUPO.
+            #
+            # Contrato ligado a uma bolsa não tem saldo próprio; ele consome do
+            # bolo que a matriz comprou. Até a Onda 4 `credit_shared` se
+            # comportava como `credit_brl` — cada filial via a bolsa inteira
+            # como se fosse só dela, e o cliente podia gastar (nº de filiais)
+            # vezes o que comprou.
+            if contract.shared_pool_id is not None:
+                # Import local, e não no topo: `shared_pool_service` importa
+                # `contract_read_service`, que importa este módulo. No topo
+                # seria ciclo de import.
+                from gerti_sidecar.domain.shared_pool_service import SharedPoolService
+
+                pool = await SharedPoolService(self.session).balance(contract.shared_pool_id)
+                return Balance("brl", pool.remaining_brl)
             initial = float(contract.initial_amount_brl or 0)
             return Balance("brl", initial - float(consumed_brl or 0))
         if contract.type == ContractType.service_count:

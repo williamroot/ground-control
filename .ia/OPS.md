@@ -1963,3 +1963,110 @@ voltar o schema é seguro. `git checkout campanha/onda-2-email` + rebuild.
 >
 > **Limpeza:** chamado e atividade descartáveis apagados; `recurring_task`
 > voltou a zero.
+
+### Deploy da Onda 5 — financeiro e fluxo (profile `gerti`)
+
+Onda 5 da campanha (R3 restante · R15 · R6 · R7). **Uma migration nova (0032).**
+O contrato do `GertiTicket.yml` **não** mudou — o `State` é campo novo de
+payload da `TicketCreate` existente —, então não há reimportação de webservice.
+
+**Chaves relevantes.** Nenhuma nova obrigatória. `ASAAS_ENABLED` (padrão
+`false`) e `ASAAS_API_KEY` continuam sendo o que separa o boleto/NF-e de
+existirem: desligados, a emissão responde **503 dizendo que está desligada**,
+em vez de falhar torto. A nota fiscal ainda depende de configuração **fiscal**
+da conta Asaas (inscrição municipal, certificado, regime, serviço/alíquota) —
+sem isso o Asaas aceita a cobrança e recusa a nota.
+
+**Passo de provisionamento novo:** `ensure-approval-state.pl` cria o estado
+`aguardando aprovacao` (tipo `pending reminder`, para o relógio de SLA não
+correr enquanto o cliente decide). Idempotente; roda no entrypoint.
+
+```bash
+ssh gc 'cd ~/ground-control && git fetch origin && git checkout campanha/onda-5-financeiro && git pull'
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+
+# 1) Znuny: rebuild (TicketCreate aceitando State + o script do estado novo).
+ssh gc "cd ~/ground-control && $DC build znuny-web && $DC up -d znuny-web znuny-daemon"
+
+# 2) migration 0032, ANTES do app (invariante 8):
+ssh gc "cd ~/ground-control && $DC build sidecar admin portal"
+ssh gc "cd ~/ground-control && $DC up -d sidecar-migrate && $DC ps -a sidecar-migrate"  # Exit (0)
+ssh gc "cd ~/ground-control && $DC up -d sidecar sidecar-worker admin portal && $DC ps"
+```
+
+**Rollback.** A migration é aditiva (duas tabelas novas + colunas): voltar o
+código sem voltar o schema é seguro. `git checkout campanha/onda-4-configuracao`
++ rebuild. Os valores de enum `free` e `approver` **permanecem** — remover
+valor de enum no Postgres exige recriar o tipo e reescrever toda coluna que o
+referencia, o que num rollback de emergência é pior que o valor órfão.
+
+**Como conferir a sessão de agente por dentro do container** (o cookie
+`gsid_adm` é `Secure`, então o `curl` não o devolve em `http://127.0.0.1`;
+extraia o valor e mande explícito):
+
+```bash
+TOK=$(curl -fsS -i -X POST -H 'content-type: application/json' -H 'host: gerti.was.dev.br' \
+  -d '{"login":"william","password":"..."}' \
+  http://127.0.0.1:8001/v1/admin/auth/login | grep -i '^set-cookie: gsid_adm' \
+  | sed 's/.*gsid_adm=\([^;]*\).*/\1/' | tr -d '\r')
+curl -fsS -H 'host: gerti.was.dev.br' -H "cookie: gsid_adm=$TOK" http://127.0.0.1:8001/v1/admin/tenants
+```
+
+> **Status (2026-08-19): DEPLOYADO em staging e verificado ao vivo.** Branch
+> `campanha/onda-5-financeiro`. Migration **0032** aplicada (`Exit 0`).
+>
+> **Provas ao vivo (tenant Aurora, `5effe6fd…`):**
+>
+> - **T-R3.3 — a fatura do pacote deixou de sair zerada.** Contrato de prova
+>   com pacote de 3 e unitário R$ 150; **6 apontamentos em 5 chamados** e um
+>   deslocamento. Saldo = **−2** (o chamado repetido contou uma vez; o
+>   deslocamento não contou). Fechamento: `consumidos=5 franquia=3
+>   excedente=2`. **Fatura = R$ 300,00**, em duas linhas — `Atendimentos do
+>   pacote: 3 × R$ 0,00` e `Atendimentos excedentes: 2 = R$ 300,00`. Antes
+>   desta onda essa mesma fatura saía **R$ 0,00**.
+> - **T-R15.2 — contrato livre.** Criado sem nenhum valor inicial; um
+>   lançamento de R$ 250 gerou fatura de **R$ 250,00**.
+> - **T-R15.3 — lançamentos avulsos.** Sem descrição → **422** ("descreva o
+>   lançamento — ele vai aparecer na fatura do cliente"); tipo desconhecido →
+>   **422** listando os aceitos; válido `2 × R$ 80` → **201** com R$ 160.
+> - **T-R3.2 — bolsa compartilhada.** Bolsa de R$ 10.000 criada, contrato
+>   `credit_shared` ligado; banco de horas na mesma bolsa → **422** explicando
+>   por quê.
+> - **T-R15.5 — cobrança.** Com Asaas desligado, emitir boleto de fatura
+>   zerada → **422** "fatura sem valor"; o caminho de recusa por configuração
+>   responde 503 dizendo que está desligado.
+> - **R7 — aprovação, ponta a ponta.** Chave ligada pelo console (200) →
+>   chamado aberto pelo portal volta `"approval":"pending"` → a fila lista o
+>   chamado → help-desk decidindo **403** → reprovar sem motivo **422** →
+>   aprovador aprovando **200** → segunda decisão **409**. E o **histórico do
+>   Znuny** prova o que mais importa: o chamado nasceu em `aguardando
+>   aprovacao` e a aprovação o moveu para `open` — não foi criado-e-escondido.
+>
+> **Três defeitos que só a execução ao vivo revelou, corrigidos e redeployados:**
+>
+> 1. **Abrir chamado com aprovação ligada dava 500.**
+>    `create_ticket() got an unexpected keyword argument 'state'` — o serviço
+>    passou a mandar o estado inicial e o parâmetro nunca foi acrescentado à
+>    função de verdade. **793 testes verdes não pegaram** porque todo teste de
+>    domínio usa um espião com `**kw`, que aceita qualquer coisa. Além da
+>    correção, entrou um teste de **conformidade de assinatura** que lê da
+>    árvore sintática o que o serviço manda e confere contra a função real.
+> 2. **Lançamento avulso consumia o pacote de atendimentos** — o saldo caía de
+>    50 para 49 por causa de um deslocamento de R$ 80, ou seja, o cliente
+>    pagaria a visita *e* perderia uma do pacote.
+> 3. **A aba de faturamento não conversava com a API** — a tela lia
+>    `email_to`/`sms_to` e o sidecar devolve `billing_email`/`billing_phone`;
+>    e mandava o objeto inteiro no PUT, incluindo o campo de leitura
+>    `sms_simulated`, que o schema (`extra="forbid"`) recusaria por completo.
+>
+> Além deles, dois defeitos foram pegos **pelos próprios testes desta onda**,
+> antes do deploy: `GET /v1/tickets/approvals` declarada depois de
+> `/{ticket_id}` (o FastAPI casava com a rota do chamado e devolvia 422 — a
+> fila do portal nunca carregaria), e `decode_session` com uma allowlist de
+> papéis escrita à mão, que rebaixava `approver` a help-desk em silêncio.
+>
+> **Limpeza:** contratos, ciclos, faturas, eventos e bolsa de prova removidos;
+> chamado descartável apagado (`Maint::Ticket::Delete`); `approval_required` da
+> Aurora de volta a `false`. O `consumption_event` é append-only por trigger —
+> a remoção exigiu desligar `trg_consumption_event_append_only` **dentro da
+> mesma transação** que o religa (conferido: `tgenabled='O'` depois).

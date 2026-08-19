@@ -750,3 +750,65 @@ dizem "Invalidar", não "Excluir".
 `/agents[/{id}[/groups]]` · `/groups` · `/calendar` — todos sob `get_admin_session`.
 Telas em `/znuny/filas`, `/sla`, `/servicos`, `/classificacao`, `/classes-ci`,
 `/agentes`, `/calendario`.
+
+## Onda 5 — financeiro e fluxo de aprovação
+
+### O saldo acumulado deixou de ser um número
+
+Até a Onda 4, `cycle.totals.carry_over` era um único float. Isso bastava
+enquanto o acúmulo era ilimitado, e deixou de bastar no instante em que a
+**validade** entrou (D-R): o acúmulo é em **cadeia** — o saldo do ciclo N já
+embute o de N-1 —, e a cadeia **apaga a data de origem**. Com um número só,
+todo saldo pareceria ter nascido no último fechamento e nunca venceria.
+
+O saldo passou a ser uma lista de **baldes datados** em
+`cycle.totals.carry_buckets` (`[{amount, earned_on}]`), com a regra isolada e
+testada em `domain/carry_over.py` (módulo puro, sem banco). Consumo é **FIFO**
+(gasta o que vence antes) e, quando o teto corta, **sobrevive o mais novo** (o
+de maior vida útil). O que expira e o que o teto descarta ficam registrados no
+snapshot (`carry_expired`, `carry_capped`) — saldo que some sem explicação
+vira discussão com o cliente sem resposta.
+
+Ciclo fechado antes desta onda tem só o número: ele é lido como **um balde
+datado no fim daquele ciclo**, senão ligar a validade apagaria o saldo
+histórico de todos os clientes de uma vez.
+
+### `service_count` conta chamados, não eventos
+
+O evento de consumo ganhou `znuny_ticket_id`. `source_ref` não servia para
+contar: ele aponta para o **artigo** sempre que existe um, e o id do chamado se
+perde. A unidade é o chamado — três apontamentos de hora no mesmo chamado são
+**um** atendimento. Lançamento avulso (deslocamento, despesa) **não** consome o
+pacote: já é cobrado à parte, e descontar junto cobraria duas vezes.
+
+### Lançamento avulso é `consumption_event`, não tabela nova
+
+Não é economia de esquema. É o que faz o lançamento herdar de graça o que já
+existe em volta do consumo: RLS por tenant, **glosa** (o cliente pode contestar
+um deslocamento), fechamento de ciclo, série de consumo, relatório e fatura.
+Uma tabela paralela teria de reimplementar as seis coisas, e a primeira
+esquecida seria a glosa.
+
+### Aprovação: estado real no Znuny, não um chamado escondido
+
+Com `tenant.approval_required`, o chamado nasce no Znuny em
+`aguardando aprovacao`, criado pelo `ensure-approval-state.pl` (idempotente) com
+tipo **`pending reminder`**. Os dois efeitos são deliberados: um agente não pega
+o chamado antes da autorização, e o **relógio de SLA não corre** enquanto o
+cliente decide — quem demora a aprovar não queima o SLA da Gerti.
+
+`gerti.ticket_approval` tem `UNIQUE(tenant_id, znuny_ticket_id)`: a decisão é
+única, e a segunda chamada é **409**, nunca sobrescrita silenciosa.
+
+### Boleto e nota: a fatura interna vira cobrança
+
+`gerti.invoice` ganhou o vínculo com o Asaas (`asaas_payment_id` com índice
+único parcial, `bank_slip_url`, `nfe_id`, `nfe_status`). O boleto é idempotente
+por construção — boleto duplicado é o cliente pagando duas vezes. A nota é uma
+**ação separada** sobre a cobrança já existente, porque a NFS-e do Asaas pendura
+num `payment`: emitir o boleto por baixo ao pedir a nota faria alguém cobrar o
+cliente sem saber.
+
+O webhook dá baixa pelo `asaas_payment_id`, que é globalmente único — busca
+global **legítima** (o webhook chega sem sessão e sem subdomínio), e o
+`tenant_id` sai da fatura encontrada, nunca do corpo do webhook.

@@ -57,6 +57,11 @@ class ConsumptionEvent(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     webhook_event_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    # T-R3.3: chamado de origem. `source_ref` não serve para isso — ele aponta
+    # para o ARTIGO quando existe um, e contratos `service_count` cobram por
+    # chamado. NULL em evento anterior à Onda 5 e em consumo que não nasce de
+    # chamado (item de catálogo, deslocamento avulso).
+    znuny_ticket_id: Mapped[int | None] = mapped_column(BigInteger)
 
 
 class Glosa(Base):

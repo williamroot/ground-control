@@ -307,9 +307,9 @@ surpresa depois.
 
 | Achado | Gravidade | Onde | Onda |
 |---|---|---|---|
-| **`service_count` ainda fatura R$ 0,00.** A onda corrigiu 3 dos 4 tipos zerados; contrato por limite de atendimento continua sem cobrança porque nenhum produtor gera evento desse tipo. Existe contrato assim no seed do staging (`AUR-PACOTE-2026`, 50 serviços a R$ 150) — fechar o ciclo dele hoje gera fatura zerada | alto | `invoice_service.py`, `reconciliation_service.py` | **T-R3.3, Onda 5** |
-| **Glosa aprovada não abate a fatura.** `create_from_cycle` agrega por janela de data, sem excluir glosa aprovada nem filtrar por `closing_cycle_id` — ao contrário do fechamento do ciclo, que exclui. Cliente contesta 2 h, gestor aprova, e a fatura cobra assim mesmo | alto (pré-existente) | `invoice_service.py` | **Onda 5** |
-| **Mensalidade sem checar status, sem proporção e sem olhar o tamanho do ciclo.** Contrato `suspended` cobra mês cheio; contrato assinado dia 25 cobra o mês inteiro; ciclo trimestral cobra **um** mês | médio | `invoice_service.py` | **Onda 5**, junto de D-Q |
+| ~~**`service_count` ainda fatura R$ 0,00.**~~ **QUITADA na Onda 5.** A unidade passou a ser o CHAMADO (o evento de consumo ganhou `znuny_ticket_id`); o fechamento calcula franquia e excedente; a fatura tem duas linhas em atendimentos. Provado ao vivo: pacote de 3, 5 chamados → **R$ 300,00** onde antes saía R$ 0,00 | alto | `invoice_service.py`, `cycle_service.py`, `consumption_service.py` | ✅ **T-R3.3, Onda 5** |
+| ~~**Glosa aprovada não abate a fatura.**~~ **QUITADA na Onda 5.** A regra ficou centralizada em `not_written_off_predicate()` — a mesma do saldo e da série, nunca reescrita (o `NULL NOT IN (..)` é armadilha) | alto (pré-existente) | `invoice_service.py` | ✅ **Onda 5** |
+| ~~**Mensalidade sem checar status e sem olhar o tamanho do ciclo.**~~ **QUITADA na Onda 5** (D-Q). Suspenso não cobra mensalidade; ciclo trimestral cobra 3× quando o valor é mensal. **Fica em aberto** a proporção por dias: contrato assinado dia 25 ainda cobra o mês inteiro — ninguém pediu pro-rata, e inventá-la mudaria valor sem decisão | médio | `invoice_service.py` | ✅ **Onda 5** (pro-rata segue aberta) |
 | Corpo de escrita do admin sem schema Pydantic e auditoria copiando o corpo bruto (sem teto de tamanho) | baixo (pré-existente) | `routers/admin_znuny.py` | **Onda 4** |
 | `ReplyBody.body` sem `max_length` (o CSAT já tem limite e truncagem) | baixo (pré-existente) | `routers/tickets.py` | **Onda 4** |
 | Guarda de posse compara login byte a byte, enquanto a lista compara sem diferenciar caixa. Não achamos caminho para o dono legítimo cair no 404 — caixa errada morre antes, no 401 — mas alinhar seria mais coerente | observação | `TicketGet.pm`, `TicketReply.pm` | **Onda 2** |
@@ -319,7 +319,9 @@ surpresa depois.
 
 ## Decisões novas abertas pela execução
 
-**D-R — o saldo acumulado entre ciclos tem teto e validade?** Ao corrigir a cobrança
+**D-R — o saldo acumulado entre ciclos tem teto e validade?** — **RESPONDIDA POR SUPOSIÇÃO na Onda 5** (A5.2): teto e validade passam a existir como três colunas do contrato, e o **padrão nulo mantém o comportamento de hoje** (ilimitado, sem prazo). Implementar a validade obrigou a trocar o número único por **baldes datados**, porque a cadeia do acúmulo apaga a data de origem. Pergunta original abaixo, para validar com ele.
+
+ Ao corrigir a cobrança
 indevida, o acúmulo foi implementado **ilimitado e sem expiração**. Contratos reais de MSP
 costumam ter cap (por exemplo, acumula no máximo uma franquia) ou prazo (saldo de janeiro
 expira em 90 dias). Nada disso está modelado — não há coluna de teto nem de validade em
@@ -331,8 +333,44 @@ para usar?"*
 
 
 
-**D-Q — mensalidade de contrato de valor fixo é por ciclo ou por mês?** Surgiu ao corrigir a
+**D-Q — mensalidade de contrato de valor fixo é por ciclo ou por mês?** — **RESPONDIDA POR SUPOSIÇÃO na Onda 5** (A5.1): assumimos **mensal**, com `billing_amount_period` por contrato para quem cotou por fechamento. Pergunta original abaixo, para validar com ele.
+
+ Surgiu ao corrigir a
 fatura: `initial_amount_brl` é semanticamente sobrecarregado (saldo consumível nos contratos
 de crédito, mensalidade nos de valor fixo). Hoje é inobservável — não existe gerador de
 ciclos —, mas **bloqueia a Onda 5**. Detalhe e a pergunta pronta para o Kleber estão no
 registro de decisões do plano.
+
+---
+
+### Onda 5 — Financeiro e fluxo (`campanha/onda-5-financeiro`)
+
+| Tarefa | Estado | Evidência |
+|---|---|---|
+| T-R3.3 — `service_count` consome e cobra | ✅ | Ao vivo: pacote de 3, 5 chamados → **fatura R$ 300,00** (antes R$ 0,00) |
+| T-R3.2 — bolsa de crédito compartilhada | ✅ | Duas filiais na mesma bolsa veem **um** saldo; banco de horas na bolsa → 422 |
+| D-Q — mensalidade por mês ou por ciclo | ✅ | Coluna `billing_amount_period`, testada nos dois estados |
+| D-R — teto e validade do saldo | ✅ | Três colunas; baldes datados; expiração e teto registrados no fechamento |
+| T-R15.2 — cobrança sem contrato formal | ✅ | Contrato `free` criado sem valor inicial; fatura de R$ 250 ao vivo |
+| T-R15.3 — lançamentos avulsos | ✅ | Deslocamento/hora extra/despesa como `consumption_event`, com glosa herdada |
+| T-R15.5 — boleto e NF-e pelo Asaas | ✅ | Idempotentes; baixa pelo webhook; NF-e exige o boleto antes |
+| R6 — aba de faturamento no console | ✅ | Avisos, lançamentos, bolsas e a chave de aprovação numa tela |
+| R7 — aprovação de chamados | ✅ | Ponta a ponta ao vivo; histórico do Znuny prova o estado de espera real |
+
+**Dois defeitos pegos pelos próprios testes desta onda, antes do deploy:**
+`GET /v1/tickets/approvals` declarada depois de `/{ticket_id}` (o FastAPI
+casaria com a rota do chamado e devolveria 422 — a fila do portal nunca
+carregaria), e `decode_session` com allowlist de papéis escrita à mão, que
+rebaixava `approver` a help-desk **em silêncio**, fazendo a decisão voltar 403
+com o domínio inteiro correto.
+
+**Três defeitos que só a execução ao vivo revelou:** abrir chamado com
+aprovação ligada dava 500 (`create_ticket` não aceitava `state`); lançamento
+avulso consumia o pacote de atendimentos (cobrança em dobro); e a aba de
+faturamento lia campos com nomes que a API não devolve.
+
+**A lição que virou teste permanente.** O 500 atravessou 793 testes verdes
+porque **todo teste de domínio usa um espião com `**kw`, que aceita qualquer
+argumento** — o dublê é mais permissivo que o original, e é por aí que passa o
+defeito. Entrou `test_gi_signature_conformance.py`, que lê da árvore sintática
+os argumentos que o serviço manda e confere contra a assinatura real.

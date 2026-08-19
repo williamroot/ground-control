@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
@@ -65,6 +66,17 @@ class Contract(Base):
     billing_period_months: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     closing_period_months: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     billing_in_advance: Mapped[bool] = mapped_column(nullable=False, server_default="true")
+    # D-Q (Onda 5): o valor contratado é mensal ou por fechamento? Coluna, não
+    # constante — contratos de MSP diferem entre si. 'month' = ciclo trimestral
+    # cobra 3x; 'cycle' = cobra 1x. Ver a migration 0032.
+    billing_amount_period: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'month'")
+    )
+    # D-R (Onda 5): teto e validade do saldo acumulado. NULO = ilimitado, que
+    # é o comportamento de hoje e segue sendo o padrão.
+    carry_over_cap_minutes: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    carry_over_cap_amount_brl: Mapped[float | None] = mapped_column(Numeric(14, 2))
+    carry_over_expires_days: Mapped[int | None] = mapped_column(Integer)
     accumulate_balance_between_cycles: Mapped[bool] = mapped_column(
         nullable=False, server_default="false"
     )

@@ -95,6 +95,13 @@ async function logout() {
             :class="isActive('/faturas') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
             :style="isActive('/faturas') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
           >Faturas</NuxtLink>
+          <NuxtLink
+            v-if="role === 'admin' || role === 'approver'"
+            to="/aprovacoes"
+            class="rounded-lg px-3 py-1.5 text-sm font-medium transition"
+            :class="isActive('/aprovacoes') ? 'text-highlighted' : 'text-muted hover:text-highlighted'"
+            :style="isActive('/aprovacoes') ? { background: 'color-mix(in srgb, var(--brand-primary) 12%, transparent)' } : {}"
+          >Aprovações</NuxtLink>
 
           <!-- Spec #3: liberadas a QUALQUER papel autenticado (não são
                admin-only) — ver predicado adminOnly em middleware/auth.ts.

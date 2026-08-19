@@ -12,6 +12,10 @@ class ContractType(StrEnum):
     hour_bank = "hour_bank"
     saas_product = "saas_product"
     service_count = "service_count"
+    # D-D (Onda 5): cobrança SEM contrato, sem afrouxar a invariante do #1C.
+    # O cliente avulso ganha um contrato `free`: acumula consumo faturável,
+    # sem saldo e, portanto, sem alerta de saldo baixo.
+    free = "free"
 
 
 class ContractStatus(StrEnum):
@@ -61,6 +65,9 @@ class PortalRole(StrEnum):
 
     admin = "admin"  # vê contratos + valores financeiros
     helpdesk = "helpdesk"  # vê tickets/operação (placeholder #1E)
+    # R7 (Onda 5): decide chamado que exige aprovação. Não é super-admin —
+    # aprova, e nada mais.
+    approver = "approver"
 
 
 # --- Contratação + Asaas (Spec #2) — armazenados como String+CheckConstraint --
