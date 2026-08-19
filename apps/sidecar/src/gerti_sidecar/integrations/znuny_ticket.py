@@ -231,6 +231,11 @@ async def create_ticket(
     attachments: list[Attachment] | None = None,
     config_item_id: int | None = None,
     queue: str | None = None,
+    # R7 (Onda 5) — estado inicial. `None` mantém o padrão do Znuny (`new`);
+    # um chamado que exige aprovação nasce em `aguardando aprovacao`, que é do
+    # tipo `pending reminder` para o relógio de SLA não correr enquanto o
+    # cliente decide.
+    state: str | None = None,
 ) -> TicketCreated:
     payload: dict[str, Any] = {
         "CustomerUser": customer_user,
@@ -243,6 +248,8 @@ async def create_ticket(
     # histórico; presente => o chamado nasce onde o operador configurou.
     if queue:
         payload["Queue"] = queue
+    if state:
+        payload["State"] = state
     if service:
         payload["Service"] = service
     if type_:
