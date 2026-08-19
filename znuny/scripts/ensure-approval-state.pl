@@ -28,7 +28,11 @@ local $Kernel::OM = Kernel::System::ObjectManager->new(
 my $StateObject = $Kernel::OM->Get('Kernel::System::State');
 my $NAME        = 'aguardando aprovacao';
 
-my %Existing = $StateObject->StateGet( Name => $NAME );
+# `Silent => 1`: sem isso o Znuny grava um ERROR ("State ... not found!") no
+# primeiro boot, que é o caminho NORMAL deste script idempotente. Log de erro
+# que sempre aparece e nunca importa treina o operador a ignorar erro de
+# verdade — foi o que apareceu no deploy da Onda 5.
+my %Existing = $StateObject->StateGet( Name => $NAME, Silent => 1 );
 if ( $Existing{ID} ) {
     print "[ensure-approval-state] estado '$NAME' já existe (id $Existing{ID}) — nada a fazer.\n";
     exit 0;

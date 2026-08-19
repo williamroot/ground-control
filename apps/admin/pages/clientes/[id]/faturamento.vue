@@ -27,10 +27,15 @@ const toast = useToast()
 
 interface BillingConfig {
   email_enabled: boolean
-  email_to: string | null
   sms_enabled: boolean
-  sms_to: string | null
+  billing_email: string | null
+  billing_phone: string | null
+  billing_day: number | null
+  notes: string | null
   approval_required: boolean
+  // Só leitura: `true` enquanto o SMS não tem provedor real. O PUT recusa
+  // campo desconhecido (`extra="forbid"`), então ele NÃO pode voltar no corpo.
+  sms_simulated: boolean
 }
 interface ChargeRow {
   id: number
@@ -114,9 +119,20 @@ async function saveConfig() {
   if (!config.value) return
   savingConfig.value = true
   try {
+    // Corpo montado campo a campo, e não `body: config.value`: o schema do
+    // sidecar tem `extra="forbid"`, e devolver `sms_simulated` (que é de
+    // leitura) faria o PUT inteiro voltar 422.
     await $fetch(`/api/admin/tenants/${tenantId}/billing-config`, {
       method: 'PUT',
-      body: config.value,
+      body: {
+        email_enabled: config.value.email_enabled,
+        sms_enabled: config.value.sms_enabled,
+        billing_email: config.value.billing_email || null,
+        billing_phone: config.value.billing_phone || null,
+        billing_day: config.value.billing_day || null,
+        notes: config.value.notes || null,
+        approval_required: config.value.approval_required,
+      },
     })
     toast.add({ title: 'Configuração salva', color: 'success' })
     await refreshConfig()
@@ -243,20 +259,29 @@ const linkTarget = ref<Record<string, string>>({})
         <div class="flex flex-wrap items-end gap-3">
           <USwitch v-model="config.email_enabled" label="Avisar por e-mail" />
           <UFormField label="E-mail de cobrança" class="flex-1 min-w-[240px]">
-            <UInput v-model="config.email_to" placeholder="financeiro@cliente.com.br" class="w-full" />
+            <UInput v-model="config.billing_email" placeholder="financeiro@cliente.com.br" class="w-full" />
           </UFormField>
         </div>
 
         <div class="flex flex-wrap items-end gap-3">
           <USwitch v-model="config.sms_enabled" label="Avisar por SMS" />
           <UFormField label="Celular" class="flex-1 min-w-[240px]">
-            <UInput v-model="config.sms_to" placeholder="+55 31 99999-0000" class="w-full" />
+            <UInput v-model="config.billing_phone" placeholder="+55 31 99999-0000" class="w-full" />
           </UFormField>
         </div>
-        <p class="text-xs text-muted">
-          O SMS ainda sai em modo simulado — a mensagem vai para o log do servidor, com o
-          número mascarado, até um provedor ser contratado.
+        <p v-if="config.sms_simulated" class="text-xs text-muted">
+          O SMS ainda sai em <strong>modo simulado</strong> — a mensagem vai para o log do
+          servidor, com o número mascarado, até um provedor ser contratado.
         </p>
+
+        <div class="flex flex-wrap items-end gap-3">
+          <UFormField label="Dia de faturamento" help="1 a 28 — 29 a 31 não existem em todo mês.">
+            <UInput v-model.number="config.billing_day" type="number" min="1" max="28" class="w-32" />
+          </UFormField>
+          <UFormField label="Observações" class="flex-1 min-w-[240px]">
+            <UInput v-model="config.notes" placeholder="Nota interna sobre a cobrança" class="w-full" />
+          </UFormField>
+        </div>
 
         <USeparator />
 
