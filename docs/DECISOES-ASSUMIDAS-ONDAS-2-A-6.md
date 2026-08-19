@@ -127,3 +127,38 @@ identificadores, com o digitado tendo prioridade.
 **Efeito colateral a conferir com ele:** quem hoje entra pelo login curto e vê
 só os próprios chamados vai passar a ver **a empresa inteira**, se houver papel
 `admin` gravado sob o e-mail. É a intenção — mas é uma mudança visível.
+
+## Dois achados operacionais que só a execução ao vivo revelou
+
+Nenhum é suposição — são fatos, e os dois viram pergunta ou procedimento.
+
+### 1. O `MailAccount` do Znuny **não tem campo de porta**
+
+O cadastro nativo tem servidor, usuário, senha e protocolo — e nada de porta.
+Quem usa POP3/IMAP em porta não-padrão precisa escrever `host:porta` no campo
+de servidor (`mailpit:1110` foi o que funcionou aqui). Não é limitação nossa e
+não dá para corrigir sem mexer no núcleo.
+
+**O que fica:** a tela de e-mail aceita `host:porta`, e o texto de ajuda
+explica. Se a caixa da Gerti usar porta padrão (993/995), isso nunca aparece.
+
+### 2. Ligar o SMTP fez o Znuny abrir chamado com o próprio ruído
+
+Assim que o envio passou a funcionar, o cron do daemon começou a **entregar** a
+saída dele por e-mail (antes ela sumia junto com o `sendmail` inexistente).
+Como a caixa de staging é catch-all, o PostMaster leu essas mensagens de volta
+e abriu chamados a partir delas — quatro, em minutos.
+
+Não é defeito do que construímos; é o que acontece quando um sistema que nunca
+enviou e-mail passa a enviar, com uma caixa que aceita tudo. Em produção, com
+caixa dedicada, o cron não cai nela.
+
+**O que fica:** um filtro `zz-ignora-cron-do-znuny` no staging, marcando
+`X-OTRS-Ignore` para remetentes do próprio domínio da instância. Vale conferir
+com o Kleber se a caixa de produção é dedicada — se for catch-all, o mesmo
+filtro é obrigatório lá.
+
+> **A pergunta que vale fazer a ele:** havia mensagem **presa** na fila de
+> e-mail do Znuny, falhando em silêncio desde sempre. Há quanto tempo respostas
+> de chamado deixaram de chegar aos clientes dele? Pode ser bem mais tempo do
+> que parece.
