@@ -10,6 +10,7 @@ import OneTimeHolidayEditor from '../components/calendar/OneTimeHolidayEditor.vu
 import RecurringHolidayEditor from '../components/calendar/RecurringHolidayEditor.vue'
 import {
   applyShortcut,
+  calendarLabel,
   emptyGrid,
   gridToPayload,
   groupOneTimeByMonth,
@@ -520,5 +521,26 @@ describe('opções do seletor de calendário', () => {
   it('o padrão continua sendo uma opção válida', () => {
     expect(isValidCalendar(DEFAULT_CALENDAR)).toBe(true)
     expect(isValidCalendar('')).toBe(false)
+  })
+})
+
+// ── T-R13.2: o nome do calendário ──────────────────────────────────────────
+
+describe('rótulo do calendário', () => {
+  it('usa o nome quando existe', () => {
+    // Sem isto a tela de filas mostra "Calendar 3 - " e ninguém sabe qual é
+    // o de São Paulo. Era a aresta registrada no levantamento.
+    expect(calendarLabel('3', 'Feriados de São Paulo')).toBe('Calendário 3 — Feriados de São Paulo')
+  })
+
+  it('cai no número quando não há nome', () => {
+    expect(calendarLabel('3', null)).toBe('Calendário 3')
+    expect(calendarLabel('3', '   ')).toBe('Calendário 3')
+    expect(calendarLabel('3')).toBe('Calendário 3')
+  })
+
+  it('o padrão não tem nome — ele é "o calendário"', () => {
+    expect(calendarLabel('default')).toBe('Padrão')
+    expect(calendarLabel('')).toBe('Padrão')
   })
 })

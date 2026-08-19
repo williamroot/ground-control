@@ -160,6 +160,11 @@ function initials(name: string): string {
         />
       </div>
 
+      <!-- Checklist do atendimento (R13b) -->
+      <div class="mb-8">
+        <ChecklistPanel :ticket-id="ticket.znuny_ticket_id" />
+      </div>
+
       <!-- Thread de artigos -->
       <section>
         <h2 class="mb-4 font-display text-base font-bold text-highlighted">

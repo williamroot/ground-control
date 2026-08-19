@@ -308,6 +308,9 @@ def _valid_calendar_body(calendar: str = "") -> dict:
         "time_working_hours": {"Mon": [8, 9, 10]},
         "time_vacation_days": {"1": {"1": "Confraternização"}},
         "time_vacation_days_one_time": {"2026": {"12": {"25": "Natal 2026"}}},
+        # T-R13.2 — `None` = "não mexer no nome". O corpo de escrita padrão
+        # não mexe: só quem quer renomear manda o campo.
+        "name": None,
     }
 
 
@@ -430,6 +433,11 @@ async def test_calendar_get_composed_happy_path(engine, app_session_factory, mon
         "time_working_hours": {"Mon": [8, 9]},
         "time_vacation_days": {"1": {"1": "Confraternização"}},
         "time_vacation_days_one_time": {"2026": {"12": {"25": "Natal 2026"}}},
+        # T-R13.2 — `None` porque este calendário não tem nome gravado. A
+        # leitura do nome é separada e tolerante de propósito: um calendário
+        # sem nome não pode derrubar a leitura da jornada e dos feriados, que
+        # é o que a tela precisa.
+        "name": None,
     }
 
 

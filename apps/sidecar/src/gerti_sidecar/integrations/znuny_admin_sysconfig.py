@@ -82,6 +82,12 @@ ALLOWED_SETTINGS: frozenset[str] = frozenset(
     | {f"TimeWorkingHours::{c}" for c in _CALENDAR_SUFFIXES}
     | {f"TimeVacationDays::{c}" for c in _CALENDAR_SUFFIXES}
     | {f"TimeVacationDaysOneTime::{c}" for c in _CALENDAR_SUFFIXES}
+    # T-R13.2 — o NOME do calendário. Sem isto, a tela de filas mostra
+    # "Calendar 3 - " e ninguém sabe qual é o de São Paulo. O setting é
+    # `TimeZone::Calendar<N>Name` (String) — confirmado no Framework.xml da
+    # 7.2.3, e é ele que o próprio Znuny exibe no seletor de calendário da
+    # fila.
+    | {f"TimeZone::{c}Name" for c in _CALENDAR_SUFFIXES}
 )
 
 _WEEKDAYS = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"}
@@ -111,6 +117,9 @@ class CalendarSettingNames:
     working_hours: str
     vacation_days: str
     vacation_days_one_time: str
+    # `None` no calendário PADRÃO: ele não tem nome no Znuny — é "o
+    # calendário", sem sufixo. Só Calendar1..9 têm.
+    name: str | None
 
 
 def is_valid_calendar_suffix(calendar: str) -> bool:
@@ -123,14 +132,20 @@ def is_valid_calendar_suffix(calendar: str) -> bool:
 
 
 def calendar_setting_names(calendar: str) -> CalendarSettingNames:
-    """Traduz o sufixo de calendário ('' ou '1'..'9') nos três nomes de
-    setting do SysConfig. Chamador deve validar com `is_valid_calendar_suffix`
-    antes — esta função não valida, só monta os nomes."""
+    """Traduz o sufixo de calendário ('' ou '1'..'9') nos nomes de setting.
+
+    Chamador deve validar com `is_valid_calendar_suffix` antes — esta função
+    não valida, só monta os nomes.
+
+    `name` é `None` no calendário PADRÃO: ele não tem nome no Znuny, é "o
+    calendário". Só `Calendar1..9` têm `TimeZone::Calendar<N>Name`.
+    """
     suffix = f"::Calendar{calendar}" if calendar else ""
     return CalendarSettingNames(
         working_hours=f"TimeWorkingHours{suffix}",
         vacation_days=f"TimeVacationDays{suffix}",
         vacation_days_one_time=f"TimeVacationDaysOneTime{suffix}",
+        name=f"TimeZone::Calendar{calendar}Name" if calendar else None,
     )
 
 
