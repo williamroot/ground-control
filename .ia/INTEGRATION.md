@@ -144,7 +144,7 @@ Estado atual (ponto de convergência — item aberto):
 | Onda 3 (R18b): `GET .../reports/monthly` (JSON, degrada com aviso) e `.../monthly.pdf` (recusa 503 se o Znuny estiver fora — documento incompleto não sai). Chave `REPORT_TOP_DIMENSION` | **Pronto + DEPLOYADO em staging** |
 | Onda 3 (correção): `MetricsService._hours`/`._balance` filtram `tenant_id` explicitamente — **vazamento cross-tenant pré-existente** do painel `/v1/admin/analytics` (#1O) sob BYPASSRLS | **Corrigido + DEPLOYADO em staging** |
 | Time tracker do agente (#1J): GI op `TimeAccountingAdd` (artigo interno + `TicketAccountTime`, resolve UserID do agente) | **Pronto, gateado; deploy per runbook** |
-| #1J: GI op `AgentTicketSearch` (busca cross-tenant por agente) | **Pronto, gateado; deploy per runbook** |
+| #1J: GI op `AgentTicketSearch` (busca cross-tenant por agente) — `Query` numérica (`84`, `#84`, número completo ou final) busca também por `TicketNumber` e `TicketID`, sempre sob o mesmo `CustomerID`; acertos exatos primeiro (teste V01) | **Pronto, gateado; deploy per runbook** |
 | #1J: GI op `AgentTicketGet` (detalhe de ticket para agente + contrato vinculado) | **Pronto, gateado; deploy per runbook** |
 | #1J: token `GertiAgent::AccessToken` (env `ZNUNY_AGENT_WS_TOKEN`) — separado do `GertiAdmin::AccessToken`; segurança por separação de ops root/cross-tenant | **Pronto, gateado; deploy per runbook** |
 | #1J: migration `0014_agent_timer` (tabela operacional `gerti.agent_timer` + partial unique index: max 1 timer ativo por agente/ticket) | **Pronto, gateado; deploy per runbook** |
