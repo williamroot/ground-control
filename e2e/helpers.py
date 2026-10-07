@@ -16,9 +16,9 @@ def _await_logged_in(page: Page, base: str) -> None:
 
 
 def portal_login(page: Page, base: str, user: str, password: str) -> None:
-    """Login no portal do cliente (campo é E-MAIL)."""
+    """Login no portal do cliente (campo aceita usuário ou e-mail)."""
     page.goto(f"{base}/login", wait_until="networkidle")
-    page.fill('input[autocomplete="email"]', user)
+    page.fill('input[autocomplete="username"]', user)
     page.fill('input[autocomplete="current-password"]', password)
     page.get_by_role("button", name="Entrar").click()
     _await_logged_in(page, base)

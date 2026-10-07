@@ -36,7 +36,7 @@ ADMIN_PASS = _env("GC_ADMIN_PASS", "Gerti@Demo2026")
 
 # IDs/fixtures conhecidos do seed de demo.
 AURORA_TENANT_ID = _env("GC_AURORA_TID", "5effe6fd-005e-43e4-9b1a-81107eb7f1a9")
-AURORA_TICKET_ID = _env("GC_AURORA_TICKET", "39")  # "Lentidão na VPN" (open, c/ thread)
+AURORA_TICKET_ID = _env("GC_AURORA_TICKET", "73")  # "Papel atolado" (new) — o 39 foi fechado em uso
 AURORA_CLOSED_TICKET = _env("GC_AURORA_CLOSED_TICKET", "36")  # fechado, já avaliado (CSAT)
 
 # Playwright não tem download pré-built no ubuntu26.04 → usa o Chromium do host.
