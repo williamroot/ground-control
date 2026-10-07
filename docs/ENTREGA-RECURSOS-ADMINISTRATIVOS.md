@@ -277,11 +277,15 @@ Ambiente de homologação. Tudo abaixo pode ser feito e desfeito sem medo.
 | Onde | Endereço | Entrar com |
 |---|---|---|
 | Console (você e sua equipe) | https://gerti.was.dev.br | `william` / `Gerti@Demo2026` |
-| Portal do cliente (Aurora) | https://aurora.was.dev.br | `eduardo.salvi` / `Gerti@Demo2026` |
+| Portal do cliente (Aurora) — aprovador | https://aurora.was.dev.br | `eduardo.salvi` / `Aurora@Demo2026` |
+| Portal do cliente (Aurora) — help-desk | https://aurora.was.dev.br | `mariana.bianchi` / `Aurora@Demo2026` |
 | Znuny nativo (para conferir) | https://znuny-dev.was.dev.br | mesmo login do console |
 | Caixa de e-mail de teste | https://mail-dev.was.dev.br | sem senha |
 
 > Login aceita **usuário ou e-mail** nos dois lados — é a mesma conta.
+>
+> **Atenção:** a senha do console (`Gerti@Demo2026`) e a do portal (`Aurora@Demo2026`)
+> são diferentes. A primeira versão deste documento trazia a do console para o portal.
 
 ### Roteiro A — o cadastro e as filas (R1, R2, R5)
 
@@ -294,7 +298,8 @@ Ambiente de homologação. Tudo abaixo pode ser feito e desfeito sem medo.
 ✅ **Esperado:** o resto dos dados continua lá. (Antes, editar recriava o
 usuário e apagava o que você não redigitou.)
 
-3. No mesmo cliente → **Filas**. Marque duas filas e defina uma como padrão.
+3. No mesmo cliente → **Filas** (na faixa de abas logo abaixo do nome do cliente).
+   Marque duas filas e defina uma como padrão.
 
 ✅ **Esperado:** só uma pode ser a padrão. Tentar salvar sem padrão é recusado.
 
@@ -366,7 +371,8 @@ fazer a seguir.
 ✅ **Esperado:** a segunda decisão é recusada — quem decidiu primeiro vale. E o
 motivo aparece **dentro do chamado**, para o autor ler.
 
-15. Com um usuário de **help-desk** (não aprovador), tente aprovar.
+15. Saia e entre no portal com um usuário de **help-desk** (não aprovador):
+    `mariana.bianchi` / `Aurora@Demo2026`. Tente aprovar.
 
 ✅ **Esperado:** recusado por falta de permissão.
 
@@ -386,7 +392,8 @@ de servidor" — com os passos numerados.
 ✅ **Esperado:** recusa. Um modelo vazio só seria descoberto depois de aplicado
 a um chamado.
 
-18. Console → **Atendimento** → abra o chamado #84.
+18. Console → **Atendimento** → busque **84** (ou o número `2026081910000081`, ou "ERP") e
+    abra o chamado **"Liberar acesso ao ERP para a nova analista"**.
 
 ✅ **Esperado:** o painel **Checklists** mostra "Onboarding de estação" com 2 de
 5 feitos, os dois primeiros riscados e com o nome de quem marcou.
@@ -425,18 +432,22 @@ os números reais são você quem define.
 ✅ **Esperado:** recusa **com a contagem na mensagem** ("7 de 7 em uso").
 Não é um aviso que dá para clicar por cima — o teto é o que você fatura.
 
-24. Tente atribuir um módulo chamado `whatsapp`.
+24. Procure o módulo **WhatsApp** na atribuição de licença.
 
-✅ **Esperado:** recusa listando os módulos que existem.
+✅ **Esperado:** ele **não é oferecido** — a tela só mostra os módulos que existem hoje
+(Chamados e Inventário). Botão que não faz nada é pior que botão nenhum. Por baixo, a API
+também recusa `whatsapp` listando os módulos válidos, para o caso de alguém tentar por fora.
 
 25. Tente reduzir o total para 1.
 
 ✅ **Esperado:** recusa pedindo que você revogue antes. O sistema não escolhe
 sozinho quem perde o acesso.
 
-26. **O caso da Georgia.** Peça para ligarmos a chave de licenciamento. Dê a um
-    agente só o módulo de **chamados** e, com ele, tente abrir o inventário —
-    inclusive **colando o endereço direto na barra do navegador**.
+26. **O caso da Georgia.** A chave de licenciamento **já está ligada** neste ambiente, e a
+    agente `georgia` (senha `Gerti@Demo2026`) tem só o módulo de **chamados**. Entre no
+    console com ela e tente abrir o inventário — inclusive **colando o endereço direto na
+    barra do navegador**. A licença só pode ser dada a agente que existe no Znuny: a tela
+    oferece a lista, não um campo livre.
 
 ✅ **Esperado:** bloqueado, com a mensagem dizendo qual módulo falta. Não é o
 menu escondido: é a porta trancada.
