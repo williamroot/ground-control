@@ -100,8 +100,12 @@ export function payloadToGrid(payload: WorkingHoursPayload | null | undefined): 
   for (const day of DAY_KEYS) {
     const hours = payload[day]
     if (!Array.isArray(hours)) continue
-    for (const h of hours) {
-      if (Number.isInteger(h) && h >= 0 && h <= 23) grid[day]![h] = true
+    for (const raw of hours) {
+      // O Znuny guarda e devolve as horas como TEXTO ("8", "9"…). Aceitar só
+      // número fazia toda jornada configurada aparecer vazia na tela — e quem
+      // confiasse nela sobrescrevia a jornada real (teste V01, passo E1).
+      const h = typeof raw === 'string' && /^\d{1,2}$/.test(raw) ? Number(raw) : raw
+      if (Number.isInteger(h) && (h as number) >= 0 && (h as number) <= 23) grid[day]![h as number] = true
     }
   }
   return grid

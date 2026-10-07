@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   CALENDAR_OPTIONS,
   calendarOptionsFromList,
+  payloadToGrid,
+  weeklyTotalHours,
 } from '../composables/useWorkingHours'
 import {
   billingCycleLabel,
@@ -279,5 +281,21 @@ describe('sidecarErrorMessage — o 422 aparece como veio', () => {
   it('sem detail → mensagem genérica', () => {
     expect(sidecarErrorMessage(new Error('boom'))).toBe('Falha na operação.')
     expect(sidecarErrorMessage(null, 'Outra.')).toBe('Outra.')
+  })
+})
+
+
+describe('payloadToGrid — formato real do Znuny (horas em texto)', () => {
+  it('lê ["8","9"] como 8h e 9h, e ignora lixo', () => {
+    const grid = payloadToGrid({ Mon: ['8', '9', 'x', '24', '-1'] } as never)
+    expect(grid.Mon![8]).toBe(true)
+    expect(grid.Mon![9]).toBe(true)
+    expect(weeklyTotalHours(grid)).toBe(2)
+  })
+
+  it('a jornada comercial que o staging devolve dá 65 h/semana, não 0', () => {
+    const horas = Array.from({ length: 13 }, (_, i) => String(i + 8))
+    const payload = { Mon: horas, Tue: horas, Wed: horas, Thu: horas, Fri: horas, Sat: [], Sun: [] }
+    expect(weeklyTotalHours(payloadToGrid(payload as never))).toBe(65)
   })
 })
