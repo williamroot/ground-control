@@ -225,6 +225,7 @@ sub _AllAllowedNames {
         for my $Base (@AllowedCalendarBaseNames) {
             push @Names, "$Base\::Calendar$CalendarID";
         }
+        push @Names, "TimeZone::Calendar${CalendarID}Name";
     }
 
     return @Names;
@@ -246,6 +247,9 @@ sub _IsAllowedSetting {
     if ( $Name =~ m{\A(TimeWorkingHours|TimeVacationDays|TimeVacationDaysOneTime)::Calendar([1-9])\z}xms ) {
         return 1;
     }
+
+    # Nome de exibição do calendário N (R13a) — par do mesmo item no Set.
+    return 1 if $Name =~ m{\ATimeZone::Calendar[1-9]Name\z}xms;
 
     return 0;
 }

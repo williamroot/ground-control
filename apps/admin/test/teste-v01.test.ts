@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   CALENDAR_OPTIONS,
   calendarOptionsFromList,
+  parseCalendarErrors,
   payloadToGrid,
   weeklyTotalHours,
 } from '../composables/useWorkingHours'
@@ -297,5 +298,22 @@ describe('payloadToGrid — formato real do Znuny (horas em texto)', () => {
     const horas = Array.from({ length: 13 }, (_, i) => String(i + 8))
     const payload = { Mon: horas, Tue: horas, Wed: horas, Thu: horas, Fri: horas, Sat: [], Sun: [] }
     expect(weeklyTotalHours(payloadToGrid(payload as never))).toBe(65)
+  })
+})
+
+
+describe('parseCalendarErrors — recusa do Znuny no meio da gravação', () => {
+  it('mostra a mensagem em vez de "sem detalhar o motivo"', () => {
+    const out = parseCalendarErrors({
+      message: "AdminSysConfigSet: setting 'TimeZone::Calendar3Name' is not in the calendar/journey allowlist.",
+      applied: [],
+      failed_setting: 'TimeZone::Calendar3Name',
+    })
+    expect(out).toEqual(["AdminSysConfigSet: setting 'TimeZone::Calendar3Name' is not in the calendar/journey allowlist."])
+  })
+
+  it('avisa o que já foi gravado', () => {
+    const out = parseCalendarErrors({ message: 'falhou', applied: ['TimeWorkingHours::Calendar3'] })
+    expect(out[1]).toContain('TimeWorkingHours::Calendar3')
   })
 })

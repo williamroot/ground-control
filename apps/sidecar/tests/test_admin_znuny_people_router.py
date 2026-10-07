@@ -780,3 +780,18 @@ async def test_calendar_put_reads_current_state_and_503_writes_nothing(
         r = await c.put("/v1/admin/znuny/calendar", json=_valid_calendar_body("3"), headers=_HOST)
     assert r.status_code == 503
     assert sets == []
+
+
+# --------------------------------------------------------------------------- #
+# Teste V01 / E1 — o nome de fábrica do Znuny não é um nome dado por alguém.
+# --------------------------------------------------------------------------- #
+def test_factory_calendar_name_counts_as_no_name():
+    from gerti_sidecar.routers.admin_znuny_people import _display_calendar_name
+
+    assert _display_calendar_name("Calendar Name 3") is None
+    assert _display_calendar_name("  Calendar Name 9 ") is None
+    assert _display_calendar_name("") is None
+    assert _display_calendar_name(None) is None
+    assert _display_calendar_name(" Feriados de São Paulo ") == "Feriados de São Paulo"
+    # parecido, mas dado por alguém: fica
+    assert _display_calendar_name("Calendar Name 3 SP") == "Calendar Name 3 SP"

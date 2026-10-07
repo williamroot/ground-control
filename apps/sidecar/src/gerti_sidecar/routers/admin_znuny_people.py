@@ -36,6 +36,7 @@ tenant (Znuny é uma instância só, cross-tenant por natureza).
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -384,6 +385,21 @@ async def set_agent_password(
 # --------------------------------------------------------------------------- #
 # Bloco D — SysConfig: calendário e jornada (forma COMPOSTA)
 # --------------------------------------------------------------------------- #
+# Valor de fábrica do Znuny para `TimeZone::CalendarNName` ("Calendar Name 3").
+# Não é um nome que alguém deu: tratado como "sem nome", senão o seletor
+# mostraria "Calendário 3 — Calendar Name 3" em todos.
+_FACTORY_CALENDAR_NAME = re.compile(r"\ACalendar Name [1-9]\Z")
+
+
+def _display_calendar_name(raw: object) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    name = raw.strip()
+    if not name or _FACTORY_CALENDAR_NAME.match(name):
+        return None
+    return name
+
+
 async def _calendar_name(setting: str | None, agent_login: str) -> str | None:
     """Nome do calendário, em leitura SEPARADA e tolerante (T-R13.2).
 
@@ -399,7 +415,7 @@ async def _calendar_name(setting: str | None, agent_login: str) -> str | None:
     except (ZnunyUnavailable, ZnunyWriteError, KeyError):
         return None
     entry = found.get(setting)
-    return str(entry.value or "") if entry is not None else None
+    return (_display_calendar_name(entry.value) or "") if entry is not None else None
 
 
 class CalendarOption(BaseModel):
@@ -441,7 +457,7 @@ async def list_calendars(
     for value, setting in setting_by_value.items():
         entry = found.get(setting)
         raw = entry.value if entry is not None else None
-        names[value] = (raw.strip() or None) if isinstance(raw, str) else None
+        names[value] = _display_calendar_name(raw)
     return [CalendarOption(value="default", name=None)] + [
         CalendarOption(value=v, name=names[v]) for v in _CALENDAR_VALUES
     ]
@@ -538,6 +554,10 @@ async def set_calendar(
     current = await _current_calendar_values(
         [n for n, _ in to_write], agent_login=admin["agent_login"]
     )
+    # O nome de fábrica conta como vazio: salvar só a jornada de um calendário
+    # sem nome não pode gravar "" por cima de "Calendar Name 3".
+    if names.name and names.name in current:
+        current[names.name] = _display_calendar_name(current[names.name]) or ""
     to_write = [
         (name, value)
         for name, value in to_write
@@ -605,7 +625,7 @@ async def set_calendar(
         time_working_hours=_final(names.working_hours) or {},
         time_vacation_days=_final(names.vacation_days) or {},
         time_vacation_days_one_time=_final(names.vacation_days_one_time) or {},
-        name=(final_name.strip() or None) if isinstance(final_name, str) else None,
+        name=_display_calendar_name(final_name),
     )
     if not applied:
         # Nada mudou: nenhuma chamada de escrita, nada a auditar.

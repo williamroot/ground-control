@@ -568,5 +568,18 @@ export function parseCalendarErrors(detail: unknown): string[] {
     })
   }
   if (typeof detail === 'string' && detail) return [detail]
+  // Recusa do Znuny no meio da gravação: `{message, applied, failed_setting}`.
+  // Antes caía no "sem detalhar o motivo" (teste V01, E1) — e o `applied`
+  // diz o que JÁ foi gravado, então "nada foi alterado" seria mentira.
+  if (detail && typeof detail === 'object') {
+    const d = detail as { message?: unknown, applied?: unknown }
+    if (typeof d.message === 'string' && d.message) {
+      const out = [d.message]
+      if (Array.isArray(d.applied) && d.applied.length > 0) {
+        out.push(`Já gravado antes da recusa: ${d.applied.join(', ')}.`)
+      }
+      return out
+    }
+  }
   return ['O sidecar recusou a gravação, sem detalhar o motivo. Nada foi alterado.']
 }
