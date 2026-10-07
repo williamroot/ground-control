@@ -162,6 +162,30 @@ async def test_the_write_routes_are_gated_too(engine, app_session_factory, sessi
 
 
 @pytest.mark.asyncio
+async def test_the_install_token_routes_are_gated_too(
+    engine, app_session_factory, session, monkeypatch
+):
+    """Teste V01: só os dispositivos tinham o gate. A Georgia, sem o módulo,
+    gerava token de instalação do agente de inventário pela própria tela."""
+    _wire(monkeypatch, engine, app_session_factory, enforce=True)
+    t = await _seed(session)
+    await _licence(session, "georgia", ["tickets"])
+
+    from gerti_sidecar.main import create_app
+
+    tok = "22222222-2222-2222-2222-222222222222"
+    base = f"/v1/admin/tenants/{t.id}/agent-tokens"
+    async with _client(create_app(), "georgia") as c:
+        listed = await c.get(base, headers=HOST)
+        created = await c.post(base, json={"label": "matriz"}, headers=HOST)
+        disabled = await c.delete(f"{base}/{tok}", headers=HOST)
+    assert listed.status_code == 403
+    assert listed.json()["detail"] == "licença sem o módulo 'inventory'"
+    assert created.status_code == 403
+    assert disabled.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_licensing_data_never_reaches_a_client_route(
     engine, app_session_factory, session, monkeypatch
 ):
