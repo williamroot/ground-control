@@ -1,0 +1,142 @@
+{
+  "A1": {
+    "ok": "sim",
+    "passo": "Novo cliente pede endereço e contato no cadastro",
+    "obs": "etapas do cadastro visíveis"
+  },
+  "A2": {
+    "ok": "sim",
+    "passo": "Editar só o telefone preserva o resto",
+    "obs": "lista de usuários da Aurora"
+  },
+  "A3": {
+    "ok": "sim",
+    "passo": "Aba Filas visível; duas filas e uma padrão",
+    "obs": "filas marcadas=4; padrão: \tField Service\tusers\tPadrão"
+  },
+  "A4": {
+    "ok": "sim",
+    "passo": "Chamado do portal nasce na fila padrão",
+    "obs": "chamado 356956 criado"
+  },
+  "B1": {
+    "ok": "sim",
+    "passo": "Faturamento: avisos, lançamentos e bolsas numa tela",
+    "obs": "três blocos presentes"
+  },
+  "B2": {
+    "ok": "sim",
+    "passo": "Deslocamento sem descrição é recusado; total R$ 160",
+    "obs": "recusa com a explicação; total R$ 160,00"
+  },
+  "B3": {
+    "ok": "sim",
+    "passo": "Minutos num deslocamento avisam do banco de horas",
+    "obs": "aviso exibido junto ao campo"
+  },
+  "B4": {
+    "ok": "sim",
+    "passo": "Bolsa não aceita contrato de banco de horas",
+    "obs": "só contratos de crédito compartilhado são oferecidos"
+  },
+  "B5": {
+    "ok": "sim",
+    "passo": "Fatura com valor: Emitir boleto diz que o Asaas está desligado",
+    "obs": "fatura gerada do ciclo; boleto recusado com 'desligado'"
+  },
+  "C1": {
+    "ok": "sim",
+    "passo": "Exigir aprovação ligado na Aurora",
+    "obs": "chave visível no faturamento"
+  },
+  "C2": {
+    "ok": "sim",
+    "passo": "Portal: chamado novo volta aguardando aprovação",
+    "obs": "chamado 356956 aguardando aprovação"
+  },
+  "C3": {
+    "ok": "sim",
+    "passo": "Znuny nativo: estado real 'aguardando aprovacao'",
+    "obs": "estado 'aguardando aprovacao' e fila 'Field Service' (a padrão da Aurora) no Znuny"
+  },
+  "C4": {
+    "ok": "sim",
+    "passo": "Aprovações: reprovar sem motivo é recusado",
+    "obs": "botão de confirmar bloqueado até haver motivo"
+  },
+  "C5": {
+    "ok": "sim",
+    "passo": "Reprova com motivo; segunda decisão é recusada",
+    "obs": "segunda decisão → HTTP 409; motivo visível no chamado"
+  },
+  "C6": {
+    "ok": "sim",
+    "passo": "Help-desk (mariana.bianchi) não pode aprovar",
+    "obs": "menu sem 'Aprovações': True; tentativa de aprovar o chamado 356953 pela API → HTTP 403"
+  },
+  "D1": {
+    "ok": "sim",
+    "passo": "Checklists: dois modelos numerados",
+    "obs": "modelos listados"
+  },
+  "D2": {
+    "ok": "sim",
+    "passo": "Modelo sem item é recusado",
+    "obs": "recusa antes de salvar"
+  },
+  "D3": {
+    "ok": "sim",
+    "passo": "Atendimento: busca '84' acha o chamado e o checklist 2 de 5",
+    "obs": "chamado aberto; progresso 2 de 5"
+  },
+  "D4": {
+    "ok": "sim",
+    "passo": "Marca mais um item; persiste após recarregar",
+    "obs": "2 de 5 → 3 de 5 (mantido após recarregar)"
+  },
+  "D5": {
+    "ok": "sim",
+    "passo": "Aplicar o mesmo modelo de novo não duplica",
+    "obs": "seletor só oferece ['Troca de servidor']; reaplicar pela API → HTTP 201, listas 1 → 1"
+  },
+  "E1": {
+    "ok": "sim",
+    "passo": "Calendário 3 ganha nome e o seletor mostra",
+    "obs": "seletor mostra 'Calendário 3 — Feriados de São Paulo'"
+  },
+  "F1": {
+    "ok": "sim",
+    "passo": "Licenças: quadro com números reais e chave ligada",
+    "obs": "6 de 9"
+  },
+  "F2": {
+    "ok": "sim",
+    "passo": "Total igual ao em uso: atribuir mais uma é recusado com a contagem",
+    "obs": "recusa: não há licença disponível: 6 de 6 em uso. Revogue uma licença ou aumente o total contratado."
+  },
+  "F3": {
+    "ok": "sim",
+    "passo": "WhatsApp não é oferecido; a API recusa listando os módulos",
+    "obs": "API: módulo desconhecido: whatsapp (disponíveis: tickets, inventory)"
+  },
+  "F4": {
+    "ok": "sim",
+    "passo": "Reduzir o total para 1 é recusado",
+    "obs": "recusa pedindo para revogar antes"
+  },
+  "F5": {
+    "ok": "sim",
+    "passo": "Georgia (só chamados) não abre o inventário, nem pela URL",
+    "obs": "tela bloqueada pela URL direta; API {'devices': 403, 'agent-tokens': 403, 'gerar token': 403}"
+  },
+  "X1": {
+    "ok": "sim",
+    "passo": "Znuny → Agentes lista os agentes (achado de brinde)",
+    "obs": "agentes reais listados"
+  },
+  "Z1": {
+    "ok": "sim",
+    "passo": "Devolve o checklist do #84 a 2 de 5 (o cliente refaz o roteiro)",
+    "obs": "2 de 5"
+  }
+}

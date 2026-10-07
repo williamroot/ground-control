@@ -378,6 +378,12 @@ def d5(c):
 @passo("E1", "Calendário 3 ganha nome e o seletor mostra")
 def e1(c):
     pg = c["adm"]
+    # Volta o Calendário 3 a "sem nome" — o estado em que o cliente o encontra.
+    api = f"{ADMIN_BASE}/api/admin/znuny/calendar"
+    atual = pg.request.get(f"{api}?calendar=3").json()
+    if atual.get("name"):
+        atual["name"] = ""
+        pg.request.put(api, data=atual, timeout=180000)
     r = pg.goto(f"{ADMIN_BASE}/znuny/calendario", wait_until="networkidle")
     assert r.status == 200, f"carga direta {r.status}"
     shot(pg, "e1-calendario-carga-direta")

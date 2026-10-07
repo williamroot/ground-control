@@ -164,6 +164,13 @@ def main() -> None:
             "mãos no ambiente de homologação.",
         ),
         Doc(
+            Path("docs/RESPOSTA-TESTE-ZNUNY-V01.md"),
+            "Resposta ao teste V01",
+            "Cada NOK do teste de 03/09: o que foi visto, por que aconteceu, o que "
+            "mudou e como ficou — com capturas reais do antes e do depois, e os "
+            "defeitos que achamos a mais ao refazer o roteiro.",
+        ),
+        Doc(
             Path("docs/SUPOSICOES-A-VALIDAR.md"),
             "Suposições a validar",
             "As seis leituras do vídeo do Kleber que assumimos sem confirmação — cada "
