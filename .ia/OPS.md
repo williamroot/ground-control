@@ -4,13 +4,13 @@
 
 | Host | Uso | Acesso |
 |---|---|---|
-| `100.99.49.110` / LAN `192.168.1.40` | **VPS de produção do ground-control** (Znuny + sidecar #1C) | **`ssh gc`** (jump via node `postgres`→LAN) — ver nota abaixo |
-| `100.96.54.61` | node `postgres` (mesma LAN; jump host saudável) | `ssh ubuntu@100.96.54.61` (key) |
+| `100.99.49.110` / `10.50.0.23` | **VM de staging do ground-control** (VM 800 do Proxmox `pve`; Znuny + sidecar + apps; rotulada "produção" nas seções antigas) | **`ssh gc`** (jump via Proxmox) — ver nota abaixo |
+| `100.118.105.52` | Proxmox `pve` (hospeda a VM 800; jump host) | `ssh root@100.118.105.52` (key) |
 | local | dev | docker compose |
 
 > Não confundir com a VPS `gerti` (host `gerti`), que serve a apresentação `plano-gerti.was.dev.br`. São máquinas distintas.
 
-> **Acesso SSH ao ground-control — path Tailscale direto é assimétrico (CGNAT do uplink):** `tailscale status` mostra `direct 189.1.162.120:41641, tx≫rx`; `tailscale ping` responde mas SSH/TCP direto p/ `100.99.49.110` dá *"timed out (banner exchange)"*, intermitente. **Não é MTU** (mesmo assim `tailscale0` foi p/ 1240 via drop-in `tailscaled.service.d/mtu.conf` — higiene, persistente) **nem firewall do host** (ufw off, DERP sao 9.7ms). Causa: retorno UDP do WireGuard descartado pelo NAT/roteador do uplink — **fix permanente é no roteador/ISP** (port-forward 41641 / UPnP / tirar do CGNAT). **Acesso confiável:** alias `~/.ssh/config` `Host gc` → `ProxyJump ubuntu@100.96.54.61` → `192.168.1.40` (key-based; node `postgres` tem path Tailscale simétrico). Tráfego público (Cloudflare Tunnel) não usa Tailscale e nunca foi afetado.
+> **Acesso SSH ao ground-control (atualizado 2026-10-07):** alias `~/.ssh/config` `Host gc` → `HostName 10.50.0.23`, `User ubuntu`, `ProxyJump root@100.118.105.52`. A VM está na bridge `vmbr1`, atrás da VM 199 `firewall`; os IPs antigos `192.168.1.40`/`192.168.1.23` não respondem mais. Se o IP mudar de novo, o IP atual sai do guest agent: `ssh root@100.118.105.52 'qm guest cmd 800 network-get-interfaces'`. O Tailscale direto para `100.99.49.110` continua instável (retorno UDP descartado pelo NAT do uplink) — não usar. Tráfego público (Cloudflare Tunnel) não depende de SSH/Tailscale.
 
 ## Domínios / Cloudflare Tunnel
 
