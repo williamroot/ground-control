@@ -120,6 +120,7 @@ class ApprovalService:
         decision: str,
         approver_login: str,
         approver_role: PortalRole,
+        customer_id: str,
         reason: str | None = None,
         target_state: str = "open",
     ) -> TicketApproval:
@@ -128,6 +129,14 @@ class ApprovalService:
         Aprovar move o chamado ao estado normal; reprovar fecha com o motivo
         registrado no próprio chamado — o cliente precisa conseguir ler por que
         o pedido dele não passou, sem depender de alguém contar.
+
+        A decisão vai como RESPOSTA do aprovador (`TicketReply`): artigo
+        visível ao cliente, assunto "Aprovado"/"Reprovado", com a guarda de
+        posse por `customer_id` do GI. Antes ia como nota do
+        `AgentTicketUpdate` — interna (`IsVisibleForCustomer=0`) e com o
+        assunto fixo "Automação" —, e o autor nunca lia o motivo (teste V01,
+        ticket 356954). O estado muda DEPOIS: chamado alheio morre no
+        `TicketReply` (`ZnunyWriteError` -> 404) sem ter sido fechado.
         """
         if decision not in (STATUS_APPROVED, STATUS_REJECTED):
             raise ApprovalError(f"decisão inválida: {decision}")
@@ -147,12 +156,19 @@ class ApprovalService:
         # O Znuny primeiro: se a mudança de estado falhar, a decisão não fica
         # gravada dizendo "aprovado" com o chamado parado em espera.
         new_state = target_state if decision == STATUS_APPROVED else "closed unsuccessful"
-        note = (
-            f"Aprovado por {approver_login}."
-            if decision == STATUS_APPROVED
-            else f"Reprovado por {approver_login}: {reason}"
+        if decision == STATUS_APPROVED:
+            subject, note = "Aprovado", f"Aprovado por {approver_login}."
+        else:
+            subject = "Reprovado"
+            note = f"Reprovado por {approver_login}: {(reason or '').strip()}"
+        await self._gi.reply_ticket(
+            znuny_ticket_id=znuny_ticket_id,
+            customer_user=approver_login,
+            customer_id=customer_id,
+            body=note,
+            subject=subject,
         )
-        await self._gi.agent_ticket_update(ticket_id=znuny_ticket_id, state=new_state, note=note)
+        await self._gi.agent_ticket_update(ticket_id=znuny_ticket_id, state=new_state)
 
         approval.status = decision
         approval.approver_login = approver_login

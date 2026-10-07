@@ -302,6 +302,46 @@ async def test_set_agent_password_znuny_rejection_maps_to_422_without_leaking(
     assert "senha-super-segura" not in r.text
 
 
+class _FakeSysConfig:
+    """Znuny de mentira com ESTADO: `Get` lê do estado, `Set` grava nele e
+    registra o nome gravado. Necessário desde que o PUT do calendário passou a
+    ler o estado atual e gravar só o que mudou (teste V01)."""
+
+    def __init__(self, state: dict | None = None, fail_on: dict | None = None):
+        self.state: dict = dict(state or {})
+        self.sets: list[str] = []
+        self.fail_on: dict = dict(fail_on or {})
+
+    def install(self, monkeypatch):
+        fake = self
+
+        async def post(self, url, **kw):
+            if not _is_znuny_url(url):
+                return await _ORIGINAL_ASYNC_CLIENT_POST(self, url, **kw)
+            body = kw.get("json") or {}
+            if str(url).endswith("/SysConfig/Get"):
+                names = body.get("Names") or [body.get("Name")]
+                return _MockResp(
+                    200,
+                    {
+                        "Settings": {
+                            n: {"Name": n, "EffectiveValue": fake.state.get(n, "")} for n in names
+                        }
+                    },
+                )
+            name = body.get("Name")
+            fake.sets.append(name)
+            if name in fake.fail_on:
+                return _MockResp(200, fake.fail_on[name])
+            fake.state[name] = body.get("EffectiveValue")
+            return _MockResp(
+                200, {"Name": name, "EffectiveValue": body.get("EffectiveValue"), "Deployed": 1}
+            )
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", post)
+        return self
+
+
 def _valid_calendar_body(calendar: str = "") -> dict:
     return {
         "calendar": calendar,
@@ -445,14 +485,7 @@ async def test_calendar_get_composed_happy_path(engine, app_session_factory, mon
 async def test_calendar_put_composed_happy_path_audits(engine, app_session_factory, monkeypatch):
     st = _settings(monkeypatch)
     admin_factory = _wire(monkeypatch, engine, app_session_factory)
-
-    async def post(self, url, **kw):
-        json_body = kw.get("json") or {}
-        name = json_body.get("Name")
-        value = json_body.get("EffectiveValue")
-        return _MockResp(200, {"Name": name, "EffectiveValue": value, "UserID": 3, "Deployed": 1})
-
-    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    _FakeSysConfig().install(monkeypatch)
 
     transport = ASGITransport(app=create_app())
     body = _valid_calendar_body()
@@ -490,24 +523,9 @@ async def test_calendar_put_partial_failure_reports_applied_and_failed(
     st = _settings(monkeypatch)
     admin_factory = _wire(monkeypatch, engine, app_session_factory)
 
-    calls: list[str] = []
-
-    async def post(self, url, **kw):
-        json_body = kw.get("json") or {}
-        name = json_body.get("Name")
-        calls.append(name)
-        if name == "TimeWorkingHours":
-            return _MockResp(
-                200,
-                {"Name": name, "EffectiveValue": json_body.get("EffectiveValue"), "Deployed": 1},
-            )
-        if name == "TimeVacationDays":
-            return _MockResp(200, {"Error": {"ErrorMessage": "could not lock setting"}})
-        raise AssertionError(
-            f"não deveria chamar o Znuny para {name} após a falha em TimeVacationDays"
-        )
-
-    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    fake = _FakeSysConfig(
+        fail_on={"TimeVacationDays": {"Error": {"ErrorMessage": "could not lock setting"}}}
+    ).install(monkeypatch)
 
     transport = ASGITransport(app=create_app())
     body = _valid_calendar_body()
@@ -520,7 +538,7 @@ async def test_calendar_put_partial_failure_reports_applied_and_failed(
     assert detail["applied"] == ["TimeWorkingHours"]
     assert detail["failed_setting"] == "TimeVacationDays"
     assert "lock" in detail["message"]
-    assert calls == ["TimeWorkingHours", "TimeVacationDays"]
+    assert fake.sets == ["TimeWorkingHours", "TimeVacationDays"]
 
     # A auditoria também registra a aplicação parcial, best-effort.
     async with admin_factory() as s:
@@ -681,3 +699,84 @@ async def test_calendars_list_rejected_read_degrades_to_unnamed(
     assert r.status_code == 200, r.text
     assert len(r.json()) == 10
     assert all(x["name"] is None for x in r.json())
+
+
+# --------------------------------------------------------------------------- #
+# Teste V01 — o PUT grava só o que mudou
+# --------------------------------------------------------------------------- #
+_CAL3_STATE = {
+    # Como o Znuny devolve: horas em texto, dia vazio presente.
+    "TimeWorkingHours::Calendar3": {"Mon": ["8", "9", "10"], "Sat": []},
+    "TimeVacationDays::Calendar3": {"1": {"1": "Confraternização"}},
+    "TimeVacationDaysOneTime::Calendar3": {"2026": {"12": {"25": "Natal 2026"}}},
+    "TimeZone::Calendar3Name": "",
+}
+
+
+@pytest.mark.asyncio
+async def test_calendar_put_only_the_name_changed_writes_only_the_name(
+    engine, app_session_factory, monkeypatch
+):
+    """Staging: renomear o Calendário 3 re-deployou a jornada (deploy 67),
+    estourou o timeout no feriado e nunca chegou ao nome."""
+    st = _settings(monkeypatch)
+    _wire(monkeypatch, engine, app_session_factory)
+    fake = _FakeSysConfig(_CAL3_STATE).install(monkeypatch)
+    body = _valid_calendar_body("3")
+    body["name"] = "Feriados de São Paulo"
+    async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://t") as c:
+        c.cookies.set("gsid_adm", encode_admin_session("william", st))
+        r = await c.put("/v1/admin/znuny/calendar", json=body, headers=_HOST)
+    assert r.status_code == 200, r.text
+    assert fake.sets == ["TimeZone::Calendar3Name"]
+    assert fake.state["TimeZone::Calendar3Name"] == "Feriados de São Paulo"
+    assert r.json()["name"] == "Feriados de São Paulo"
+    assert r.json()["time_working_hours"] == {"Mon": ["8", "9", "10"], "Sat": []}
+
+
+@pytest.mark.asyncio
+async def test_calendar_put_with_nothing_changed_writes_nothing(
+    engine, app_session_factory, monkeypatch
+):
+    st = _settings(monkeypatch)
+    admin_factory = _wire(monkeypatch, engine, app_session_factory)
+    state = dict(_CAL3_STATE, **{"TimeZone::Calendar3Name": "Feriados de São Paulo"})
+    fake = _FakeSysConfig(state).install(monkeypatch)
+    body = _valid_calendar_body("3")
+    body["name"] = "Feriados de São Paulo"
+    async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://t") as c:
+        c.cookies.set("gsid_adm", encode_admin_session("william", st))
+        r = await c.put("/v1/admin/znuny/calendar", json=body, headers=_HOST)
+    assert r.status_code == 200, r.text
+    assert fake.sets == []
+    async with admin_factory() as s:
+        rows = (
+            (await s.execute(select(AuditLog).where(AuditLog.entity == "znuny_calendar")))
+            .scalars()
+            .all()
+        )
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_calendar_put_reads_current_state_and_503_writes_nothing(
+    engine, app_session_factory, monkeypatch
+):
+    """Znuny fora do ar na leitura do estado atual: 503 sem nenhuma gravação."""
+    st = _settings(monkeypatch)
+    _wire(monkeypatch, engine, app_session_factory)
+    sets: list[str] = []
+
+    async def post(self, url, **kw):
+        if not _is_znuny_url(url):
+            return await _ORIGINAL_ASYNC_CLIENT_POST(self, url, **kw)
+        if str(url).endswith("/SysConfig/Set"):
+            sets.append((kw.get("json") or {}).get("Name"))
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://t") as c:
+        c.cookies.set("gsid_adm", encode_admin_session("william", st))
+        r = await c.put("/v1/admin/znuny/calendar", json=_valid_calendar_body("3"), headers=_HOST)
+    assert r.status_code == 503
+    assert sets == []

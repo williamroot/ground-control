@@ -10,6 +10,9 @@ package Kernel::GenericInterface::Operation::GertiTicket::AgentTicketUpdate;
 
 use strict;
 use warnings;
+# Literais deste arquivo ('Automação') são UTF-8. Sem o pragma o Perl os lê como
+# bytes Latin-1 e o ArticleCreate codifica de novo: "AutomaÃ§Ã£o" (teste V01).
+use utf8;
 
 use Kernel::System::VariableCheck qw(IsHashRefWithData IsStringWithData);
 

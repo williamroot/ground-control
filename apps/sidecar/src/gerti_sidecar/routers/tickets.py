@@ -357,6 +357,7 @@ async def submit_csat(
 async def decide_approval(
     ticket_id: int,
     body: ApprovalDecisionIn,
+    request: Request,
     session_payload: SessionPayload = Depends(get_current_session),
     session: AsyncSession = Depends(get_tenant_session),
 ) -> ApprovalOut:
@@ -373,6 +374,7 @@ async def decide_approval(
             decision=body.decision,
             approver_login=session_payload["znuny_login"],
             approver_role=role,
+            customer_id=_customer_id(request),
             reason=body.reason,
         )
     except NotAllowed as exc:
@@ -385,6 +387,9 @@ async def decide_approval(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ZnunyUnavailable as exc:
         raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
+    except ZnunyWriteError as exc:
+        # TicketReply recusou a posse (chamado de outra empresa): 404, nunca 403.
+        raise HTTPException(status_code=404, detail="ticket_not_found") from exc
 
     return ApprovalOut(
         znuny_ticket_id=approval.znuny_ticket_id,

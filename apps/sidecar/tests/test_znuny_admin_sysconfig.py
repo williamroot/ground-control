@@ -327,3 +327,56 @@ async def test_get_settings_missing_one_in_response_raises_write_error(monkeypat
         await sysconfig.get_settings(
             ["TimeWorkingHours", "TimeVacationDays"], agent_login="william"
         )
+
+
+# --------------------------------------------------------------------------- #
+# Teste V01 — timeout do deploy e comparação semântica
+# --------------------------------------------------------------------------- #
+def _timeout_capturing_post(payload):
+    seen: list[httpx.Timeout] = []
+
+    async def post(self, url, **kw):
+        seen.append(self.timeout)
+        return _MockResp(200, payload)
+
+    return post, seen
+
+
+@pytest.mark.asyncio
+async def test_set_waits_for_the_deploy_but_get_stays_short(monkeypatch):
+    """A gravação faz ConfigurationDeploy: 10 s estourava no staging e virava
+    503 com o setting já gravado. A leitura continua com o timeout curto."""
+    post, seen = _timeout_capturing_post({"Name": "TimeWorkingHours", "EffectiveValue": {}})
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    await sysconfig.set_setting("TimeWorkingHours", {"Mon": [8]}, agent_login="william")
+    assert seen[-1].read is not None and seen[-1].read >= 60
+    assert seen[-1].connect is not None and seen[-1].connect <= 10
+
+    post, seen = _timeout_capturing_post(
+        {"Settings": {"TimeWorkingHours": {"Name": "TimeWorkingHours", "EffectiveValue": {}}}}
+    )
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    await sysconfig.get_setting("TimeWorkingHours", agent_login="william")
+    assert seen[-1].read == 10.0
+
+
+@pytest.mark.asyncio
+async def test_a_write_timeout_says_it_may_have_been_applied(monkeypatch):
+    async def boom(self, url, **kw):
+        raise httpx.ReadTimeout("")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", boom)
+    with pytest.raises(sysconfig.ZnunyUnavailable, match="pode ter sido aplicada"):
+        await sysconfig.set_setting("TimeWorkingHours", {"Mon": [8]}, agent_login="william")
+
+
+def test_same_effective_value_ignores_representation_not_content():
+    same = sysconfig.same_effective_value
+    # Znuny devolve horas como texto; o console manda número.
+    assert same({"Mon": ["8", "9"], "Sat": []}, {"Mon": [8, 9]})
+    assert same({"1": {"1": "Confraternização "}}, {"1": {"1": "Confraternização"}})
+    assert same("Feriados de SP", "Feriados de SP")
+    assert same(None, "")
+    assert not same({"Mon": ["8", "9"]}, {"Mon": [8, 9, 10]})
+    assert not same({"1": {"1": "A"}}, {"1": {"2": "A"}})
+    assert not same("", "Feriados de SP")

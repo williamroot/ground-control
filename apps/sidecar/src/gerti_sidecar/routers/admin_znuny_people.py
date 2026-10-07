@@ -447,6 +447,28 @@ async def list_calendars(
     ]
 
 
+async def _current_calendar_values(settings: list[str], *, agent_login: str) -> dict[str, Any]:
+    """Valor atual de cada setting, numa ida só, para o PUT gravar só o que
+    mudou. Se o Znuny recusar a leitura em lote (ex.: overlay sem o setting de
+    nome), relê sem o nome: o nome fica "desconhecido" e é gravado, mas a
+    jornada continua sendo comparada — que é o que custa um deploy."""
+    try:
+        found = await sysconfig_gi.get_settings(settings, agent_login=agent_login)
+    except ZnunyUnavailable as exc:
+        raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
+    except ZnunyWriteError:
+        core = [n for n in settings if not n.endswith("Name")]
+        if core == settings:
+            return {}
+        try:
+            found = await sysconfig_gi.get_settings(core, agent_login=agent_login)
+        except ZnunyUnavailable as exc:
+            raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
+        except ZnunyWriteError:
+            return {}
+    return {name: entry.value for name, entry in found.items()}
+
+
 @router.get("/calendar")
 async def get_calendar(
     calendar: str = Query(""),
@@ -508,6 +530,20 @@ async def set_calendar(
         except sysconfig_gi.CalendarSettingInvalid as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # Guarda #1b (teste V01): grava só o que MUDOU em relação ao Znuny. Cada
+    # `SysConfig/Set` é um lock + update + ConfigurationDeploy da instância
+    # inteira; mudar só o nome do Calendário 3 re-deployava a jornada (deploy
+    # 67 do staging) e, no 2º deploy, estourava o timeout. Ler o estado atual
+    # é uma ida só; Znuny fora do ar aqui é 503 com NADA escrito.
+    current = await _current_calendar_values(
+        [n for n, _ in to_write], agent_login=admin["agent_login"]
+    )
+    to_write = [
+        (name, value)
+        for name, value in to_write
+        if name not in current or not sysconfig_gi.same_effective_value(current[name], value)
+    ]
+
     # Guarda #2: aplica em sequência. `AdminSysConfigSet` só sabe
     # lockar/atualizar/deployar UM `Name` por chamada (não existe transação
     # que abranja os três) — então se a chamada N falhar, as N-1 anteriores
@@ -558,12 +594,22 @@ async def set_calendar(
             ) from exc
         applied.append(name)
 
+    def _final(setting: str) -> Any:
+        if setting in results:
+            return results[setting].value
+        return current.get(setting)
+
+    final_name = _final(names.name) if names.name else None
     out = CalendarPayload(
         calendar=body.calendar,
-        time_working_hours=results[names.working_hours].value,
-        time_vacation_days=results[names.vacation_days].value,
-        time_vacation_days_one_time=results[names.vacation_days_one_time].value,
+        time_working_hours=_final(names.working_hours) or {},
+        time_vacation_days=_final(names.vacation_days) or {},
+        time_vacation_days_one_time=_final(names.vacation_days_one_time) or {},
+        name=(final_name.strip() or None) if isinstance(final_name, str) else None,
     )
+    if not applied:
+        # Nada mudou: nenhuma chamada de escrita, nada a auditar.
+        return out
 
     await audit_service.record(
         actor_type="agent",

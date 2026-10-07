@@ -62,11 +62,18 @@ __all__ = [
     "get_setting",
     "get_settings",
     "is_valid_calendar_suffix",
+    "same_effective_value",
     "set_setting",
     "validate_setting_shape",
 ]
 
 _TIMEOUT = 10.0
+# `AdminSysConfigSet` faz lock -> update -> **ConfigurationDeploy** numa
+# chamada só, e o deploy regrava o ZZZAAuto.pm da instância: leva bem mais que
+# uma leitura. Com os 10 s da leitura, o staging (teste V01) estourou na 2ª
+# gravação do calendário e respondeu 503 "Znuny indisponível" — com a 1ª já
+# gravada e deployada. Leitura continua curta; escrita espera o deploy.
+DEPLOY_TIMEOUT = httpx.Timeout(120.0, connect=5.0)
 
 _CALENDAR_SUFFIXES = [f"Calendar{n}" for n in range(1, 10)]
 
@@ -155,13 +162,23 @@ def _resolve_admin_endpoint() -> tuple[str, str]:
     return base, token
 
 
-async def _post(route: str, body: dict[str, Any]) -> dict[str, Any]:
+async def _post(
+    route: str, body: dict[str, Any], *, timeout: float | httpx.Timeout = _TIMEOUT
+) -> dict[str, Any]:
     base, token = _resolve_admin_endpoint()
     url = base.rstrip("/") + route
     payload = {"AccessToken": token, **body}
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(url, json=payload)
+    except httpx.TimeoutException as exc:
+        # `str(ReadTimeout)` é vazio — a auditoria do staging registrou
+        # `"error": ""`. E numa ESCRITA o timeout é ambíguo: o Znuny pode ter
+        # gravado depois que paramos de esperar. A mensagem diz isso.
+        raise ZnunyUnavailable(
+            f"o Znuny não respondeu a tempo em {route}; se era uma gravação, ela "
+            "pode ter sido aplicada — recarregue antes de tentar de novo"
+        ) from exc
     except httpx.HTTPError as exc:
         raise ZnunyUnavailable(str(exc)) from exc
     if resp.status_code >= 500:
@@ -333,7 +350,34 @@ async def set_setting(name: str, value: Any, *, agent_login: str) -> CalendarSet
     data = await _post(
         "/SysConfig/Set",
         {"Name": name, "EffectiveValue": value, "AgentLogin": agent_login},
+        timeout=DEPLOY_TIMEOUT,
     )
     return CalendarSetting(
         name=str(data.get("Name") or name), value=data.get("EffectiveValue", value)
     )
+
+
+def _canonical(value: Any) -> Any:
+    """Forma comparável de um EffectiveValue.
+
+    O console devolve o que leu com tipos normalizados (hora "8" vira 8,
+    descrição sem espaços nas pontas) e chaves de dia vazias podem ir ou não.
+    Nada disso é mudança — e tratar como mudança re-deployava a jornada
+    inteira só porque o nome do calendário mudou (teste V01).
+    """
+    if isinstance(value, dict):
+        return {str(k): c for k, v in value.items() if (c := _canonical(v)) not in ("", [], {})}
+    if isinstance(value, list | tuple):
+        return sorted((_canonical(v) for v in value), key=repr)
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return str(int(value))
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def same_effective_value(a: Any, b: Any) -> bool:
+    """`True` quando gravar `b` por cima de `a` não mudaria nada no Znuny."""
+    return bool(_canonical(a) == _canonical(b))
