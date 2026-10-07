@@ -218,12 +218,16 @@ async function confirmSave() {
       <!-- T-R13.2 — sem nome, a tela de filas mostra "Calendar 3 - " e
            ninguém sabe qual é o de São Paulo. O padrão não tem nome no Znuny. -->
       <div v-if="selectedCalendar !== DEFAULT_CALENDAR" class="max-w-xs flex-1">
-        <label class="mb-1 block text-xs font-medium text-muted">
+        <!-- `for`/`id` ligados e placeholder com "ex.:" — no teste V01 um
+             placeholder igual a um valor real ("georgia") foi lido como campo
+             preenchido. -->
+        <label for="calendar-name" class="mb-1 block text-xs font-medium text-muted">
           Nome deste calendário
         </label>
         <UInput
+          id="calendar-name"
           v-model="calendarName"
-          placeholder="Feriados de São Paulo"
+          placeholder="ex.: Feriados de São Paulo"
           :disabled="pending"
           class="w-full"
         />

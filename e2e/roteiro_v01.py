@@ -120,6 +120,8 @@ def a3(c):
 def a4(c):
     pg = c["portal"]
     pg.goto(f"{AURORA}/tickets/novo", wait_until="networkidle")
+    pg.get_by_role("combobox").filter(has_text="Selecione um contrato").click()
+    pg.get_by_role("option").first.click()
     pg.get_by_placeholder("Ex.: Não consigo acessar o sistema").fill(TITULO_V01)
     pg.get_by_placeholder("Descreva o problema em detalhes…").fill(
         "Chamado aberto pelo roteiro de aceite V01 para conferir a fila padrão e a aprovação.")
@@ -310,7 +312,7 @@ def d3(c):
     pg.wait_for_url(re.compile(rf"/atendimento/{CHECKLIST_TICKET}$"))
     pg.wait_for_load_state("networkidle")
     espera_texto(pg, "Onboarding de estação")
-    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]")
+    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]").last
     painel.screenshot(path=str(OUT / "d3-checklist-painel.png"))
     shot(pg, "d3-chamado-84", full=True)
     m = re.search(r"(\d+)\s*de\s*(\d+)", painel.inner_text())
@@ -321,7 +323,7 @@ def d3(c):
 @passo("D4", "Marca mais um item; persiste após recarregar")
 def d4(c):
     pg = c["adm"]
-    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]")
+    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]").last
     caixas = painel.get_by_role("checkbox")
     alvo = next(i for i in range(caixas.count()) if not caixas.nth(i).is_checked())
     caixas.nth(alvo).click()
@@ -329,7 +331,7 @@ def d4(c):
     antes = re.search(r"(\d+)\s*de\s*(\d+)", painel.inner_text()).group(0)
     pg.reload(wait_until="networkidle")
     espera_texto(pg, "Onboarding de estação")
-    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]")
+    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]").last
     depois = re.search(r"(\d+)\s*de\s*(\d+)", painel.inner_text()).group(0)
     assert antes == depois, f"não persistiu: {antes} → {depois}"
     painel.screenshot(path=str(OUT / "d4-checklist-apos-recarregar.png"))
@@ -339,7 +341,7 @@ def d4(c):
 @passo("D5", "Aplicar o mesmo modelo de novo não duplica")
 def d5(c):
     pg = c["adm"]
-    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]")
+    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]").last
     n_antes = painel.get_by_text("Onboarding de estação").count()
     painel.get_by_role("combobox").first.click()
     pg.get_by_role("option", name=re.compile("Onboarding de estação")).first.click()
@@ -465,12 +467,14 @@ PASSOS = [a1, a2, a3, a4, b1, b2, b3, b4, b5, c1, c2, c3, c4, c5, c6,
 
 
 def znuny_login(pg: Page) -> None:
-    pg.goto(ZNUNY, wait_until="networkidle")
-    pg.fill("#User", "william")
-    pg.fill("#Password", SENHA_CONSOLE)
-    # O submit do Znuny mantém conexões abertas (o "esperar navegação" do
-    # Playwright não termina): clica sem esperar e aguarda o link de sair.
-    pg.click("#LoginButton", no_wait_after=True)
+    """Login no Znuny nativo pelo POST do formulário (o cookie fica no contexto).
+
+    Pelo navegador o submit não termina: a página pós-login mantém conexões
+    abertas e o Playwright fica esperando a navegação.
+    """
+    r = pg.context.request.post(ZNUNY, form={"Action": "Login", "User": "william", "Password": SENHA_CONSOLE})
+    assert r.ok, f"login Znuny {r.status}"
+    pg.goto(f"{ZNUNY}?Action=AgentDashboard", wait_until="domcontentloaded")
     pg.wait_for_selector("a[href*='Action=Logout']", state="attached", timeout=60000)
 
 
