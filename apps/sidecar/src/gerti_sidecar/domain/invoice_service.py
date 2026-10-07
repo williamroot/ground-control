@@ -200,7 +200,17 @@ def _consumption_lines(
         # A fatura de um pacote de atendimentos é contada em atendimentos. As
         # horas continuam registradas no consumo (e aparecem no relatório), mas
         # cobrar hora aqui misturaria duas unidades na mesma fatura.
-        return _service_count_lines(cycle)
+        #
+        # Só a HORA fica de fora. Lançamento avulso em R$ (deslocamento,
+        # despesa) não consome o pacote (`_service_units`) e é cobrado à parte
+        # — antes ele era descartado junto com as horas, e o deslocamento de
+        # R$ 160 do AUR-PACOTE-2026 sumia da fatura (teste V01, staging).
+        package = _service_count_lines(cycle)
+        for kind, bucket in agg.items():
+            if _KIND_UNIT.get(kind, "R$") == "h":
+                continue
+            package.append(_LineSpec(kind=kind, quantity=Decimal(1), amount_brl=bucket["amount"]))
+        return package
     franchise_left = _franchise_minutes(contract, cycle)
     specs: list[_LineSpec] = []
     for kind, bucket in agg.items():
