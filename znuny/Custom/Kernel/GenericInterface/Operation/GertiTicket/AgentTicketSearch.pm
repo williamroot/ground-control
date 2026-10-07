@@ -30,16 +30,66 @@ sub Run {
     my $D = $Param{Data};
     my $TicketObject = $Kernel::OM->Get('Kernel::System::Ticket');
 
-    my %Search = ( Result => 'ARRAY', Limit => 50, UserID => 1, OrderBy => 'Down', SortBy => 'Age' );
-    # Fulltext em número/título; filtro opcional por CustomerID.
-    if ( IsStringWithData( $D->{Query} ) ) {
-        # Busca por número exato OU título (fulltext do Znuny usa %...%).
-        $Search{Title} = '%' . $D->{Query} . '%';
-    }
-    $Search{CustomerID} = $D->{CustomerID} if IsStringWithData( $D->{CustomerID} );
-    $Search{TicketNumber} = $D->{Number} if IsStringWithData( $D->{Number} );
+    # Filtros comuns a TODAS as buscas abaixo. O CustomerID (quando vem) entra
+    # aqui para que nenhuma das buscas (título, número ou ID) vaze chamado de
+    # outro cliente.
+    my %Base = ( Result => 'ARRAY', Limit => 50, UserID => 1, OrderBy => 'Down', SortBy => 'Age' );
+    $Base{CustomerID}   = $D->{CustomerID} if IsStringWithData( $D->{CustomerID} );
+    $Base{TicketNumber} = $D->{Number}     if IsStringWithData( $D->{Number} );
 
-    my @TicketIDs = $TicketObject->TicketSearch(%Search);
+    my $Query = IsStringWithData( $D->{Query} ) ? $D->{Query} : '';
+    $Query =~ s/^\s+|\s+$//g;
+
+    my @TicketIDs;
+    if ( !length $Query ) {
+        @TicketIDs = $TicketObject->TicketSearch(%Base);
+    }
+    else {
+        # O TicketSearch do Znuny faz AND entre campos, nunca OU. Então cada
+        # critério é uma busca separada:
+        #   - sempre: título contém a Query (%...%);
+        #   - Query numérica ("84", "#84", "2026081910000081"): também
+        #     TicketNumber exato, TicketNumber terminando nos dígitos e
+        #     TicketID igual ao número (o "#84" que a tela do console mostra).
+        my @Searches = ( { Criteria => { Title => '%' . $Query . '%' } } );
+        if ( $Query =~ m/^#?([0-9]+)$/ ) {
+            my $Digits = $1;
+            # Um Number explícito já restringe o TicketNumber; não sobrescrever.
+            if ( !IsStringWithData( $D->{Number} ) ) {
+                push @Searches,
+                    { Criteria => { TicketNumber => $Digits }, Exact => 1 },
+                    { Criteria => { TicketNumber => '%' . $Digits } };
+            }
+            ( my $AsID = $Digits ) =~ s/^0+//;
+            if ( length $AsID && length $AsID <= 10 && $AsID <= 2_147_483_647 ) {
+                push @Searches, { Criteria => { TicketID => $AsID }, Exact => 1 };
+            }
+        }
+
+        # União sem duplicados. Cada busca já leva %Base (CustomerID/Number).
+        my ( %Seen, %Exact, @Union );
+        for my $Search (@Searches) {
+            for my $ID ( $TicketObject->TicketSearch( %Base, %{ $Search->{Criteria} } ) ) {
+                $Exact{$ID} = 1 if $Search->{Exact};
+                push @Union, $ID if !$Seen{$ID}++;
+            }
+        }
+
+        if (@Union) {
+            # Reordena a união (mais novo primeiro), reaplicando %Base como
+            # segunda trava contra vazamento entre clientes. Acertos exatos
+            # (TicketID / número completo) vêm na frente, para que o sufixo
+            # (ex.: todo número terminado em 84) não os empurre para fora do
+            # limite. O limite de 50 é aplicado só no final.
+            my @Sorted = $TicketObject->TicketSearch(
+                %Base,
+                TicketID => \@Union,
+                Limit    => scalar @Union,
+            );
+            @TicketIDs = ( ( grep { $Exact{$_} } @Sorted ), ( grep { !$Exact{$_} } @Sorted ) );
+            splice @TicketIDs, 50 if @TicketIDs > 50;
+        }
+    }
 
     my @Tickets;
     for my $ID (@TicketIDs) {

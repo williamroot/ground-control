@@ -385,6 +385,8 @@ async def time_accounting_add(
 
 async def agent_search(*, query: str | None, customer_id: str | None) -> list[AgentTicketSummary]:
     body: dict[str, Any] = {}
+    # Só as bordas: `#84` segue intacto — o Perl é quem interpreta número/ID.
+    query = (query or "").strip()
     if query:
         body["Query"] = query
     if customer_id:

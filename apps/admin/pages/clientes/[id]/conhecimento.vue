@@ -246,7 +246,7 @@ function fmtDate(iso: string): string {
     </UCard>
 
     <!-- Lista -->
-    <div v-else class="overflow-hidden rounded-xl border border-default">
+    <div v-else class="overflow-x-auto rounded-xl border border-default">
       <table class="w-full text-sm">
         <thead class="bg-elevated text-left text-xs uppercase text-muted">
           <tr>

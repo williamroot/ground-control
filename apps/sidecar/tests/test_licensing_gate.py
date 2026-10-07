@@ -209,6 +209,15 @@ async def test_assigning_over_the_cap_is_422_at_the_route(
     await _seed(session)
     await _licence(session, "william", ["tickets"], seats=1)
 
+    # T6 (teste V01): a rota confere o login no Znuny antes do seat — a
+    # georgia precisa existir lá para o teste chegar à recusa por teto.
+    from gerti_sidecar.integrations import znuny_admin_people as people_gi
+
+    async def fake_list_agents(*, agent_login: str) -> list[people_gi.Agent]:
+        return [people_gi.Agent(2, "georgia", "Georgia", "Lima", "g@x", True)]
+
+    monkeypatch.setattr(people_gi, "list_agents", fake_list_agents)
+
     from gerti_sidecar.main import create_app
 
     async with _client(create_app(), "william") as c:

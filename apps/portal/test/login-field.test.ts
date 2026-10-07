@@ -27,4 +27,12 @@ describe('campo de identificação do login (portal)', () => {
   it('o rótulo avisa que aceita os dois formatos', () => {
     expect(loginPage).toMatch(/label="E-mail ou usuário"/)
   })
+
+  // T3 / C2: a mensagem de erro vem do mapeamento status → mensagem
+  // (shared/login-error.ts), não de uma frase única para toda falha.
+  it('a mensagem de erro sai de loginErrorMessage, não de frase fixa', () => {
+    expect(loginPage).toContain('loginErrorMessage(')
+    expect(loginPage).toContain('loginStatusFromError(')
+    expect(loginPage).not.toContain('\'Credenciais inválidas ou serviço indisponível.\'')
+  })
 })

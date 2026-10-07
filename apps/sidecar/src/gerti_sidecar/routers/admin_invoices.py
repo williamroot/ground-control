@@ -1,5 +1,8 @@
 """/v1/admin/tenants/{id}/invoices — console (agente): gera do ciclo, paga, cancela, lista.
 
+`GET /{id}/billing-cycles` lista os ciclos fechados (com o total previsto)
+para o seletor de "gerar fatura" — o console não pede mais o UUID do ciclo.
+
 Spec #1P / ADR D19. Exige get_admin_session. Valida a existência do tenant via
 AdminSessionLocal (BYPASSRLS), depois abre tenant_session_scope (RLS-subject) e
 delega ao InvoiceService — preserva as invariantes #1C/#1P.
@@ -10,7 +13,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,7 +35,8 @@ from gerti_sidecar.domain.invoice_charge_service import (
 )
 from gerti_sidecar.domain.invoice_service import InvoiceService
 from gerti_sidecar.integrations.asaas_client import AsaasError, AsaasUnavailable
-from gerti_sidecar.models import Invoice, Tenant
+from gerti_sidecar.models import Contract, ContractCycle, Invoice, Tenant
+from gerti_sidecar.models.enums import CycleStatus
 
 router = APIRouter(prefix="/admin/tenants", tags=["admin"])
 
@@ -146,6 +150,65 @@ async def list_invoices(
             (await session.execute(select(Invoice).order_by(Invoice.number.desc()))).scalars().all()
         )
         return [_out(r) for r in rows]
+
+
+class BillingCycleOut(BaseModel):
+    id: str
+    contract_id: str
+    contract_code: str
+    period_start: dt.date
+    period_end: dt.date
+    # O que a fatura gerada daria — mesmo cálculo de `POST /invoices`
+    # (`InvoiceService.preview_total_cents`), para o seletor do console mostrar
+    # "R$ 160,00" antes de gerar.
+    total_cents: int | None
+
+
+@router.get("/{tenant_id}/billing-cycles", response_model=list[BillingCycleOut])
+async def list_billing_cycles(
+    tenant_id: str,
+    uninvoiced: bool = Query(False),
+    _admin: AdminSessionPayload = Depends(get_admin_session),
+) -> list[BillingCycleOut]:
+    """Ciclos FECHADOS do tenant, do mais recente para o mais antigo (T2).
+
+    O console pedia o UUID do ciclo para gerar a fatura; esta lista alimenta um
+    seletor. `uninvoiced=true` tira os ciclos que já têm fatura (qualquer
+    status — a UNIQUE(cycle_id) recusaria um segundo `POST` de qualquer jeito).
+    Escopo: `tenant_session_scope` — a policy de `contract_cycle` filtra pelo
+    contrato do tenant, então ciclo de outro tenant não chega nem à query.
+    """
+    tenant_uuid = await _resolve_tenant(tenant_id)
+    async with tenant_session_scope(tenant_uuid) as session:
+        stmt = (
+            select(ContractCycle, Contract)
+            .join(Contract, Contract.id == ContractCycle.contract_id)
+            .where(
+                Contract.tenant_id == tenant_uuid,
+                ContractCycle.status != CycleStatus.open,
+            )
+            .order_by(
+                ContractCycle.period_end.desc(),
+                Contract.code.asc(),
+                ContractCycle.id.asc(),
+            )
+        )
+        if uninvoiced:
+            invoiced = select(Invoice.cycle_id).where(Invoice.cycle_id.is_not(None))
+            stmt = stmt.where(ContractCycle.id.not_in(invoiced))
+        rows = (await session.execute(stmt)).tuples().all()
+        svc = InvoiceService(session)
+        return [
+            BillingCycleOut(
+                id=str(cycle.id),
+                contract_id=str(contract.id),
+                contract_code=contract.code,
+                period_start=cycle.period_start,
+                period_end=cycle.period_end,
+                total_cents=await svc.preview_total_cents(cycle, contract),
+            )
+            for cycle, contract in rows
+        ]
 
 
 async def _get_by_number(session: AsyncSession, number: int) -> Invoice:

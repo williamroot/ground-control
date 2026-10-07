@@ -4,7 +4,10 @@
 //   1. Cadastro (login/nome/e-mail/validade) — NUNCA carrega senha.
 //   2. Definir senha — botão próprio, modal próprio, payload só com a senha.
 //   3. Permissões (grupos/papéis) — a ação mais perigosa: exige confirmação
-//      explícita mostrando o diff (o que ganha, o que perde) antes do PUT.
+//      explícita antes do PUT. O PUT SUBSTITUI os grupos e o sidecar não lê
+//      os atuais: sem estado conhecido, a confirmação mostra com o que o
+//      agente vai ficar e pede o login digitado; com estado conhecido
+//      (gravado nesta sessão), mostra o diff (o que ganha, o que perde).
 // O Znuny recusa (422) um agente removendo a si mesmo do grupo `admin`
 // (anti-lockout do console) — avisamos ANTES de tentar e explicamos se ainda
 // assim o sidecar recusar.
@@ -17,25 +20,26 @@ import {
   buildAgentProfilePayload,
   buildGroupsPayload,
   buildPasswordPayload,
+  describeGroupsChange,
   diffAgentGroups,
   emptyAgentDraft,
   extractAgentError,
   extractGroupsError,
+  groupIdsFromChange,
   hasGroupChanges,
   isPasswordValid,
+  parseAgentList,
+  parseGroupList,
+  selectedGroups,
   validateAgentProfile,
+  validateGroupSelection,
   validatePassword,
   wouldRemoveSelfFromAdmin,
   type AgentProfileDraft,
   type AgentRow,
-  type GroupRow,
 } from '../../composables/useAgentGroups'
 
 definePageMeta({ middleware: 'admin-auth' })
-
-interface AgentDetail extends AgentRow { GroupIDs?: (string | number)[] }
-interface AgentListResponse { items: AgentRow[] }
-interface GroupListResponse { items: GroupRow[] }
 
 const headers = useRequestHeaders(['cookie'])
 const toast = useToast()
@@ -44,22 +48,26 @@ const { data: session } = await useAdmin()
 
 const { data: agentsRes, pending: agentsPending, refresh: refreshAgents } = await useAsyncData(
   'znuny-agents',
-  () => $fetch<AgentListResponse | null>('/api/admin/znuny/agents', { headers }).catch(() => null),
+  () => $fetch<unknown>('/api/admin/znuny/agents', { headers }).catch(() => null),
 )
-const { data: groupsRes } = await useAsyncData(
+const { data: groupsRes, pending: groupsPending, refresh: refreshGroups } = await useAsyncData(
   'znuny-groups',
-  () => $fetch<GroupListResponse | null>('/api/admin/znuny/groups', { headers }).catch(() => null),
+  () => $fetch<unknown>('/api/admin/znuny/groups', { headers }).catch(() => null),
 )
 
-const loadFailed = computed(() => !agentsPending.value && agentsRes.value === null)
-const agents = computed(() => agentsRes.value?.items ?? [])
+// `null` = resposta que não é lista (falha) -> estado de ERRO, nunca "vazio".
+const parsedAgents = computed(() => parseAgentList(agentsRes.value))
+const loadFailed = computed(() => !agentsPending.value && parsedAgents.value === null)
+const agents = computed(() => parsedAgents.value ?? [])
 const isEmpty = computed(() => !agentsPending.value && !loadFailed.value && agents.value.length === 0)
-const groupsList = computed(() => groupsRes.value?.items ?? [])
+const groupsList = computed(() => parseGroupList(groupsRes.value))
+const groupsFailed = computed(() => !groupsPending.value && !Array.isArray(groupsRes.value))
 
+// O sidecar guarda validade como booleano: "inválido temporariamente" do
+// Znuny não tem como ser escolhido por aqui.
 const VALID_OPTIONS = [
-  { label: 'válido', value: '1' },
-  { label: 'inválido', value: '2' },
-  { label: 'inválido temporariamente', value: '3' },
+  { label: 'válido', value: 'true' },
+  { label: 'inválido', value: 'false' },
 ]
 
 // --- Cadastro (criar/editar, sem senha) --------------------------------------
@@ -97,7 +105,7 @@ async function submit() {
       toast.add({ title: 'Agente criado', color: 'success' })
     }
     else {
-      await $fetch(`/api/admin/znuny/agents/${editingAgent.value!.UserID}`, { method: 'PUT', body: payload })
+      await $fetch(`/api/admin/znuny/agents/${editingAgent.value!.id}`, { method: 'PUT', body: payload })
       toast.add({ title: 'Cadastro atualizado', color: 'success' })
     }
     formOpen.value = false
@@ -135,7 +143,7 @@ async function submitPassword() {
   pwSaving.value = true
   pwError.value = ''
   try {
-    await $fetch(`/api/admin/znuny/agents/${pwTarget.value.UserID}/password`, {
+    await $fetch(`/api/admin/znuny/agents/${pwTarget.value.id}/password`, {
       method: 'POST',
       body: buildPasswordPayload(pwPassword.value),
     })
@@ -150,48 +158,56 @@ async function submitPassword() {
   }
 }
 
-// --- Permissões (grupos/papéis) — confirmação obrigatória com diff ----------
+// --- Permissões (grupos/papéis) — confirmação obrigatória ---------------------
+// O sidecar não lê os grupos atuais de um agente e o PUT SUBSTITUI a lista.
+// Grupos conhecidos = o `after` da última gravação nesta sessão; antes disso
+// eles são desconhecidos, a seleção começa vazia e a confirmação exige digitar
+// o login (é uma substituição às cegas do acesso de alguém).
+const knownGroups = ref<Record<number, number[]>>({})
 const permOpen = ref(false)
 const permTarget = ref<AgentRow | null>(null)
 const permStep = ref<'edit' | 'confirm'>('edit')
-const permPending = ref(false)
-const permLoadFailed = ref(false)
-const currentGroupIds = ref<string[]>([])
-const nextGroupIds = ref<string[]>([])
+const currentGroupIds = ref<number[] | null>(null)
+const nextGroupIds = ref<number[]>([])
+const permConfirmText = ref('')
 const permError = ref('')
 const permSaving = ref(false)
 
-async function openPermissions(row: AgentRow) {
+function openPermissions(row: AgentRow) {
   permTarget.value = row
   permStep.value = 'edit'
   permError.value = ''
-  permLoadFailed.value = false
+  permConfirmText.value = ''
+  const known = knownGroups.value[row.id]
+  currentGroupIds.value = known ? [...known] : null
+  nextGroupIds.value = known ? [...known] : []
   permOpen.value = true
-  permPending.value = true
-  const detail = await $fetch<AgentDetail | null>(`/api/admin/znuny/agents/${row.UserID}`, { headers })
-    .catch(() => null)
-  permPending.value = false
-  if (detail === null) { permLoadFailed.value = true; return }
-  currentGroupIds.value = (detail.GroupIDs ?? []).map(String)
-  nextGroupIds.value = [...currentGroupIds.value]
 }
 
-function toggleGroup(id: string | number) {
-  const sid = String(id)
-  const idx = nextGroupIds.value.indexOf(sid)
+function toggleGroup(id: number) {
+  const idx = nextGroupIds.value.indexOf(id)
   if (idx >= 0) nextGroupIds.value.splice(idx, 1)
-  else nextGroupIds.value.push(sid)
+  else nextGroupIds.value.push(id)
 }
 
-const permDiff = computed(() => diffAgentGroups(currentGroupIds.value, nextGroupIds.value, groupsList.value))
-const permHasChanges = computed(() => hasGroupChanges(permDiff.value))
+const permKnown = computed(() => currentGroupIds.value !== null)
+const permDiff = computed(() =>
+  diffAgentGroups(currentGroupIds.value ?? [], nextGroupIds.value, groupsList.value))
+const permSelection = computed(() => selectedGroups(nextGroupIds.value, groupsList.value))
+const permSelectionErrors = computed(() => validateGroupSelection(nextGroupIds.value))
+const permCanReview = computed(() =>
+  permSelectionErrors.value.length === 0 && (!permKnown.value || hasGroupChanges(permDiff.value)))
 const permIsSelf = computed(() =>
-  !!session.value && !!permTarget.value && permTarget.value.UserLogin === session.value.agent_login)
-const permSelfLockout = computed(() => wouldRemoveSelfFromAdmin(permIsSelf.value, permDiff.value, ADMIN_GROUP_NAME))
+  !!session.value && !!permTarget.value && permTarget.value.login === session.value.agent_login)
+const permSelfLockout = computed(() => wouldRemoveSelfFromAdmin(
+  permIsSelf.value, currentGroupIds.value, nextGroupIds.value, groupsList.value, ADMIN_GROUP_NAME))
+const permConfirmOk = computed(() =>
+  permKnown.value || permConfirmText.value.trim() === (permTarget.value?.login ?? ''))
 
 function goToConfirm() {
-  if (!permHasChanges.value) return
+  if (!permCanReview.value) return
   permError.value = ''
+  permConfirmText.value = ''
   permStep.value = 'confirm'
 }
 function backToEdit() {
@@ -199,17 +215,23 @@ function backToEdit() {
 }
 
 async function confirmPermissions() {
-  if (!permTarget.value || permSelfLockout.value) return
+  if (!permTarget.value || permSelfLockout.value || !permConfirmOk.value) return
+  const target = permTarget.value
   permSaving.value = true
   permError.value = ''
   try {
-    await $fetch(`/api/admin/znuny/agents/${permTarget.value.UserID}/groups`, {
+    const change = await $fetch<unknown>(`/api/admin/znuny/agents/${target.id}/groups`, {
       method: 'PUT',
       body: buildGroupsPayload(nextGroupIds.value),
     })
-    toast.add({ title: 'Permissões atualizadas', color: 'success' })
+    const after = groupIdsFromChange(change)
+    if (after) knownGroups.value = { ...knownGroups.value, [target.id]: after }
+    toast.add({
+      title: `Permissões de ${target.login} atualizadas`,
+      description: describeGroupsChange(change),
+      color: 'success',
+    })
     permOpen.value = false
-    await refreshAgents()
   }
   catch (e) {
     permError.value = extractGroupsError(e, permSelfLockout.value)
@@ -273,7 +295,7 @@ async function confirmPermissions() {
     </UCard>
 
     <!-- Lista -->
-    <div v-else class="overflow-hidden rounded-xl border border-default">
+    <div v-else class="overflow-x-auto rounded-xl border border-default">
       <table class="w-full text-sm">
         <thead class="bg-elevated text-left text-xs uppercase text-muted">
           <tr>
@@ -285,13 +307,13 @@ async function confirmPermissions() {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="a in agents" :key="String(a.UserID)" class="border-t border-default">
-            <td class="px-4 py-3 font-mono text-xs font-semibold text-highlighted">{{ a.UserLogin }}</td>
+          <tr v-for="a in agents" :key="a.id" class="border-t border-default">
+            <td class="px-4 py-3 font-mono text-xs font-semibold text-highlighted">{{ a.login }}</td>
             <td class="px-4 py-3 text-default">{{ agentFullName(a) }}</td>
-            <td class="px-4 py-3 text-muted">{{ a.UserEmail }}</td>
+            <td class="px-4 py-3 text-muted">{{ a.email }}</td>
             <td class="px-4 py-3">
-              <UBadge :color="agentValidColor(a.ValidID)" variant="soft" size="sm">
-                {{ agentValidLabel(a.ValidID) }}
+              <UBadge :color="agentValidColor(a.valid)" variant="soft" size="sm">
+                {{ agentValidLabel(a.valid) }}
               </UBadge>
             </td>
             <td class="px-4 py-3">
@@ -324,27 +346,27 @@ async function confirmPermissions() {
           <UAlert v-if="formError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="formError" />
 
           <UFormField v-if="isNew" label="Login" required help="Não pode ser alterado depois de criado.">
-            <UInput v-model="draft.UserLogin" placeholder="ex.: ana.souza" class="w-full" />
+            <UInput v-model="draft.login" placeholder="ex.: ana.souza" class="w-full" />
           </UFormField>
           <UFormField v-else label="Login">
-            <UInput :model-value="draft.UserLogin" disabled class="w-full font-mono" />
+            <UInput :model-value="draft.login" disabled class="w-full font-mono" />
           </UFormField>
 
           <div class="grid gap-4 sm:grid-cols-2">
             <UFormField label="Nome" required>
-              <UInput v-model="draft.UserFirstname" class="w-full" />
+              <UInput v-model="draft.first_name" class="w-full" />
             </UFormField>
             <UFormField label="Sobrenome" required>
-              <UInput v-model="draft.UserLastname" class="w-full" />
+              <UInput v-model="draft.last_name" class="w-full" />
             </UFormField>
           </div>
 
           <UFormField label="E-mail" required>
-            <UInput v-model="draft.UserEmail" type="email" class="w-full" />
+            <UInput v-model="draft.email" type="email" class="w-full" />
           </UFormField>
 
           <UFormField label="Validade" required>
-            <USelect v-model="draft.ValidID" :items="VALID_OPTIONS" class="w-full" />
+            <USelect v-model="draft.valid" :items="VALID_OPTIONS" class="w-full" />
           </UFormField>
         </div>
       </template>
@@ -373,7 +395,7 @@ async function confirmPermissions() {
             color="warning"
             variant="soft"
             icon="i-lucide-alert-triangle"
-            :title="`Isso substitui a senha de ${pwTarget?.UserLogin ?? ''} imediatamente`"
+            :title="`Isso substitui a senha de ${pwTarget?.login ?? ''} imediatamente`"
             description="Ação separada do cadastro — não afeta nome, e-mail ou permissões."
           />
           <UAlert v-if="pwError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="pwError" />
@@ -404,36 +426,49 @@ async function confirmPermissions() {
     <UModal
       v-model:open="permOpen"
       title="Permissões"
-      :description="`Agente: ${permTarget?.UserLogin ?? ''}`"
+      :description="`Agente: ${permTarget?.login ?? ''}`"
       :ui="{ content: 'max-w-lg', footer: 'justify-end' }"
     >
       <template #body>
-        <div v-if="permPending" class="h-40 animate-pulse rounded-lg bg-elevated" />
+        <div v-if="groupsPending" class="h-40 animate-pulse rounded-lg bg-elevated" />
 
-        <div v-else-if="permLoadFailed" class="flex flex-col items-center gap-3 py-8 text-center">
+        <div v-else-if="groupsFailed" class="flex flex-col items-center gap-3 py-8 text-center">
           <UIcon name="i-lucide-alert-triangle" class="h-8 w-8 text-error" />
-          <p class="text-sm text-muted">Não foi possível carregar os grupos deste agente.</p>
-          <UButton variant="soft" color="primary" icon="i-lucide-refresh-cw" @click="permTarget && openPermissions(permTarget)">
+          <p class="text-sm text-muted">Não foi possível carregar os grupos do Znuny.</p>
+          <UButton variant="soft" color="primary" icon="i-lucide-refresh-cw" @click="refreshGroups()">
             Tentar novamente
           </UButton>
         </div>
 
         <!-- Passo 1: escolher grupos -->
         <div v-else-if="permStep === 'edit'" class="space-y-3">
-          <p class="text-sm text-muted">Marque os grupos/papéis que este agente deve ter.</p>
+          <UAlert
+            v-if="!permKnown"
+            color="warning"
+            variant="soft"
+            icon="i-lucide-alert-triangle"
+            title="Salvar substitui todos os grupos deste agente"
+            description="O console ainda não consegue ler os grupos atuais de um agente. Marque TODOS os grupos que ele deve ter — o que ficar desmarcado é removido."
+          />
+          <p v-else class="text-sm text-muted">
+            Grupos gravados nesta sessão. Marque os grupos/papéis que este agente deve ter.
+          </p>
           <ul class="max-h-72 space-y-1 overflow-y-auto rounded-lg border border-default p-2">
-            <li v-for="g in groupsList" :key="String(g.GroupID)" class="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-elevated">
+            <li v-for="g in groupsList" :key="g.id" class="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-elevated">
               <UCheckbox
-                :model-value="nextGroupIds.includes(String(g.GroupID))"
+                :model-value="nextGroupIds.includes(g.id)"
                 data-testid="group-checkbox"
-                @update:model-value="toggleGroup(g.GroupID)"
+                @update:model-value="toggleGroup(g.id)"
               />
-              <span class="text-sm text-default">{{ g.Name }}</span>
-              <UBadge v-if="g.Name.toLowerCase() === 'admin'" color="warning" variant="soft" size="sm" class="ml-auto">
+              <span class="text-sm text-default">{{ g.name }}</span>
+              <UBadge v-if="g.name.toLowerCase() === ADMIN_GROUP_NAME" color="warning" variant="soft" size="sm" class="ml-auto">
                 administrador
               </UBadge>
             </li>
           </ul>
+          <p v-if="permSelectionErrors.length" class="text-sm text-muted">
+            {{ permSelectionErrors[0] }}
+          </p>
         </div>
 
         <!-- Passo 2: confirmação com o diff -->
@@ -457,25 +492,48 @@ async function confirmPermissions() {
 
           <UAlert v-if="permError" color="error" variant="soft" icon="i-lucide-alert-triangle" :title="permError" />
 
-          <div>
-            <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-success">Vai ganhar</p>
-            <p v-if="permDiff.gained.length === 0" class="text-sm text-muted">nada</p>
-            <ul v-else class="flex flex-wrap gap-1.5">
-              <li v-for="g in permDiff.gained" :key="String(g.GroupID)">
-                <UBadge color="success" variant="soft" size="sm">{{ g.Name }}</UBadge>
-              </li>
-            </ul>
-          </div>
+          <!-- Grupos atuais conhecidos: diff do que ganha e do que perde. -->
+          <template v-if="permKnown">
+            <div>
+              <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-success">Vai ganhar</p>
+              <p v-if="permDiff.gained.length === 0" class="text-sm text-muted">nada</p>
+              <ul v-else class="flex flex-wrap gap-1.5">
+                <li v-for="g in permDiff.gained" :key="g.id">
+                  <UBadge color="success" variant="soft" size="sm">{{ g.name }}</UBadge>
+                </li>
+              </ul>
+            </div>
 
-          <div>
-            <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-error">Vai perder</p>
-            <p v-if="permDiff.lost.length === 0" class="text-sm text-muted">nada</p>
-            <ul v-else class="flex flex-wrap gap-1.5">
-              <li v-for="g in permDiff.lost" :key="String(g.GroupID)">
-                <UBadge color="error" variant="soft" size="sm">{{ g.Name }}</UBadge>
-              </li>
-            </ul>
-          </div>
+            <div>
+              <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-error">Vai perder</p>
+              <p v-if="permDiff.lost.length === 0" class="text-sm text-muted">nada</p>
+              <ul v-else class="flex flex-wrap gap-1.5">
+                <li v-for="g in permDiff.lost" :key="g.id">
+                  <UBadge color="error" variant="soft" size="sm">{{ g.name }}</UBadge>
+                </li>
+              </ul>
+            </div>
+          </template>
+
+          <!-- Desconhecidos: mostra o estado final e pede o login digitado. -->
+          <template v-else>
+            <div>
+              <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-dimmed">
+                {{ permTarget?.login }} vai ficar só com
+              </p>
+              <ul class="flex flex-wrap gap-1.5" data-testid="final-groups">
+                <li v-for="g in permSelection" :key="g.id">
+                  <UBadge color="primary" variant="soft" size="sm">{{ g.name }}</UBadge>
+                </li>
+              </ul>
+              <p class="mt-2 text-xs text-muted">
+                Qualquer outro grupo que ele tenha hoje no Znuny será removido.
+              </p>
+            </div>
+            <UFormField :label="`Digite ${permTarget?.login ?? ''} para confirmar`">
+              <UInput v-model="permConfirmText" class="w-full font-mono" autocomplete="off" />
+            </UFormField>
+          </template>
         </div>
       </template>
 
@@ -486,7 +544,7 @@ async function confirmPermissions() {
             label="Revisar alteração"
             color="primary"
             icon="i-lucide-arrow-right"
-            :disabled="permPending || permLoadFailed || !permHasChanges"
+            :disabled="groupsPending || groupsFailed || !permCanReview"
             @click="goToConfirm"
           />
         </template>
@@ -497,7 +555,7 @@ async function confirmPermissions() {
             color="error"
             icon="i-lucide-check"
             :loading="permSaving"
-            :disabled="permSelfLockout"
+            :disabled="permSelfLockout || !permConfirmOk"
             @click="confirmPermissions"
           />
         </template>

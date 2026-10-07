@@ -14,8 +14,8 @@ import type {
   WorkingGrid,
 } from '../../composables/useWorkingHours'
 import {
-  CALENDAR_OPTIONS,
   calendarLabel,
+  calendarOptionsFromList,
   DEFAULT_CALENDAR,
   calendarToQuery,
   emptyGrid,
@@ -60,6 +60,15 @@ const { data, pending, refresh } = await useAsyncData<CalendarResponse | null>(
 
 const loadFailed = computed(() => !pending.value && data.value === null)
 
+// Nomes dos 9 calendários para o seletor ("Calendário 3 — Feriados de São
+// Paulo"). Se a lista falhar, `calendarOptionsFromList(null)` devolve os
+// rótulos estáticos e a tela segue editável.
+const { data: calendarList, refresh: refreshCalendarList } = await useAsyncData<unknown>(
+  'znuny-calendars',
+  () => $fetch<unknown>('/api/admin/znuny/calendars', { headers }).catch(() => null),
+)
+const calendarOptions = computed(() => calendarOptionsFromList(calendarList.value))
+
 const activeTab = ref<'jornada' | 'feriados'>('jornada')
 const tabs = [
   { label: 'Jornada de trabalho', value: 'jornada', slot: 'jornada' },
@@ -73,6 +82,11 @@ const oneTime = ref<OneTimeHoliday[]>([])
 // Snapshot do que está gravado no Znuny agora — usado para o diff do resumo
 // de confirmação e para saber se há algo pendente de salvar.
 const loadedPayload = ref<CalendarPayload | null>(null)
+
+// Declarado ANTES do watch abaixo: com `immediate: true` o callback roda na
+// hora, e ler `calendarName` antes da declaração derrubava a página com 500
+// ("Cannot access 'calendarName' before initialization") — teste V01, E1.
+const calendarName = ref('')
 
 watch(data, (d) => {
   if (!d) return
@@ -93,8 +107,6 @@ const isEmpty = computed(() => {
   if (!data.value) return false
   return weeklyTotalHours(grid.value) === 0 && recurring.value.length === 0 && oneTime.value.length === 0
 })
-
-const calendarName = ref('')
 
 const draftPayload = computed<CalendarPayload>(() => ({
   calendar: calendarToQuery(selectedCalendar.value),
@@ -117,7 +129,9 @@ const summary = computed(() => (loadedPayload.value
   ? summarizeCalendarChanges(loadedPayload.value, draftPayload.value)
   : null))
 
-const calendarLabel = computed(() =>
+// Nome próprio: chamar de `calendarLabel` sombreava a função importada e o
+// computed chamava a si mesmo (o modal mostrava "Calendário:" vazio).
+const currentCalendarLabel = computed(() =>
   calendarLabel(selectedCalendar.value, calendarName.value))
 
 const confirmOpen = ref(false)
@@ -147,7 +161,8 @@ async function confirmSave() {
       description: 'Deploy de configuração disparado — a nova jornada já vale para o cálculo de SLA de todos os chamados.',
       color: 'success',
     })
-    await refresh()
+    // A lista também: o nome novo tem que aparecer no seletor.
+    await Promise.all([refresh(), refreshCalendarList()])
   }
   catch (e) {
     const err = e as { statusCode?: number, data?: { detail?: unknown } }
@@ -189,9 +204,16 @@ async function confirmSave() {
     />
 
     <div class="mb-6 flex flex-wrap items-end gap-4">
-      <div class="max-w-xs">
+      <div class="w-full sm:w-auto">
         <label class="mb-1 block text-xs font-medium text-muted">Calendário</label>
-        <USelect v-model="selectedCalendar" :items="CALENDAR_OPTIONS" :disabled="pending" />
+        <!-- Largura mínima: com a largura do conteúdo o nome virava "Calen…". -->
+        <USelect
+          v-model="selectedCalendar"
+          data-testid="calendar-select"
+          :items="calendarOptions"
+          :disabled="pending"
+          class="w-full sm:w-auto sm:min-w-80"
+        />
       </div>
       <!-- T-R13.2 — sem nome, a tela de filas mostra "Calendar 3 - " e
            ninguém sabe qual é o de São Paulo. O padrão não tem nome no Znuny. -->
@@ -219,7 +241,7 @@ async function confirmSave() {
         <UIcon name="i-lucide-alert-triangle" class="h-10 w-10 text-error" />
         <p class="font-display text-lg font-semibold text-highlighted">Não foi possível carregar</p>
         <p class="max-w-sm text-sm text-muted">
-          Falha ao buscar o calendário "{{ calendarLabel }}" no Znuny. Tente novamente.
+          Falha ao buscar o calendário "{{ currentCalendarLabel }}" no Znuny. Tente novamente.
         </p>
         <UButton variant="soft" color="primary" icon="i-lucide-refresh-cw" @click="refresh()">
           Tentar novamente
@@ -307,7 +329,7 @@ async function confirmSave() {
           />
 
           <div v-if="summary" data-testid="change-summary" class="space-y-1.5 rounded-lg border border-default bg-elevated/50 p-3 text-sm text-default">
-            <p>Calendário: <span class="font-medium">{{ calendarLabel }}</span></p>
+            <p>Calendário: <span class="font-medium">{{ currentCalendarLabel }}</span></p>
             <p>
               Horas úteis por semana:
               <span class="font-medium">{{ summary.weeklyHoursBefore }}h → {{ summary.weeklyHoursAfter }}h</span>

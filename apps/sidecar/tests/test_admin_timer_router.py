@@ -111,3 +111,49 @@ async def test_get_ticket_maps_to_snake_case(engine, app_session_factory, monkey
         # não vaza chaves capitalizadas de topo (o bug original)
         assert "TicketID" not in d
         assert "Title" not in d
+
+
+async def _search_with_captured_gi_body(engine, app_session_factory, monkeypatch, params):
+    monkeypatch.setenv("SESSION_SECRET", "test-secret-32-chars-minimum-xxxx")
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    get_settings.cache_clear()
+    sent: list[tuple[str, dict]] = []
+
+    async def fake_post_agent(route: str, body: dict):
+        sent.append((route, dict(body)))
+        return {"Tickets": []}
+
+    monkeypatch.setattr(znuny_ticket, "_post_agent", fake_post_agent)
+    admin_factory = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    monkeypatch.setattr(db, "AdminSessionLocal", admin_factory)
+    monkeypatch.setattr(db, "SessionLocal", app_session_factory)
+    async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://t") as c:
+        c.cookies.set("gsid_adm", encode_admin_session("william", get_settings()))
+        r = await c.get("/v1/admin/tickets", params=params)
+    assert r.status_code == 200, r.text
+    assert len(sent) == 1
+    route, body = sent[0]
+    assert route == "/Agent/Ticket/Search"
+    return body
+
+
+@pytest.mark.asyncio
+async def test_ticket_search_passes_hash_number_intact(engine, app_session_factory, monkeypatch):
+    """T4 (teste V01): "#84" chega ao GI como digitado (só sem as bordas) — é o
+    Perl quem decide que `#84` é TicketID/número. O sidecar não reescreve."""
+    body = await _search_with_captured_gi_body(
+        engine, app_session_factory, monkeypatch, {"q": "  #84 "}
+    )
+    assert body == {"Query": "#84"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("q", ["", "   ", "\t"])
+async def test_ticket_search_blank_query_sends_no_query(
+    engine, app_session_factory, monkeypatch, q
+):
+    body = await _search_with_captured_gi_body(
+        engine, app_session_factory, monkeypatch, {"q": q, "customer_id": "AURORA"}
+    )
+    assert "Query" not in body
+    assert body == {"CustomerID": "AURORA"}

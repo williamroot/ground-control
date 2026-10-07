@@ -604,3 +604,80 @@ async def test_agent_groups_put_anti_lockout_maps_to_422(engine, app_session_fac
         )
     assert r.status_code == 422
     assert "admin group" in r.json()["detail"]
+
+
+# --------------------------------------------------------------------------- #
+# T5 (teste V01) — lista de calendários com o nome gravado
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_calendars_list_reads_all_names_in_one_call(engine, app_session_factory, monkeypatch):
+    st = _settings(monkeypatch)
+    _wire(monkeypatch, engine, app_session_factory)
+    calls: list[dict] = []
+
+    async def post(self, url, **kw):
+        if not _is_znuny_url(url):
+            return await _ORIGINAL_ASYNC_CLIENT_POST(self, url, **kw)
+        calls.append(kw.get("json") or {})
+        names = (kw.get("json") or {}).get("Names") or []
+        settings = {n: {"Name": n, "EffectiveValue": ""} for n in names}
+        settings["TimeZone::Calendar3Name"]["EffectiveValue"] = "Feriados de São Paulo"
+        settings["TimeZone::Calendar5Name"]["EffectiveValue"] = "  "
+        return _MockResp(200, {"Settings": settings})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://t") as c:
+        assert (await c.get("/v1/admin/znuny/calendars", headers=_HOST)).status_code == 401
+        c.cookies.set("gsid_adm", encode_admin_session("william", st))
+        r = await c.get("/v1/admin/znuny/calendars", headers=_HOST)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body[0] == {"value": "default", "name": None}
+    assert [x["value"] for x in body] == ["default"] + [str(n) for n in range(1, 10)]
+    by_value = {x["value"]: x["name"] for x in body}
+    assert by_value["3"] == "Feriados de São Paulo"
+    # Nome vazio ou só espaços é "sem nome", não um rótulo em branco.
+    assert by_value["1"] is None
+    assert by_value["5"] is None
+    # Uma ida ao Znuny só, com os nove nomes.
+    assert len(calls) == 1
+    assert calls[0]["Names"] == [f"TimeZone::Calendar{n}Name" for n in range(1, 10)]
+
+
+@pytest.mark.asyncio
+async def test_calendars_list_znuny_down_is_503(engine, app_session_factory, monkeypatch):
+    st = _settings(monkeypatch)
+    _wire(monkeypatch, engine, app_session_factory)
+
+    async def post(self, url, **kw):
+        if not _is_znuny_url(url):
+            return await _ORIGINAL_ASYNC_CLIENT_POST(self, url, **kw)
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", post)
+    async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://t") as c:
+        c.cookies.set("gsid_adm", encode_admin_session("william", st))
+        r = await c.get("/v1/admin/znuny/calendars", headers=_HOST)
+    assert r.status_code == 503
+    assert r.json()["detail"] == "znuny_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_calendars_list_rejected_read_degrades_to_unnamed(
+    engine, app_session_factory, monkeypatch
+):
+    """Znuny respondeu mas recusou a leitura (ex.: overlay antigo sem os nomes
+    na allowlist): a lista continua saindo, sem nomes — o seletor funciona."""
+    st = _settings(monkeypatch)
+    _wire(monkeypatch, engine, app_session_factory)
+    monkeypatch.setattr(
+        httpx.AsyncClient,
+        "post",
+        _mock_znuny_post({"Error": {"ErrorCode": "X", "ErrorMessage": "nope"}}, 200),
+    )
+    async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://t") as c:
+        c.cookies.set("gsid_adm", encode_admin_session("william", st))
+        r = await c.get("/v1/admin/znuny/calendars", headers=_HOST)
+    assert r.status_code == 200, r.text
+    assert len(r.json()) == 10
+    assert all(x["name"] is None for x in r.json())

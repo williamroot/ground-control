@@ -1,4 +1,4 @@
-"""`/v1/admin/znuny/{agents,groups,calendar}` — console como capa do Znuny
+"""`/v1/admin/znuny/{agents,groups,calendar,calendars}` — console como capa do Znuny
 (Spec #4, Blocos C e D).
 
 O sidecar não persiste NADA disto (contrato da Spec #4): toda tela lê ao
@@ -400,6 +400,51 @@ async def _calendar_name(setting: str | None, agent_login: str) -> str | None:
         return None
     entry = found.get(setting)
     return str(entry.value or "") if entry is not None else None
+
+
+class CalendarOption(BaseModel):
+    """Um item do seletor de calendário: `value` é o que `GET/PUT /calendar`
+    recebem (`default` = calendário padrão, sufixo vazio), `name` o rótulo
+    gravado no Znuny (`None` no padrão e em calendário sem nome)."""
+
+    value: str
+    name: str | None
+
+
+# Sufixos na ordem do seletor do console (espelha `CALENDAR_OPTIONS`).
+_CALENDAR_VALUES = [str(n) for n in range(1, 10)]
+
+
+@router.get("/calendars")
+async def list_calendars(
+    admin: AdminSessionPayload = Depends(get_admin_session),
+) -> list[CalendarOption]:
+    """Os dez calendários com o nome gravado (T5 do teste V01).
+
+    Os nove nomes vêm numa ida só ao Znuny (`AdminSysConfigGet` com `Names`).
+    Znuny fora do ar → 503. Znuny que RECUSA a leitura (overlay anterior aos
+    nomes, setting ausente) não derruba o seletor: devolve os calendários sem
+    nome, com a mesma tolerância de `_calendar_name`.
+    """
+    setting_by_value = {
+        v: name for v in _CALENDAR_VALUES if (name := sysconfig_gi.calendar_setting_names(v).name)
+    }
+    names: dict[str, str | None] = dict.fromkeys(_CALENDAR_VALUES)
+    try:
+        found = await sysconfig_gi.get_settings(
+            list(setting_by_value.values()), agent_login=admin["agent_login"]
+        )
+    except ZnunyUnavailable as exc:
+        raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
+    except ZnunyWriteError:
+        found = {}
+    for value, setting in setting_by_value.items():
+        entry = found.get(setting)
+        raw = entry.value if entry is not None else None
+        names[value] = (raw.strip() or None) if isinstance(raw, str) else None
+    return [CalendarOption(value="default", name=None)] + [
+        CalendarOption(value=v, name=names[v]) for v in _CALENDAR_VALUES
+    ]
 
 
 @router.get("/calendar")
