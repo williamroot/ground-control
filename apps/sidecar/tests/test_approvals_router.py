@@ -24,6 +24,7 @@ from gerti_sidecar.config import get_settings
 from gerti_sidecar.db import tenant_session_scope
 from gerti_sidecar.domain.approval_service import ApprovalService
 from gerti_sidecar.integrations import znuny_ticket
+from gerti_sidecar.integrations.znuny_customer_admin import ZnunyWriteError
 from gerti_sidecar.main import create_app
 from gerti_sidecar.models import Contract, Tenant, TenantBranding, ZnunyInstance
 from gerti_sidecar.models.enums import ContractType
@@ -119,12 +120,23 @@ async def test_the_approver_decides_through_the_route(
     async def fake_update(**kw):
         updates.append(kw)
 
+    replies: list[dict] = []
+
+    async def fake_reply(**kw):
+        replies.append(kw)
+
     monkeypatch.setattr(znuny_ticket, "agent_ticket_update", fake_update)
+    monkeypatch.setattr(znuny_ticket, "reply_ticket", fake_reply)
     app = create_app()
     st = get_settings()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
         c.cookies.set("gsid", encode_session(str(t.id), "chefe", "approver", st))
         r = await c.post("/v1/tickets/555/approval", headers=HOST, json={"decision": "approved"})
+        # A decisão vai ao chamado com a posse da EMPRESA do tenant (anti-IDOR
+        # do TicketReply), em nome de quem decidiu.
+        assert replies[-1]["customer_id"] == t.znuny_customer_id
+        assert replies[-1]["customer_user"] == "chefe"
+        assert replies[-1]["subject"] == "Aprovado"
         assert r.status_code == 200
         assert r.json()["status"] == "approved"
 
@@ -136,6 +148,39 @@ async def test_the_approver_decides_through_the_route(
         )
     assert again.status_code == 409
     assert len(updates) == 1
+    assert len(replies) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_ticket_of_another_company_is_404_and_nothing_is_decided(
+    engine, app_session_factory, session, monkeypatch
+):
+    """O TicketReply recusa chamado de outra empresa ('ticket not found'):
+    a rota responde 404 e a decisão NÃO fica gravada."""
+    _wire(monkeypatch, engine, app_session_factory)
+    t = await _seed(session)
+    async with tenant_session_scope(t.id, factory=app_session_factory) as s:
+        await ApprovalService(s, znuny_ticket).open_pending(
+            tenant_id=t.id, znuny_ticket_id=556, requested_by="ana"
+        )
+
+    async def fake_reply(**kw):
+        raise ZnunyWriteError("ticket not found")
+
+    async def fake_update(**kw):
+        raise AssertionError("não deveria mudar o estado de chamado alheio")
+
+    monkeypatch.setattr(znuny_ticket, "reply_ticket", fake_reply)
+    monkeypatch.setattr(znuny_ticket, "agent_ticket_update", fake_update)
+    st = get_settings()
+    async with AsyncClient(transport=ASGITransport(app=create_app()), base_url="http://t") as c:
+        c.cookies.set("gsid", encode_session(str(t.id), "chefe", "approver", st))
+        r = await c.post("/v1/tickets/556/approval", headers=HOST, json={"decision": "approved"})
+    assert r.status_code == 404
+    async with tenant_session_scope(t.id, factory=app_session_factory) as s:
+        approval = await ApprovalService(s, znuny_ticket).get(556)
+    assert approval is not None
+    assert approval.status == "pending"
 
 
 @pytest.mark.asyncio

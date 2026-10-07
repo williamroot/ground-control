@@ -336,8 +336,12 @@ async def reply_ticket(
     customer_id: str,
     body: str,
     customer_user_id: str | None = None,
+    subject: str | None = None,
 ) -> None:
     """Responde um ticket com guarda de posse no GI (anti-IDOR).
+
+    `subject` é opcional: ausente, o Perl usa "Re: <título>". A decisão de
+    aprovação usa "Aprovado"/"Reprovado" (o artigo é visível ao cliente).
 
     ATENÇÃO aos dois parâmetros distintos: `customer_user` é o AUTOR da resposta
     (vai como `CustomerUser`, obrigatório, sempre o usuário logado);
@@ -358,6 +362,8 @@ async def reply_ticket(
     }
     if customer_user_id:
         payload["CustomerUserID"] = customer_user_id
+    if subject:
+        payload["Subject"] = subject
     await _post("/Ticket/Reply", payload)
 
 
@@ -385,6 +391,8 @@ async def time_accounting_add(
 
 async def agent_search(*, query: str | None, customer_id: str | None) -> list[AgentTicketSummary]:
     body: dict[str, Any] = {}
+    # Só as bordas: `#84` segue intacto — o Perl é quem interpreta número/ID.
+    query = (query or "").strip()
     if query:
         body["Query"] = query
     if customer_id:

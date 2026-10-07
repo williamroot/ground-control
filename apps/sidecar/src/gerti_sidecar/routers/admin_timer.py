@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -169,12 +169,16 @@ async def active_timers(
 
 @router.get("/tickets")
 async def search_tickets(
-    q: str | None = None,
+    q: str | None = Query(None, max_length=200),
     customer_id: str | None = None,
     admin: AdminSessionPayload = Depends(get_admin_session),
 ) -> list[dict[str, Any]]:
+    # T4 (teste V01): só as bordas saem. "#84", "84" e o número longo chegam ao
+    # GI como digitados — quem decide que é número/TicketID é o
+    # `AgentTicketSearch.pm`. Vazio/espaços = sem `Query` (lista sem filtro).
+    query = (q or "").strip() or None
     try:
-        rows = await znuny_ticket.agent_search(query=q, customer_id=customer_id)
+        rows = await znuny_ticket.agent_search(query=query, customer_id=customer_id)
     except ZnunyUnavailable as exc:
         raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
     # junta contrato vinculado por ticket (BYPASSRLS, read-only)

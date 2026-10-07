@@ -1,4 +1,4 @@
-"""`/v1/admin/znuny/{agents,groups,calendar}` — console como capa do Znuny
+"""`/v1/admin/znuny/{agents,groups,calendar,calendars}` — console como capa do Znuny
 (Spec #4, Blocos C e D).
 
 O sidecar não persiste NADA disto (contrato da Spec #4): toda tela lê ao
@@ -36,6 +36,7 @@ tenant (Znuny é uma instância só, cross-tenant por natureza).
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -384,6 +385,21 @@ async def set_agent_password(
 # --------------------------------------------------------------------------- #
 # Bloco D — SysConfig: calendário e jornada (forma COMPOSTA)
 # --------------------------------------------------------------------------- #
+# Valor de fábrica do Znuny para `TimeZone::CalendarNName` ("Calendar Name 3").
+# Não é um nome que alguém deu: tratado como "sem nome", senão o seletor
+# mostraria "Calendário 3 — Calendar Name 3" em todos.
+_FACTORY_CALENDAR_NAME = re.compile(r"\ACalendar Name [1-9]\Z")
+
+
+def _display_calendar_name(raw: object) -> str | None:
+    if not isinstance(raw, str):
+        return None
+    name = raw.strip()
+    if not name or _FACTORY_CALENDAR_NAME.match(name):
+        return None
+    return name
+
+
 async def _calendar_name(setting: str | None, agent_login: str) -> str | None:
     """Nome do calendário, em leitura SEPARADA e tolerante (T-R13.2).
 
@@ -399,7 +415,74 @@ async def _calendar_name(setting: str | None, agent_login: str) -> str | None:
     except (ZnunyUnavailable, ZnunyWriteError, KeyError):
         return None
     entry = found.get(setting)
-    return str(entry.value or "") if entry is not None else None
+    return (_display_calendar_name(entry.value) or "") if entry is not None else None
+
+
+class CalendarOption(BaseModel):
+    """Um item do seletor de calendário: `value` é o que `GET/PUT /calendar`
+    recebem (`default` = calendário padrão, sufixo vazio), `name` o rótulo
+    gravado no Znuny (`None` no padrão e em calendário sem nome)."""
+
+    value: str
+    name: str | None
+
+
+# Sufixos na ordem do seletor do console (espelha `CALENDAR_OPTIONS`).
+_CALENDAR_VALUES = [str(n) for n in range(1, 10)]
+
+
+@router.get("/calendars")
+async def list_calendars(
+    admin: AdminSessionPayload = Depends(get_admin_session),
+) -> list[CalendarOption]:
+    """Os dez calendários com o nome gravado (T5 do teste V01).
+
+    Os nove nomes vêm numa ida só ao Znuny (`AdminSysConfigGet` com `Names`).
+    Znuny fora do ar → 503. Znuny que RECUSA a leitura (overlay anterior aos
+    nomes, setting ausente) não derruba o seletor: devolve os calendários sem
+    nome, com a mesma tolerância de `_calendar_name`.
+    """
+    setting_by_value = {
+        v: name for v in _CALENDAR_VALUES if (name := sysconfig_gi.calendar_setting_names(v).name)
+    }
+    names: dict[str, str | None] = dict.fromkeys(_CALENDAR_VALUES)
+    try:
+        found = await sysconfig_gi.get_settings(
+            list(setting_by_value.values()), agent_login=admin["agent_login"]
+        )
+    except ZnunyUnavailable as exc:
+        raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
+    except ZnunyWriteError:
+        found = {}
+    for value, setting in setting_by_value.items():
+        entry = found.get(setting)
+        raw = entry.value if entry is not None else None
+        names[value] = _display_calendar_name(raw)
+    return [CalendarOption(value="default", name=None)] + [
+        CalendarOption(value=v, name=names[v]) for v in _CALENDAR_VALUES
+    ]
+
+
+async def _current_calendar_values(settings: list[str], *, agent_login: str) -> dict[str, Any]:
+    """Valor atual de cada setting, numa ida só, para o PUT gravar só o que
+    mudou. Se o Znuny recusar a leitura em lote (ex.: overlay sem o setting de
+    nome), relê sem o nome: o nome fica "desconhecido" e é gravado, mas a
+    jornada continua sendo comparada — que é o que custa um deploy."""
+    try:
+        found = await sysconfig_gi.get_settings(settings, agent_login=agent_login)
+    except ZnunyUnavailable as exc:
+        raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
+    except ZnunyWriteError:
+        core = [n for n in settings if not n.endswith("Name")]
+        if core == settings:
+            return {}
+        try:
+            found = await sysconfig_gi.get_settings(core, agent_login=agent_login)
+        except ZnunyUnavailable as exc:
+            raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
+        except ZnunyWriteError:
+            return {}
+    return {name: entry.value for name, entry in found.items()}
 
 
 @router.get("/calendar")
@@ -463,6 +546,24 @@ async def set_calendar(
         except sysconfig_gi.CalendarSettingInvalid as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    # Guarda #1b (teste V01): grava só o que MUDOU em relação ao Znuny. Cada
+    # `SysConfig/Set` é um lock + update + ConfigurationDeploy da instância
+    # inteira; mudar só o nome do Calendário 3 re-deployava a jornada (deploy
+    # 67 do staging) e, no 2º deploy, estourava o timeout. Ler o estado atual
+    # é uma ida só; Znuny fora do ar aqui é 503 com NADA escrito.
+    current = await _current_calendar_values(
+        [n for n, _ in to_write], agent_login=admin["agent_login"]
+    )
+    # O nome de fábrica conta como vazio: salvar só a jornada de um calendário
+    # sem nome não pode gravar "" por cima de "Calendar Name 3".
+    if names.name and names.name in current:
+        current[names.name] = _display_calendar_name(current[names.name]) or ""
+    to_write = [
+        (name, value)
+        for name, value in to_write
+        if name not in current or not sysconfig_gi.same_effective_value(current[name], value)
+    ]
+
     # Guarda #2: aplica em sequência. `AdminSysConfigSet` só sabe
     # lockar/atualizar/deployar UM `Name` por chamada (não existe transação
     # que abranja os três) — então se a chamada N falhar, as N-1 anteriores
@@ -513,12 +614,22 @@ async def set_calendar(
             ) from exc
         applied.append(name)
 
+    def _final(setting: str) -> Any:
+        if setting in results:
+            return results[setting].value
+        return current.get(setting)
+
+    final_name = _final(names.name) if names.name else None
     out = CalendarPayload(
         calendar=body.calendar,
-        time_working_hours=results[names.working_hours].value,
-        time_vacation_days=results[names.vacation_days].value,
-        time_vacation_days_one_time=results[names.vacation_days_one_time].value,
+        time_working_hours=_final(names.working_hours) or {},
+        time_vacation_days=_final(names.vacation_days) or {},
+        time_vacation_days_one_time=_final(names.vacation_days_one_time) or {},
+        name=_display_calendar_name(final_name),
     )
+    if not applied:
+        # Nada mudou: nenhuma chamada de escrita, nada a auditar.
+        return out
 
     await audit_service.record(
         actor_type="agent",

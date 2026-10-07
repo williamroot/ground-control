@@ -110,10 +110,10 @@ async function save() {
 
     <header class="mt-3 mb-6">
       <h1 class="font-display text-3xl font-extrabold tracking-tight text-highlighted">
-        Relacionamentos
+        Filas de atendimento
       </h1>
       <p class="mt-1 text-sm text-muted">
-        {{ tenant?.trade_name ?? 'Cliente' }} · filas de atendimento
+        {{ tenant?.trade_name ?? 'Cliente' }} · relacionamentos cliente ↔ fila
       </p>
     </header>
 

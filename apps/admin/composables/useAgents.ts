@@ -86,3 +86,52 @@ export function specsSummary(specs: Record<string, unknown>): string {
     .filter((v): v is string => typeof v === 'string' && v.length > 0)
   return parts.join(' · ')
 }
+
+// ---- Bloqueio por licença (R16 com LICENSE_ENFORCEMENT_ENABLED=true) -------
+//
+// Sem o módulo `inventory` na licença do agente logado, o sidecar responde 403
+// (`{"detail": "licença sem o módulo 'inventory'"}`) em devices e agent-tokens.
+// A página engolia o erro e mostrava "Nenhum token ativo" / "Nenhum
+// dispositivo": parecia VAZIA, não BLOQUEADA (caso da Georgia, teste V01).
+// O resultado de cada carga é explícito — ok, bloqueado ou erro — e é
+// serializável, então vale igual no SSR (carga direta pela URL).
+
+export type LoadOutcome<T>
+  = | { status: 'ok', data: T }
+    | { status: 'blocked' }
+    | { status: 'error' }
+
+/** Status HTTP de um erro do `$fetch` (ofetch usa `statusCode`/`status`/`response.status`). */
+export function httpStatusOf(err: unknown): number | null {
+  const e = err as { statusCode?: unknown, status?: unknown, response?: { status?: unknown } } | null
+  for (const v of [e?.statusCode, e?.status, e?.response?.status]) {
+    if (typeof v === 'number') return v
+  }
+  return null
+}
+
+/** 403 = a licença do agente não inclui o módulo. Qualquer outra falha é erro comum. */
+export function isModuleBlocked(err: unknown): boolean {
+  return httpStatusOf(err) === 403
+}
+
+export function okOutcome<T>(data: T): LoadOutcome<T> {
+  return { status: 'ok', data }
+}
+
+export function failureOutcome(err: unknown): LoadOutcome<never> {
+  return isModuleBlocked(err) ? { status: 'blocked' } : { status: 'error' }
+}
+
+/** Basta UMA carga bloqueada para a página inteira virar o estado de bloqueio. */
+export function anyBlocked(...outcomes: (LoadOutcome<unknown> | null | undefined)[]): boolean {
+  return outcomes.some(o => o?.status === 'blocked')
+}
+
+/** Dados de uma carga ok; `null` quando bloqueada, com erro ou ainda sem resposta. */
+export function outcomeData<T>(o: LoadOutcome<T> | null | undefined): T | null {
+  return o?.status === 'ok' ? o.data : null
+}
+
+export const INVENTORY_BLOCKED_TITLE = 'Sua licença não inclui o módulo Inventário'
+export const INVENTORY_BLOCKED_HINT = 'Peça a um administrador para incluir o módulo em Licenças.'

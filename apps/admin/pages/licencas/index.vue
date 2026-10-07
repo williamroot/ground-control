@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import type { AgentLicense, LicenseOverview, ModuleOption } from '~/composables/useLicensing'
 import {
+  agentSelectOptions,
   enforcementNotice,
   moduleLabel,
+  normalizeZnunyAgents,
   seatTone,
   seatUsagePercent,
+  sidecarErrorMessage,
   validateAssignment,
   validateSeats,
 } from '~/composables/useLicensing'
@@ -28,6 +31,13 @@ const { data: licenses, refresh: refreshLicenses } = await useAsyncData('licensi
   $fetch<AgentLicense[] | null>('/api/admin/licensing/agents', { headers }).catch(() => null))
 const { data: modules } = await useAsyncData('licensing-modules', () =>
   $fetch<ModuleOption[] | null>('/api/admin/licensing/modules', { headers }).catch(() => null))
+// Agentes reais do Znuny — a licença só pode ir para quem existe (teste V01, F5).
+const {
+  data: znunyAgents,
+  pending: agentsPending,
+  refresh: refreshAgents,
+} = await useAsyncData('licensing-znuny-agents', () =>
+  $fetch<unknown>('/api/admin/znuny/agents', { headers }).catch(() => null))
 
 const seats = ref(0)
 const savingSeats = ref(false)
@@ -54,6 +64,15 @@ const existing = computed(() =>
 const assignErrors = computed(() =>
   overview.value ? validateAssignment(login.value, chosen.value, overview.value, existing.value) : [])
 const moduleOptions = computed(() => modules.value ?? [])
+
+const agentsFailed = computed(() => !agentsPending.value && znunyAgents.value === null)
+const agentList = computed(() => normalizeZnunyAgents(znunyAgents.value))
+const agentOptions = computed(() => agentSelectOptions(agentList.value, licenses.value, login.value))
+
+// Escolher quem já tem licença é editar: traz os módulos dele.
+watch(existing, (row) => {
+  if (row) chosen.value = [...row.modules]
+})
 
 function fmt(iso: string | null): string {
   return iso ? new Date(iso).toLocaleDateString('pt-BR') : '—'
@@ -82,8 +101,7 @@ async function saveSeats() {
     await refreshOverview()
   }
   catch (e) {
-    const err = e as { data?: { detail?: string } }
-    toast.add({ title: 'Não foi possível salvar', description: err.data?.detail, color: 'error' })
+    toast.add({ title: 'Não foi possível salvar', description: sidecarErrorMessage(e), color: 'error' })
   }
   finally {
     savingSeats.value = false
@@ -104,27 +122,46 @@ async function assign() {
     await Promise.all([refreshOverview(), refreshLicenses()])
   }
   catch (e) {
-    const err = e as { data?: { detail?: string } }
-    // O 422 do sidecar traz a contagem ("7 de 9 em uso") ou a lista de
-    // módulos válidos — repassar a mensagem dele é o que dá ao operador o
-    // próximo passo.
-    toast.add({ title: 'Licença recusada', description: err.data?.detail, color: 'error' })
+    // O 422 do sidecar traz a contagem ("7 de 9 em uso"), o agente que não
+    // existe ou a lista de módulos válidos — repassar a mensagem dele, como
+    // veio, é o que dá ao operador o próximo passo.
+    toast.add({ title: 'Licença recusada', description: sidecarErrorMessage(e), color: 'error' })
   }
   finally {
     savingAssign.value = false
   }
 }
 
-async function revoke(row: AgentLicense) {
+// Revogar tira o acesso do agente aos módulos — destrutivo, então confirma
+// num diálogo com o login em destaque antes do DELETE.
+const revokeTarget = ref<AgentLicense | null>(null)
+const revokeOpen = computed({
+  get: () => revokeTarget.value !== null,
+  set: (open: boolean) => { if (!open && !revoking.value) revokeTarget.value = null },
+})
+const revoking = ref(false)
+
+function askRevoke(row: AgentLicense) {
+  revokeTarget.value = row
+}
+
+async function confirmRevoke() {
+  const row = revokeTarget.value
+  if (!row) return
+  revoking.value = true
   try {
     await $fetch(`/api/admin/licensing/agents/${encodeURIComponent(row.agent_login)}`, {
       method: 'DELETE',
     })
     toast.add({ title: `Licença de ${row.agent_login} revogada`, color: 'neutral' })
+    revokeTarget.value = null
     await Promise.all([refreshOverview(), refreshLicenses()])
   }
-  catch {
-    toast.add({ title: 'Falha ao revogar', color: 'error' })
+  catch (e) {
+    toast.add({ title: 'Falha ao revogar', description: sidecarErrorMessage(e), color: 'error' })
+  }
+  finally {
+    revoking.value = false
   }
 }
 </script>
@@ -210,8 +247,42 @@ async function revoke(row: AgentLicense) {
           {{ existing ? `Editar licença de ${existing.agent_login}` : 'Atribuir licença' }}
         </h2>
       </template>
-      <UFormField label="Login do agente no Znuny">
-        <UInput v-model="login" placeholder="georgia" class="w-full sm:w-80" />
+      <UFormField label="Agente do Znuny">
+        <div v-if="agentsPending" class="h-8 w-full animate-pulse rounded-md bg-elevated sm:w-96" />
+        <div v-else-if="agentsFailed" class="flex flex-wrap items-center gap-2 py-1.5 text-sm text-error">
+          Não foi possível carregar os agentes do Znuny.
+          <UButton
+            size="xs"
+            variant="soft"
+            color="primary"
+            icon="i-lucide-refresh-cw"
+            label="Tentar novamente"
+            @click="refreshAgents()"
+          />
+        </div>
+        <div v-else-if="agentOptions.length === 0" class="flex flex-wrap items-center gap-2 py-1.5 text-sm text-muted">
+          Nenhum agente válido no Znuny.
+          <UButton
+            to="/znuny/agentes"
+            size="xs"
+            variant="soft"
+            color="primary"
+            icon="i-lucide-user-plus"
+            label="Cadastrar agente"
+          />
+        </div>
+        <!-- Sem placeholder com nome de gente: "georgia" em cinza parecia
+             valor preenchido e o operador recebia "Informe o login". -->
+        <USelectMenu
+          v-else
+          v-model="login"
+          data-testid="license-agent-select"
+          :items="agentOptions"
+          value-key="value"
+          placeholder="Escolha o agente"
+          :search-input="{ placeholder: 'Buscar por nome ou login' }"
+          class="w-full sm:w-96"
+        />
       </UFormField>
       <div class="mt-4">
         <p class="mb-2 text-sm font-medium text-highlighted">Módulos</p>
@@ -301,7 +372,7 @@ async function revoke(row: AgentLicense) {
                   variant="ghost"
                   icon="i-lucide-user-minus"
                   label="Revogar"
-                  @click="revoke(row)"
+                  @click="askRevoke(row)"
                 />
               </div>
             </td>
@@ -309,5 +380,36 @@ async function revoke(row: AgentLicense) {
         </tbody>
       </table>
     </UCard>
+
+    <UModal
+      v-model:open="revokeOpen"
+      title="Revogar licença"
+      :ui="{ footer: 'justify-end' }"
+    >
+      <template #body>
+        <div class="space-y-3 text-sm text-default">
+          <p>
+            Revogar a licença de
+            <span class="font-mono font-semibold text-highlighted">{{ revokeTarget?.agent_login }}</span>?
+          </p>
+          <p class="text-muted">
+            O agente perde os módulos licenciados (quando a exigência de licença está ligada) e a
+            licença volta para o total livre. Dá para atribuir de novo depois, se houver licença
+            disponível. Fica registrado na auditoria.
+          </p>
+        </div>
+      </template>
+      <template #footer>
+        <UButton label="Cancelar" color="neutral" variant="ghost" :disabled="revoking" @click="revokeOpen = false" />
+        <UButton
+          :label="`Revogar ${revokeTarget?.agent_login ?? ''}`"
+          color="error"
+          icon="i-lucide-user-minus"
+          :loading="revoking"
+          data-testid="confirm-revoke"
+          @click="confirmRevoke"
+        />
+      </template>
+    </UModal>
   </div>
 </template>

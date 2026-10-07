@@ -41,6 +41,22 @@ const headers = useRequestHeaders(['cookie'])
 const { data: tenant } = await useAsyncData(`admin-tenant-${id}`, () =>
   $fetch<TenantDetail | null>(`/api/admin/tenants/${id}`, { headers }).catch(() => null))
 
+// Navegação para as telas do cliente. "Filas" e não "Relacionamentos": é a
+// palavra que o operador procura (o termo do vídeo fica no subtítulo da tela).
+const sections = [
+  { path: 'usuarios', label: 'Usuários', icon: 'i-lucide-users' },
+  { path: 'filas', label: 'Filas', icon: 'i-lucide-list-tree' },
+  { path: 'chamados', label: 'Chamados', icon: 'i-lucide-ticket' },
+  { path: 'atividades', label: 'Atividades', icon: 'i-lucide-calendar-clock' },
+  { path: 'consumo', label: 'Consumo', icon: 'i-lucide-chart-column' },
+  { path: 'agentes', label: 'Agentes', icon: 'i-lucide-monitor-smartphone' },
+  { path: 'faturas', label: 'Faturas', icon: 'i-lucide-receipt' },
+  { path: 'faturamento', label: 'Faturamento', icon: 'i-lucide-wallet' },
+  { path: 'conhecimento', label: 'Conhecimento', icon: 'i-lucide-book-open' },
+  { path: 'catalogo', label: 'Catálogo', icon: 'i-lucide-package' },
+  { path: 'identidade', label: 'Identidade visual', icon: 'i-lucide-palette' },
+] as const
+
 const roleLabel = (r: string) =>
   r === 'admin' ? 'Administrador' : r === 'helpdesk' ? 'Helpdesk' : r
 
@@ -83,9 +99,12 @@ const contactLine = computed(() => {
     </UCard>
 
     <template v-else>
-      <header class="mt-3 mb-8 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div class="flex items-center gap-3">
+      <!-- T1 (teste V01) — ações no cabeçalho, navegação numa faixa própria.
+           Os 13 botões numa linha só davam 1800px de largura numa janela de
+           1480px: a página rolava de lado e "Filas" sumia à direita. -->
+      <header class="mt-3 mb-4 flex flex-wrap items-start justify-between gap-4">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-3">
             <h1 class="font-display text-3xl font-extrabold tracking-tight text-highlighted">
               {{ tenant.trade_name }}
             </h1>
@@ -97,95 +116,7 @@ const contactLine = computed(() => {
             {{ tenant.legal_name }} · {{ tenant.subdomain }}
           </p>
         </div>
-        <div class="flex items-center gap-2">
-          <UButton
-            :to="`/clientes/${tenant.id}/usuarios`"
-            color="neutral"
-            variant="soft"
-            icon="i-lucide-users"
-          >
-            Usuários
-          </UButton>
-          <UButton
-            :to="`/clientes/${tenant.id}/filas`"
-            color="neutral"
-            variant="soft"
-            icon="i-lucide-list-tree"
-          >
-            Relacionamentos
-          </UButton>
-          <UButton
-            :to="`/clientes/${tenant.id}/chamados`"
-            color="neutral"
-            variant="soft"
-            icon="i-lucide-ticket"
-          >
-            Chamados
-          </UButton>
-          <UButton
-            :to="`/clientes/${tenant.id}/atividades`"
-            color="neutral"
-            variant="soft"
-            icon="i-lucide-calendar-clock"
-          >
-            Atividades
-          </UButton>
-          <UButton
-            :to="`/clientes/${tenant.id}/consumo`"
-            color="neutral"
-            variant="soft"
-            icon="i-lucide-chart-column"
-          >
-            Consumo
-          </UButton>
-          <UButton
-            :to="`/clientes/${tenant.id}/agentes`"
-            color="neutral"
-            variant="soft"
-            icon="i-lucide-monitor-smartphone"
-          >
-            Agentes
-          </UButton>
-          <UButton
-            :to="`/clientes/${tenant.id}/faturas`"
-            color="neutral"
-            variant="soft"
-            icon="i-lucide-receipt"
-          >
-            Faturas
-          </UButton>
-          <UButton
-            :to="`/clientes/${tenant.id}/faturamento`"
-            color="neutral"
-            variant="soft"
-            icon="i-lucide-wallet"
-          >
-            Faturamento
-          </UButton>
-          <UButton
-            :to="`/clientes/${tenant.id}/conhecimento`"
-            color="neutral"
-            variant="soft"
-            icon="i-lucide-book-open"
-          >
-            Conhecimento
-          </UButton>
-          <UButton
-            :to="`/clientes/${tenant.id}/catalogo`"
-            color="neutral"
-            variant="soft"
-            icon="i-lucide-package"
-          >
-            Catálogo
-          </UButton>
-          <UButton
-            :to="`/clientes/${tenant.id}/identidade`"
-            color="neutral"
-            variant="soft"
-            icon="i-lucide-palette"
-          >
-            Identidade visual
-          </UButton>
+        <div class="flex flex-wrap items-center gap-2">
           <UButton
             :to="`/clientes/${tenant.id}/editar`"
             color="neutral"
@@ -203,6 +134,24 @@ const contactLine = computed(() => {
           </UButton>
         </div>
       </header>
+
+      <nav
+        aria-label="Seções do cliente"
+        data-testid="tenant-sections"
+        class="mb-8 flex flex-wrap gap-2 border-b border-default pb-4"
+      >
+        <UButton
+          v-for="s in sections"
+          :key="s.path"
+          :to="`/clientes/${tenant.id}/${s.path}`"
+          color="neutral"
+          variant="soft"
+          size="sm"
+          :icon="s.icon"
+        >
+          {{ s.label }}
+        </UButton>
+      </nav>
 
       <div class="grid gap-6 lg:grid-cols-2">
         <UCard :ui="{ body: 'space-y-3' }">

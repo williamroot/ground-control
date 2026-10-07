@@ -97,3 +97,99 @@ export function validateSeats(seats: number, overview: LicenseOverview): string[
 export function moduleLabel(value: string, options: ModuleOption[]): string {
   return options.find(o => o.value === value)?.label ?? value
 }
+
+// ---- Teste V01, F5 — licença só para agente que existe no Znuny ----------
+//
+// O campo era livre (com placeholder "georgia", que parecia valor preenchido)
+// e 6 das 7 licenças em uso eram de logins que não existem no Znuny. Agora o
+// operador escolhe numa lista dos agentes reais e válidos; o sidecar continua
+// sendo a verdade (422 "agente não existe").
+
+export interface AgentSelectOption {
+  value: string
+  label: string
+}
+
+function str(v: unknown): string {
+  return typeof v === 'string' ? v.trim() : ''
+}
+
+/**
+ * Normaliza `GET /v1/admin/znuny/agents`. O sidecar devolve uma lista de
+ * `{ login, first_name, last_name, valid }`; aceitamos também o envelope
+ * `{ items: [...] }` com as chaves do Znuny (`UserLogin`, `ValidID`), que é o
+ * formato que a tela de agentes espera — assim um ajuste do lado do sidecar
+ * não esvazia o seletor. Só agentes VÁLIDOS: licenciar agente inativo é a
+ * mesma armadilha do login inventado.
+ */
+export function normalizeZnunyAgents(raw: unknown): { login: string, name: string }[] {
+  const list = Array.isArray(raw)
+    ? raw
+    : (raw && typeof raw === 'object' && Array.isArray((raw as { items?: unknown }).items))
+        ? (raw as { items: unknown[] }).items
+        : []
+  const out: { login: string, name: string }[] = []
+  const seen = new Set<string>()
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue
+    const a = item as Record<string, unknown>
+    const login = str(a.login) || str(a.UserLogin)
+    if (!login || seen.has(login)) continue
+    const valid = 'valid' in a ? a.valid === true : String(a.ValidID ?? '1') === '1'
+    if (!valid) continue
+    const name = [str(a.first_name) || str(a.UserFirstname), str(a.last_name) || str(a.UserLastname)]
+      .filter(Boolean)
+      .join(' ')
+    seen.add(login)
+    out.push({ login, name })
+  }
+  return out
+}
+
+/** "Nome (login)"; sem nome cadastrado, só o login. */
+export function agentDisplayName(agent: { login: string, name: string }): string {
+  return agent.name ? `${agent.name} (${agent.login})` : agent.login
+}
+
+/**
+ * Opções do seletor. Quem já tem licença ATIVA continua na lista (é como se
+ * edita os módulos dele), mas marcado. Uma licença de login que não existe no
+ * Znuny só aparece se for a que está sendo editada agora — para o "Editar" da
+ * tabela não deixar o seletor em branco —, marcada como tal.
+ */
+export function agentSelectOptions(
+  agents: { login: string, name: string }[],
+  licenses: AgentLicense[] | null | undefined,
+  currentLogin = '',
+): AgentSelectOption[] {
+  const licensed = new Set((licenses ?? []).filter(l => l.active).map(l => l.agent_login))
+  const options = [...agents]
+    .sort((a, b) => agentDisplayName(a).localeCompare(agentDisplayName(b), 'pt-BR'))
+    .map(a => ({
+      value: a.login,
+      label: licensed.has(a.login) ? `${agentDisplayName(a)} · já licenciado` : agentDisplayName(a),
+    }))
+  const current = currentLogin.trim()
+  if (current && !agents.some(a => a.login === current)) {
+    options.unshift({ value: current, label: `${current} · não existe no Znuny` })
+  }
+  return options
+}
+
+/**
+ * Mensagem de erro do sidecar como ela veio. O 422 da licença traz `detail`
+ * string ("7 de 9 em uso", "agente não existe", módulos válidos) — é o
+ * próximo passo do operador. Validação do FastAPI (lista) vira as mensagens
+ * juntas; qualquer outra coisa, a mensagem genérica.
+ */
+export function sidecarErrorMessage(err: unknown, fallback = 'Falha na operação.'): string {
+  const detail = (err as { data?: { detail?: unknown } } | null)?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map(d => (d && typeof d === 'object' ? str((d as { msg?: unknown }).msg) : str(d)))
+      .filter(Boolean)
+    if (msgs.length) return msgs.join(' ')
+  }
+  return fallback
+}

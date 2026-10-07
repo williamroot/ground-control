@@ -11,6 +11,10 @@ import type { H3Event } from 'h3'
 // When rawBody is provided the body is sent AS-IS and content-type is set to
 // opts.contentType (the original boundary is preserved). When absent, the
 // current JSON behavior is unchanged.
+//
+// opts.timeoutMs: opcional. Aborta a chamada ao sidecar depois de N ms; o
+// `fetch` então REJEITA (TimeoutError) — cabe ao chamador traduzir (o login
+// devolve 503). Sem a opção, o comportamento antigo (sem timeout) é mantido.
 export async function sidecarFetch<T>(
   event: H3Event,
   path: string,
@@ -19,6 +23,7 @@ export async function sidecarFetch<T>(
     body?: unknown
     rawBody?: Uint8Array
     contentType?: string
+    timeoutMs?: number
   } = {},
 ): Promise<{ status: number, data: T | null, setCookie: string[] }> {
   const cfg = useRuntimeConfig()
@@ -41,6 +46,7 @@ export async function sidecarFetch<T>(
       'content-type': useRaw ? (opts.contentType ?? 'application/octet-stream') : 'application/json',
     },
     body: useRaw ? rawBodyInit : (opts.body ? JSON.stringify(opts.body) : undefined),
+    signal: opts.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined,
   })
   const setCookie = res.headers.getSetCookie?.() ?? []
   let data: T | null = null

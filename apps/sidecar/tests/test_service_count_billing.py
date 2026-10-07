@@ -300,3 +300,52 @@ async def test_unused_services_carry_over_when_the_contract_says_so(
     assert totals2["franchise_services"] == 19.0
     assert totals2["overage_services"] == 0.0
     assert totals2["carry_over"] == 7.0
+
+
+@pytest.mark.asyncio
+async def test_an_extra_charge_is_billed_alongside_the_package(
+    engine, app_session_factory, session
+):
+    """Staging (teste V01): o deslocamento de R$ 160 do AUR-PACOTE-2026 sumia da
+    fatura — o pacote descartava TODO evento, não só as horas. O lançamento
+    avulso não consome o pacote, mas é cobrado à parte; hora continua fora."""
+    t, c = await _seed(session, initial_service_count=10)
+    async with tenant_session_scope(t.id, factory=app_session_factory) as s:
+        await _work(s, c.id, ticket=701, minutes=120.0)
+        await ConsumptionService(s).record(
+            RecordConsumption(
+                contract_id=c.id,
+                occurred_at=dt.datetime(2026, 5, 3, 9, tzinfo=dt.UTC),
+                source_kind="travel",
+                source_ref="manual:travel-1",
+                billable_minutes=0.0,
+                billable_amount_brl=160.0,
+                recorded_by="ana",
+            )
+        )
+        cyc = await _cycle(s, c.id)
+        await CycleService(s).close(cyc.id)
+        svc = InvoiceService(s)
+        preview = await svc.preview_total_cents(cyc, c)
+        inv = await svc.create_from_cycle(cyc.id)
+        await s.flush()
+        lines = (
+            (
+                await s.execute(
+                    select(InvoiceLine)
+                    .where(InvoiceLine.invoice_id == inv.id)
+                    .order_by(InvoiceLine.position)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    by_desc = {line.description: line for line in lines}
+    assert set(by_desc) == {_KIND_LABELS[KIND_SERVICE_INCLUDED], _KIND_LABELS["travel"]}
+    assert float(by_desc[_KIND_LABELS[KIND_SERVICE_INCLUDED]].quantity) == 1.0
+    travel = by_desc[_KIND_LABELS["travel"]]
+    assert travel.amount_cents == 16000
+    assert float(travel.quantity) == 1.0
+    assert "h" not in {line.unit for line in lines}, "hora entrou na fatura do pacote"
+    assert inv.total_cents == 16000
+    assert preview == inv.total_cents

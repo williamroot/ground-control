@@ -43,6 +43,7 @@ class _GI:
     def __init__(self) -> None:
         self.created: list[dict] = []
         self.updated: list[dict] = []
+        self.replies: list[dict] = []
 
     async def create_ticket(self, **kw):
         self.created.append(kw)
@@ -50,6 +51,9 @@ class _GI:
 
     async def agent_ticket_update(self, **kw):
         self.updated.append(kw)
+
+    async def reply_ticket(self, **kw):
+        self.replies.append(kw)
 
 
 async def _seed(session, *, approval_required=True) -> Tenant:
@@ -147,11 +151,18 @@ async def test_approving_moves_the_ticket_and_is_final(engine, app_session_facto
             decision="approved",
             approver_login="chefe",
             approver_role=PortalRole.approver,
+            customer_id="ACME",
         )
         assert approved.status == "approved"
         assert approved.approver_login == "chefe"
         # O chamado saiu da espera no Znuny.
         assert gi.updated[-1]["state"] == "open"
+        # A decisão fica no chamado, VISÍVEL ao cliente (TicketReply), com
+        # assunto legível — não mais a nota interna "Automação".
+        assert gi.replies[-1]["subject"] == "Aprovado"
+        assert gi.replies[-1]["customer_id"] == "ACME"
+        assert gi.replies[-1]["customer_user"] == "chefe"
+        assert "note" not in gi.updated[-1]
 
         # Segunda decisão: 409, nunca sobrescrita silenciosa.
         with pytest.raises(AlreadyDecided):
@@ -160,6 +171,7 @@ async def test_approving_moves_the_ticket_and_is_final(engine, app_session_facto
                 decision="rejected",
                 approver_login="outro",
                 approver_role=PortalRole.admin,
+                customer_id="ACME",
                 reason="mudei de ideia",
             )
 
@@ -180,24 +192,34 @@ async def test_rejecting_requires_a_reason_and_closes_the_ticket(
                 decision="rejected",
                 approver_login="chefe",
                 approver_role=PortalRole.approver,
+                customer_id="ACME",
                 reason="   ",
             )
         # Nada foi decidido nem mexido no Znuny.
         assert gi.updated == []
+        assert gi.replies == []
 
         rejected = await svc.decide(
             znuny_ticket_id=out.znuny_ticket_id,
             decision="rejected",
             approver_login="chefe",
             approver_role=PortalRole.approver,
+            customer_id="ACME",
             reason="fora do escopo do contrato",
         )
     assert rejected.status == "rejected"
     assert rejected.reason == "fora do escopo do contrato"
     # O motivo vai para o próprio chamado: o cliente precisa poder LER por que
     # o pedido dele não passou, sem depender de alguém contar.
-    assert "fora do escopo" in gi.updated[-1]["note"]
+    #
+    # Staging (teste V01, ticket 356954): o motivo ia numa nota INTERNA
+    # (`IsVisibleForCustomer=0`) com assunto "AutomaÃ§Ã£o". Agora vai pelo
+    # TicketReply — artigo visível ao cliente, assunto "Reprovado".
+    assert gi.replies[-1]["subject"] == "Reprovado"
+    assert "fora do escopo do contrato" in gi.replies[-1]["body"]
+    assert gi.replies[-1]["customer_id"] == "ACME"
     assert gi.updated[-1]["state"] == "closed unsuccessful"
+    assert "note" not in gi.updated[-1]
 
 
 @pytest.mark.asyncio
@@ -212,6 +234,7 @@ async def test_helpdesk_cannot_decide(engine, app_session_factory, session):
                 decision="approved",
                 approver_login="ana",
                 approver_role=PortalRole.helpdesk,
+                customer_id="ACME",
             )
     assert gi.updated == []
 
@@ -228,6 +251,7 @@ async def test_admin_can_decide_too(engine, app_session_factory, session):
             decision="approved",
             approver_login="dono",
             approver_role=PortalRole.admin,
+            customer_id="ACME",
         )
     assert approved.status == "approved"
 
@@ -242,6 +266,7 @@ async def test_deciding_an_unknown_ticket_is_not_found(engine, app_session_facto
                 decision="approved",
                 approver_login="chefe",
                 approver_role=PortalRole.approver,
+                customer_id="ACME",
             )
 
 

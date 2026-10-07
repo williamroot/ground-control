@@ -286,6 +286,11 @@ sub _SettingKind {
     return 'Select'              if $Name eq 'TimeZone';
     return 'Select'              if $Name eq 'CalendarWeekDayStart';
 
+    # Nome de exibição do calendário N (R13a). Faltava aqui e no Get: nomear um
+    # calendário pelo console nunca funcionou — o 500 e depois o 503 do teste
+    # V01 escondiam esta recusa.
+    return 'CalendarName' if $Name =~ m{\ATimeZone::Calendar[1-9]Name\z}xms;
+
     if ( $Name =~ m{\A(TimeWorkingHours|TimeVacationDays|TimeVacationDaysOneTime)::Calendar([1-9])\z}xms ) {
         my $Base = $1;
         return 'WorkingHours'        if $Base eq 'TimeWorkingHours';
@@ -306,6 +311,7 @@ the shape is valid.
     VacationDays         => { Mes(1-12) => { Dia(1-31) => 'texto', ... }, ... }
     VacationDaysOneTime  => { Ano(4 digitos) => { Mes(1-12) => { Dia(1-31) => 'texto' } } }
     Select               => scalar (TimeZone / CalendarWeekDayStart)
+    CalendarName         => scalar até 100 caracteres, sem controle (TimeZone::CalendarNName)
 
 =cut
 
@@ -382,6 +388,14 @@ sub _ValidateShape {
             }
         }
 
+        return;
+    }
+
+    if ( $Kind eq 'CalendarName' ) {
+        return "EffectiveValue must be a scalar (not a reference)." if ref $Value;
+        return "EffectiveValue must be defined." if !defined $Value;
+        return "Calendar name must have at most 100 characters." if length $Value > 100;
+        return "Calendar name must not contain control characters." if $Value =~ m{[[:cntrl:]]}xms;
         return;
     }
 

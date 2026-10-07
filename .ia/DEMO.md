@@ -54,6 +54,14 @@ URLs da instância viva:
 | `patricia.menezes` | Patrícia Menezes | Suporte N1 | patricia.menezes@gerti.com.br | `Gerti@Demo2026` | Filas de suporte, triagem, incidentes simples |
 | `rafael.tavares` | Rafael Tavares | Suporte N2 (especialista) | rafael.tavares@gerti.com.br | `Gerti@Demo2026` | Escalonamento técnico, infra/redes |
 | `diego.fontana` | Diego Fontana | Field Service (campo) | diego.fontana@gerti.com.br | `Gerti@Demo2026` | Atendimentos on-site / visitas técnicas |
+| `georgia` | Georgia Lima | Caso de licenciamento (R16) | georgia.lima@gerti.com.br | `Gerti@Demo2026` | Só grupo `users`; licença **só `tickets`** — o inventário fica trancado para ela |
+
+> **Licenciamento no staging (desde 2026-10-07, teste V01):** `LICENSE_ENFORCEMENT_ENABLED=true`
+> no `.env.prod`; total 9, em uso 6 — os 5 agentes acima com `tickets`+`inventory` e a
+> `georgia` só com `tickets`. Licença só pode ser dada a agente que existe no Znuny (o
+> sidecar recusa com 422). As licenças antigas de logins fictícios (`mariana`, `rafael`,
+> `juliana`, `pedro`, `carla`) foram revogadas. Criada pelo console (Znuny → Agentes),
+> não pelo seed — **não é recriada** por `seed-demo.sh`.
 
 > O agente **William** tem `rw` nos grupos `admin`, `users` e `stats` + role
 > *Administradores* — é o usuário de demonstração com poder total.
@@ -70,6 +78,15 @@ URLs da instância viva:
 
 Todos vinculados ao CustomerID `AURORA` — veem no portal apenas os chamados
 da própria empresa.
+
+> **Papéis no portal** (`gerti.portal_user_role`): `eduardo.salvi` é **admin** (decide
+> aprovações); quem não tem linha na tabela é **help-desk** — `mariana.bianchi` é o
+> help-desk usado no roteiro de aceite (não vê "Aprovações"; aprovar → 403).
+>
+> **Estado de faturamento (teste V01):** a Aurora tem a fatura **#0003, aberta, R$ 160,00**
+> (deslocamento no `AUR-PACOTE-2026`, ciclo 01–30/09/2026). Esse ciclo foi **criado à mão**
+> e fechado pelo `CycleCloser` — o produto ainda não abre ciclos sozinho (pendência de
+> decisão, ver `docs/RESPOSTA-TESTE-ZNUNY-V01.md`).
 
 ### 2.3 2º tenant de teste — TechNova (#1F-a, white-label)
 

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { Branding } from '#shared/branding'
 import { DEFAULT_BRANDING } from '#shared/branding'
+import { loginErrorMessage, loginStatusFromError } from '#shared/login-error'
 
 definePageMeta({ layout: 'default' })
 
@@ -15,13 +16,20 @@ const loading = ref(false)
 async function submit() {
   error.value = ''
   loading.value = true
+  // O proxy responde com o status do sidecar; `$fetch` rejeita em não-2xx.
+  // Sem resposta (rede caída/timeout) → status ausente → "indisponível".
+  // O timeout do browser é folgado: o proxy já corta o sidecar antes (503).
   const res = await $fetch<{ ok: boolean, status?: number }>(
     '/api/auth/login',
-    { method: 'POST', body: { username: state.username, password: state.password } },
-  ).catch(() => ({ ok: false }))
+    {
+      method: 'POST',
+      body: { username: state.username, password: state.password },
+      timeout: 20_000,
+    },
+  ).catch((err: unknown) => ({ ok: false, status: loginStatusFromError(err) }))
   loading.value = false
   if (res.ok) await navigateTo('/')
-  else error.value = 'Credenciais inválidas ou serviço indisponível.'
+  else error.value = loginErrorMessage(res.status)
 }
 </script>
 

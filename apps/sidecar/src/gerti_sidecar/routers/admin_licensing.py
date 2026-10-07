@@ -17,7 +17,7 @@ from __future__ import annotations
 import datetime as dt
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from gerti_sidecar import db
@@ -29,6 +29,12 @@ from gerti_sidecar.domain.license_service import (
     LicenseService,
     NoSeatsAvailable,
     UnknownModule,
+    validate_modules,
+)
+from gerti_sidecar.integrations import znuny_admin_people as people_gi
+from gerti_sidecar.integrations.znuny_customer_admin import (
+    ZnunyUnavailable,
+    ZnunyWriteError,
 )
 from gerti_sidecar.models import AgentLicense
 from gerti_sidecar.models.licensing import MODULE_LABELS, MODULES
@@ -56,6 +62,14 @@ class SeatsIn(BaseModel):
 class LicenseIn(BaseModel):
     agent_login: str = Field(min_length=1, max_length=255)
     modules: list[str] = Field(default_factory=list)
+
+    @field_validator("agent_login")
+    @classmethod
+    def _strip_login(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("informe o login do agente")
+        return v
 
 
 class LicenseOut(BaseModel):
@@ -89,6 +103,38 @@ def _map(exc: LicenseError) -> HTTPException:
     # regra — o que importa é a MENSAGEM, que carrega a contagem ou a lista de
     # módulos válidos. Um 422 mudo mandaria o operador adivinhar.
     return HTTPException(status_code=422, detail=str(exc))
+
+
+async def _znuny_agent_login(login: str, *, actor: str) -> str:
+    """Confere que `login` é um agente VÁLIDO do Znuny e devolve o login canônico.
+
+    T6 do teste V01: a rota aceitava qualquer texto, e 6 das 7 licenças do
+    staging eram de logins que nunca existiram — o quadro contava seats de gente
+    fictícia. Mesma integração de `GET /v1/admin/znuny/agents` (`AdminAgentList`).
+    A comparação ignora caixa e devolve o login como o Znuny o grava, para que
+    "Georgia" e "georgia" não ocupem dois seats.
+    """
+    try:
+        agents = await people_gi.list_agents(agent_login=actor)
+    except ZnunyUnavailable as exc:
+        raise HTTPException(status_code=503, detail="znuny_unavailable") from exc
+    except ZnunyWriteError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    wanted = login.casefold()
+    match = next((a for a in agents if a.login == login), None) or next(
+        (a for a in agents if a.login.casefold() == wanted), None
+    )
+    if match is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"O agente '{login}' não existe no Znuny — cadastre-o antes de licenciar.",
+        )
+    if not match.valid:
+        raise HTTPException(
+            status_code=422,
+            detail=f"O agente '{match.login}' está inativo no Znuny — reative-o antes.",
+        )
+    return match.login
 
 
 @router.get("/modules")
@@ -170,12 +216,17 @@ async def assign_license(
 
     Sem seat livre é **recusa** (422 com a contagem), nunca aviso: um alerta
     ignorável transforma o teto em sugestão, e o teto é o que a Gerti fatura.
+
+    Ordem das guardas: módulo (local, sem rede) → agente existe no Znuny → seat.
     """
+    try:
+        validate_modules(body.modules)
+    except UnknownModule as exc:
+        raise _map(exc) from exc
+    login = await _znuny_agent_login(body.agent_login, actor=admin["agent_login"])
     async with _factory()() as session:
         try:
-            row = await LicenseService(session).assign(
-                body.agent_login, body.modules, by=admin["agent_login"]
-            )
+            row = await LicenseService(session).assign(login, body.modules, by=admin["agent_login"])
         except (NoSeatsAvailable, UnknownModule, LicenseError) as exc:
             raise _map(exc) from exc
         out = _out(row)

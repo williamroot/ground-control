@@ -200,7 +200,17 @@ def _consumption_lines(
         # A fatura de um pacote de atendimentos é contada em atendimentos. As
         # horas continuam registradas no consumo (e aparecem no relatório), mas
         # cobrar hora aqui misturaria duas unidades na mesma fatura.
-        return _service_count_lines(cycle)
+        #
+        # Só a HORA fica de fora. Lançamento avulso em R$ (deslocamento,
+        # despesa) não consome o pacote (`_service_units`) e é cobrado à parte
+        # — antes ele era descartado junto com as horas, e o deslocamento de
+        # R$ 160 do AUR-PACOTE-2026 sumia da fatura (teste V01, staging).
+        package = _service_count_lines(cycle)
+        for kind, bucket in agg.items():
+            if _KIND_UNIT.get(kind, "R$") == "h":
+                continue
+            package.append(_LineSpec(kind=kind, quantity=Decimal(1), amount_brl=bucket["amount"]))
+        return package
     franchise_left = _franchise_minutes(contract, cycle)
     specs: list[_LineSpec] = []
     for kind, bucket in agg.items():
@@ -287,6 +297,75 @@ class InvoiceService:
         if contract is None:
             raise InvoiceError("contrato do ciclo inexistente")
 
+        specs = await self._line_specs(contract, cycle)
+
+        now = issued_at or dt.datetime.now(dt.UTC)
+        number = await self._next_number(contract.tenant_id)
+        invoice = Invoice(
+            tenant_id=contract.tenant_id,
+            contract_id=contract.id,
+            cycle_id=cycle.id,
+            number=number,
+            status=InvoiceStatus.open,
+            issued_at=now,
+            due_at=now + dt.timedelta(days=self.due_days),
+            period_start=cycle.period_start,
+            period_end=cycle.period_end,
+            currency="BRL",
+            subtotal_cents=0,
+            total_cents=0,
+        )
+        # Savepoint ABERTO antes do add: a colisão de UNIQUE(cycle_id) é desfeita
+        # sem derrubar a transação externa (que carrega o GUC app.current_tenant).
+        # begin_nested() faz autoflush; por isso o add vem DENTRO do savepoint.
+        sp = await self.session.begin_nested()
+        try:
+            self.session.add(invoice)
+            await self.session.flush()
+        except IntegrityError as exc:
+            await sp.rollback()
+            raise InvoiceAlreadyExists("ciclo já possui fatura") from exc
+
+        subtotal = 0
+        for position, spec in enumerate(specs):
+            amount_cents = _brl_to_cents(spec.amount_brl)
+            unit_price_cents = (
+                int(Decimal(amount_cents) / spec.quantity) if spec.quantity else amount_cents
+            )
+            subtotal += amount_cents
+            self.session.add(
+                InvoiceLine(
+                    invoice_id=invoice.id,
+                    tenant_id=contract.tenant_id,
+                    description=_KIND_LABELS.get(spec.kind, spec.kind),
+                    quantity=spec.quantity,
+                    unit=_KIND_UNIT.get(spec.kind, "R$"),
+                    unit_price_cents=unit_price_cents,
+                    amount_cents=amount_cents,
+                    position=position,
+                )
+            )
+
+        invoice.subtotal_cents = subtotal
+        invoice.total_cents = subtotal  # sem impostos nesta fase
+        await self.session.flush()
+
+        # Notificação (Spec #3 V3): best-effort — jamais derruba a fatura já
+        # gravada. Falha na emissão só vira log.
+        try:
+            await self._notify_admins_invoice_issued(invoice)
+        except Exception:
+            logger.exception(
+                "falha ao emitir notificação invoice_issued (invoice_id=%s)", invoice.id
+            )
+
+        return invoice
+
+    async def _line_specs(self, contract: Contract, cycle: ContractCycle) -> list[_LineSpec]:
+        """As linhas que a fatura do ciclo terá — fonte única de `create_from_cycle`
+        e de `preview_total_cents` (a lista de ciclos do console mostra o total
+        ANTES de gerar, e o número tem de ser o mesmo que a fatura vai trazer).
+        """
         start = dt.datetime.combine(cycle.period_start, dt.time.min, tzinfo=dt.UTC)
         end = dt.datetime.combine(cycle.period_end, dt.time.max, tzinfo=dt.UTC)
         events = (
@@ -323,72 +402,16 @@ class InvoiceService:
             bucket["minutes"] += Decimal(str(ev.billable_minutes))
             bucket["amount"] += Decimal(str(ev.billable_amount_brl))
 
-        now = issued_at or dt.datetime.now(dt.UTC)
-        number = await self._next_number(contract.tenant_id)
-        invoice = Invoice(
-            tenant_id=contract.tenant_id,
-            contract_id=contract.id,
-            cycle_id=cycle.id,
-            number=number,
-            status=InvoiceStatus.open,
-            issued_at=now,
-            due_at=now + dt.timedelta(days=self.due_days),
-            period_start=cycle.period_start,
-            period_end=cycle.period_end,
-            currency="BRL",
-            subtotal_cents=0,
-            total_cents=0,
-        )
-        # Savepoint ABERTO antes do add: a colisão de UNIQUE(cycle_id) é desfeita
-        # sem derrubar a transação externa (que carrega o GUC app.current_tenant).
-        # begin_nested() faz autoflush; por isso o add vem DENTRO do savepoint.
-        sp = await self.session.begin_nested()
-        try:
-            self.session.add(invoice)
-            await self.session.flush()
-        except IntegrityError as exc:
-            await sp.rollback()
-            raise InvoiceAlreadyExists("ciclo já possui fatura") from exc
-
         # Ordem da fatura: mensalidade contratada → consumo → excedente do ciclo.
         specs: list[_LineSpec] = _fixed_fee_lines(contract, cycle)
         specs.extend(_consumption_lines(contract, cycle, agg))
         specs.extend(_overage_lines(contract, cycle))
+        return specs
 
-        subtotal = 0
-        for position, spec in enumerate(specs):
-            amount_cents = _brl_to_cents(spec.amount_brl)
-            unit_price_cents = (
-                int(Decimal(amount_cents) / spec.quantity) if spec.quantity else amount_cents
-            )
-            subtotal += amount_cents
-            self.session.add(
-                InvoiceLine(
-                    invoice_id=invoice.id,
-                    tenant_id=contract.tenant_id,
-                    description=_KIND_LABELS.get(spec.kind, spec.kind),
-                    quantity=spec.quantity,
-                    unit=_KIND_UNIT.get(spec.kind, "R$"),
-                    unit_price_cents=unit_price_cents,
-                    amount_cents=amount_cents,
-                    position=position,
-                )
-            )
-
-        invoice.subtotal_cents = subtotal
-        invoice.total_cents = subtotal  # sem impostos nesta fase
-        await self.session.flush()
-
-        # Notificação (Spec #3 V3): best-effort — jamais derruba a fatura já
-        # gravada. Falha na emissão só vira log.
-        try:
-            await self._notify_admins_invoice_issued(invoice)
-        except Exception:
-            logger.exception(
-                "falha ao emitir notificação invoice_issued (invoice_id=%s)", invoice.id
-            )
-
-        return invoice
+    async def preview_total_cents(self, cycle: ContractCycle, contract: Contract) -> int:
+        """Total que `create_from_cycle` gravaria para o ciclo, sem gravar nada."""
+        specs = await self._line_specs(contract, cycle)
+        return sum(_brl_to_cents(spec.amount_brl) for spec in specs)
 
     async def _notify_admins_invoice_issued(self, invoice: Invoice) -> None:
         admin_logins = (

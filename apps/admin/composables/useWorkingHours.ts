@@ -100,8 +100,12 @@ export function payloadToGrid(payload: WorkingHoursPayload | null | undefined): 
   for (const day of DAY_KEYS) {
     const hours = payload[day]
     if (!Array.isArray(hours)) continue
-    for (const h of hours) {
-      if (Number.isInteger(h) && h >= 0 && h <= 23) grid[day]![h] = true
+    for (const raw of hours) {
+      // O Znuny guarda e devolve as horas como TEXTO ("8", "9"…). Aceitar só
+      // número fazia toda jornada configurada aparecer vazia na tela — e quem
+      // confiasse nela sobrescrevia a jornada real (teste V01, passo E1).
+      const h = typeof raw === 'string' && /^\d{1,2}$/.test(raw) ? Number(raw) : raw
+      if (Number.isInteger(h) && (h as number) >= 0 && (h as number) <= 23) grid[day]![h as number] = true
     }
   }
   return grid
@@ -458,6 +462,30 @@ export function calendarLabel(value: string, name?: string | null): string {
   return trimmed ? `Calendário ${value} — ${trimmed}` : `Calendário ${value}`
 }
 
+/** Item de `GET /v1/admin/znuny/calendars`. `value` já vem no domínio da UI. */
+export interface CalendarListItem { value: string, name: string | null }
+
+/**
+ * Opções do seletor a partir da lista do sidecar (teste V01, E1).
+ *
+ * Parte SEMPRE dos 10 calendários estáticos e só acrescenta o nome de quem o
+ * sidecar devolveu: lista ausente, malformada ou parcial não some com opção
+ * nenhuma — no pior caso o seletor volta a "Calendário 3", que é o que havia.
+ * Valor desconhecido na resposta é ignorado (o domínio é fixo no Znuny).
+ */
+export function calendarOptionsFromList(list: unknown): { value: string, label: string }[] {
+  const names = new Map<string, string | null>()
+  if (Array.isArray(list)) {
+    for (const item of list) {
+      if (!item || typeof item !== 'object') continue
+      const { value, name } = item as { value?: unknown, name?: unknown }
+      if (typeof value !== 'string' || !isValidCalendar(value)) continue
+      names.set(value, typeof name === 'string' ? name : null)
+    }
+  }
+  return CALENDAR_OPTIONS.map(o => ({ value: o.value, label: calendarLabel(o.value, names.get(o.value)) }))
+}
+
 export function validateCalendarPayload(payload: CalendarPayload): string[] {
   const errors: string[] = []
   if (!isValidCalendarSuffix(payload.calendar)) errors.push('Calendário selecionado é inválido.')
@@ -540,5 +568,18 @@ export function parseCalendarErrors(detail: unknown): string[] {
     })
   }
   if (typeof detail === 'string' && detail) return [detail]
+  // Recusa do Znuny no meio da gravação: `{message, applied, failed_setting}`.
+  // Antes caía no "sem detalhar o motivo" (teste V01, E1) — e o `applied`
+  // diz o que JÁ foi gravado, então "nada foi alterado" seria mentira.
+  if (detail && typeof detail === 'object') {
+    const d = detail as { message?: unknown, applied?: unknown }
+    if (typeof d.message === 'string' && d.message) {
+      const out = [d.message]
+      if (Array.isArray(d.applied) && d.applied.length > 0) {
+        out.push(`Já gravado antes da recusa: ${d.applied.join(', ')}.`)
+      }
+      return out
+    }
+  }
   return ['O sidecar recusou a gravação, sem detalhar o motivo. Nada foi alterado.']
 }

@@ -2134,3 +2134,44 @@ voltar o schema é seguro. `git checkout campanha/onda-5-financeiro` + rebuild.
 > nenhuma licença) e `LICENSE_ENFORCEMENT_ENABLED` ausente do `.env.prod`
 > (= `false`). Número inventado num quadro que "impacta o faturamento" é pior
 > do que quadro vazio — quem preenche é a Gerti.
+
+
+### Deploy das correções do teste V01 do cliente (profile `gerti` + rebuild Znuny)
+
+Origem: `docs/TESTE_Znuny-V01.pdf` (03/09/2026). Plano:
+[`../docs/superpowers/plans/2026-10-07-correcoes-teste-znuny-v01.md`](../docs/superpowers/plans/2026-10-07-correcoes-teste-znuny-v01.md).
+Resposta ao cliente: [`../docs/RESPOSTA-TESTE-ZNUNY-V01.md`](../docs/RESPOSTA-TESTE-ZNUNY-V01.md).
+Sem migration. Mudou overlay Perl (`AgentTicketSearch`, `AgentTicketUpdate`,
+`AdminSysConfigGet/Set`) → rebuild do `znuny-web`; o YAML dos webservices não mudou.
+
+```bash
+DC="docker compose --env-file .env --env-file .env.prod --profile gerti"
+ssh gc "cd ~/ground-control && git pull && $DC build znuny-web sidecar admin portal \
+  && $DC up -d znuny-web znuny-daemon sidecar sidecar-worker admin portal"
+# licenciamento: só depois que todo agente real tiver licença (senão tira o inventário de todos)
+ssh gc 'cd ~/ground-control && grep ^LICENSE_ENFORCEMENT_ENABLED .env.prod'   # =true
+# evidências: roteiro dos 26 passos no navegador, uma captura por passo
+cd e2e && GC_CHROMIUM_PATH="" uv run --no-project --with playwright python roteiro_v01.py
+GC_CHROMIUM_PATH="" uv run --no-project --with pytest --with playwright pytest -q
+```
+
+> **Status (2026-10-07): DEPLOYADO em staging e verificado ao vivo — 26/26 passos.**
+> `roteiro_v01.py` 28/28 (26 do cliente + Znuny→Agentes + restauração do checklist);
+> e2e `test_teste_v01` + `test_admin` + `test_portal` 28/28; sidecar com a suíte completa verde, ruff e
+> mypy limpos; admin 529 e portal 239 no vitest; `make test` 24/24.
+>
+> **Defeitos que só a verificação ao vivo mostrou** (além dos 13 NOKs do cliente):
+> fatura de `service_count` descartava lançamento avulso em R$; rotas de
+> `agent-tokens` sem `require_module("inventory")`; Znuny → Agentes lia formato que o
+> sidecar nunca devolveu; nota de reprovação interna e com mojibake (`.pm` sem
+> `use utf8`); jornada vazia na tela (Znuny devolve hora como texto); PUT do
+> calendário regravava tudo e estourava timeout; `TimeZone::CalendarNName` fora da
+> allowlist do GI (nomear calendário **nunca** tinha funcionado).
+>
+> **Estado deixado:** `LICENSE_ENFORCEMENT_ENABLED=true` (backup em
+> `.env.prod.bak-20261007`); licenças reais 6/9 + agente `georgia` (ver `DEMO.md`);
+> fatura #0003 aberta de R$ 160 na Aurora a partir de um ciclo **criado à mão** —
+> o produto não abre ciclos sozinho (pendência de decisão com o Kleber).
+>
+> **Para desligar o licenciamento:** `LICENSE_ENFORCEMENT_ENABLED=false` no `.env.prod`
+> → `$DC up -d sidecar sidecar-worker`.

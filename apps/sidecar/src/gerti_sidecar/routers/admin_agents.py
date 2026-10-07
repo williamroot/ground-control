@@ -6,7 +6,8 @@ GET          /v1/admin/tenants/{id}/devices
 POST         /v1/admin/tenants/{id}/devices/{device_id}/approve  (pending→active + CMDB)
 POST         /v1/admin/tenants/{id}/devices/{device_id}/revoke
 
-Tudo sob `get_admin_session` (cross-tenant). Escrita abre
+Tudo sob `require_module("inventory")` — tokens inclusive: gerar token de
+instalação É operar o inventário (teste V01, caso da Georgia). Escrita abre
 `tenant_session_scope(tenant_id, factory=AdminSessionLocal)` (RLS-subject via o
 papel BYPASSRLS do console — padrão D16/#1G-a). O plaintext do token NUNCA é
 persistido (só sha256); é retornado UMA única vez na criação.
@@ -24,7 +25,6 @@ from sqlalchemy import select
 from gerti_sidecar import db
 from gerti_sidecar.auth.admin_session import (
     AdminSessionPayload,
-    get_admin_session,
     require_module,
 )
 from gerti_sidecar.config import get_settings
@@ -124,7 +124,7 @@ async def _require_tenant(tenant_id: str) -> uuid.UUID:
 @router.get("/tenants/{tenant_id}/agent-tokens")
 async def list_tokens(
     tenant_id: str,
-    admin: AdminSessionPayload = Depends(get_admin_session),
+    admin: AdminSessionPayload = Depends(require_module("inventory")),
 ) -> list[TokenOut]:
     tid = await _require_tenant(tenant_id)
     async with tenant_session_scope(tid, factory=db.AdminSessionLocal) as s:
@@ -141,7 +141,7 @@ async def create_token(
     tenant_id: str,
     body: TokenIn,
     request: Request,
-    admin: AdminSessionPayload = Depends(get_admin_session),
+    admin: AdminSessionPayload = Depends(require_module("inventory")),
 ) -> TokenCreated:
     tid = await _require_tenant(tenant_id)
     plain, digest = new_enroll_token()
@@ -190,7 +190,7 @@ async def disable_token(
     tenant_id: str,
     token_id: str,
     request: Request,
-    admin: AdminSessionPayload = Depends(get_admin_session),
+    admin: AdminSessionPayload = Depends(require_module("inventory")),
 ) -> TokenOut:
     tid = await _require_tenant(tenant_id)
     try:

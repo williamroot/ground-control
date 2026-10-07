@@ -152,3 +152,46 @@ export function canCharge(invoice: {
   if (invoice.total_cents <= 0) return false
   return invoice.status !== 'paid' && invoice.status !== 'void'
 }
+
+// ---- Teste V01, B5 — gerar fatura escolhendo o ciclo, não digitando UUID ----
+
+/** Item de `GET /v1/admin/tenants/{id}/billing-cycles?uninvoiced=true`. */
+export interface BillingCycleOption {
+  id: string
+  contract_id: string
+  contract_code: string
+  period_start: string
+  period_end: string
+  total_cents: number | null
+}
+
+/**
+ * Data ISO (`2026-09-01` ou `2026-09-01T…`) em `dd/mm/aaaa`, SEM passar por
+ * `Date`. `new Date('2026-09-01')` é meia-noite UTC, que no Brasil ainda é
+ * 31/08 — o seletor mostraria o ciclo de setembro começando em agosto.
+ */
+export function formatIsoDate(iso: string | null | undefined): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? '')
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso ?? '')
+}
+
+function brlFromCents(cents: number): string {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(cents / 100)
+}
+
+/** "01/09/2026 – 30/09/2026 · AUR-PACOTE-2026 · R$ 160,00" (sem valor se null). */
+export function billingCycleLabel(c: BillingCycleOption): string {
+  const parts = [
+    `${formatIsoDate(c.period_start)} – ${formatIsoDate(c.period_end)}`,
+    c.contract_code,
+  ]
+  if (typeof c.total_cents === 'number') parts.push(brlFromCents(c.total_cents))
+  return parts.join(' · ')
+}
+
+/** Opções do USelect, na ordem do período (mais antigo primeiro). */
+export function billingCycleOptions(list: BillingCycleOption[] | null | undefined): { value: string, label: string }[] {
+  return [...(list ?? [])]
+    .sort((a, b) => a.period_start.localeCompare(b.period_start) || a.contract_code.localeCompare(b.contract_code))
+    .map(c => ({ value: c.id, label: billingCycleLabel(c) }))
+}

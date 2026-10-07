@@ -1,9 +1,18 @@
 <script setup lang="ts">
 import { invoiceStatusColor, invoiceStatusLabel, moneyBRLFromCents } from '#shared/contracts'
-import { canCharge, canIssueNfe, chargeStatusLabel, nfeStatusLabel } from '#imports'
+import type { BillingCycleOption } from '~/composables/useBilling'
+import {
+  billingCycleOptions,
+  canCharge,
+  canIssueNfe,
+  chargeStatusLabel,
+  formatIsoDate,
+  nfeStatusLabel,
+} from '~/composables/useBilling'
 
 // #1P — Gestão de faturas internas no console (agente Gerti). Lista as faturas
-// do cliente, gera uma a partir de um ciclo (cycle_id), marca paga / cancela.
+// do cliente, gera uma a partir de um ciclo fechado (escolhido num seletor —
+// teste V01, B5: pedir o UUID travava quem é de fora), marca paga / cancela.
 // O backend (require admin session) escopa por tenant e aplica as transições.
 definePageMeta({ middleware: 'admin-auth' })
 
@@ -35,8 +44,28 @@ interface InvoiceRow {
 const { data: invoices, refresh, pending } = await useAsyncData(`admin-invoices-${tenantId}`, () =>
   $fetch<InvoiceRow[] | null>(`/api/admin/tenants/${tenantId}/invoices`, { headers }).catch(() => null))
 
-const cycleId = ref('')
+// Nome do cliente no cabeçalho: rota cross-tenant, o operador precisa ver
+// em qual cliente está antes de gerar ou cancelar fatura.
+const { data: tenant } = await useAsyncData(`admin-tenant-head-inv-${tenantId}`, () =>
+  $fetch<{ trade_name: string } | null>(`/api/admin/tenants/${tenantId}`, { headers }).catch(() => null))
+
+const {
+  data: cycles,
+  refresh: refreshCycles,
+  pending: cyclesPending,
+} = await useAsyncData(`admin-billing-cycles-${tenantId}`, () =>
+  $fetch<BillingCycleOption[] | null>(`/api/admin/tenants/${tenantId}/billing-cycles`, { headers })
+    .catch(() => null))
+
+const cycleOptions = computed(() => billingCycleOptions(cycles.value))
+const cyclesFailed = computed(() => !cyclesPending.value && cycles.value === null)
+const cycleId = ref<string | undefined>(undefined)
 const generating = ref(false)
+
+// A seleção some se o ciclo deixou de estar na lista (outra aba faturou).
+watch(cycleOptions, (opts) => {
+  if (cycleId.value && !opts.some(o => o.value === cycleId.value)) cycleId.value = undefined
+})
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR')
@@ -46,19 +75,20 @@ function isTerminal(status: string): boolean {
 }
 
 async function generate() {
-  if (!cycleId.value.trim()) {
-    toast.add({ title: 'Informe o ID do ciclo', color: 'warning' })
+  if (!cycleId.value) {
+    toast.add({ title: 'Escolha um ciclo fechado', color: 'warning' })
     return
   }
   generating.value = true
   try {
     await $fetch(`/api/admin/tenants/${tenantId}/invoices`, {
       method: 'POST',
-      body: { cycle_id: cycleId.value.trim() },
+      body: { cycle_id: cycleId.value },
     })
-    cycleId.value = ''
+    cycleId.value = undefined
     toast.add({ title: 'Fatura gerada', color: 'success' })
-    await refresh()
+    // O ciclo faturado sai do seletor e a fatura entra na lista.
+    await Promise.all([refresh(), refreshCycles()])
   }
   catch (e) {
     const err = e as { statusCode?: number, data?: { detail?: string } }
@@ -67,8 +97,10 @@ async function generate() {
         ? 'Este ciclo já possui fatura ou ainda está aberto.'
         : err.statusCode === 404
           ? 'Ciclo não encontrado para este cliente.'
-          : err.data?.detail || 'Falha ao gerar a fatura.'
+          : (typeof err.data?.detail === 'string' && err.data.detail) || 'Falha ao gerar a fatura.'
     toast.add({ title: 'Não foi possível gerar', description: msg, color: 'error' })
+    // 409 costuma ser corrida (já faturado) — a lista atualizada mostra isso.
+    if (err.statusCode === 409) await refreshCycles()
   }
   finally {
     generating.value = false
@@ -137,19 +169,42 @@ async function markVoid(inv: InvoiceRow) {
         Faturas
       </h1>
       <p class="mt-1 text-sm text-muted">
-        Gere faturas a partir de ciclos fechados e gerencie o status. Documento interno — não é nota fiscal.
+        <span class="font-medium text-default">{{ tenant?.trade_name ?? 'Cliente' }}</span> ·
+        gere faturas a partir de ciclos fechados e gerencie o status. Documento interno — não é nota fiscal.
       </p>
     </header>
 
     <!-- Gerar do ciclo -->
     <UCard class="mb-6">
       <div class="flex flex-wrap items-end gap-3">
-        <UFormField label="ID do ciclo (cycle_id)" class="flex-1 min-w-[260px]">
-          <UInput v-model="cycleId" placeholder="uuid do ciclo fechado" class="w-full" />
+        <UFormField label="Ciclo fechado sem fatura" class="flex-1 min-w-[260px]">
+          <div v-if="cyclesPending" class="h-8 w-full animate-pulse rounded-md bg-elevated" />
+          <p v-else-if="cyclesFailed" class="py-1.5 text-sm text-error">
+            Não foi possível carregar os ciclos.
+            <UButton
+              size="xs"
+              variant="link"
+              color="primary"
+              label="Tentar novamente"
+              @click="refreshCycles()"
+            />
+          </p>
+          <p v-else-if="cycleOptions.length === 0" data-testid="no-cycles" class="py-1.5 text-sm text-muted">
+            Nenhum ciclo fechado sem fatura.
+          </p>
+          <USelect
+            v-else
+            v-model="cycleId"
+            data-testid="cycle-select"
+            :items="cycleOptions"
+            placeholder="Escolha o ciclo"
+            class="w-full"
+          />
         </UFormField>
         <UButton
           icon="i-lucide-file-plus"
           :loading="generating"
+          :disabled="!cycleId || cycleOptions.length === 0"
           label="Gerar do ciclo"
           @click="generate"
         />
@@ -169,7 +224,7 @@ async function markVoid(inv: InvoiceRow) {
       </div>
     </UCard>
 
-    <div v-else class="overflow-hidden rounded-xl border border-default">
+    <div v-else class="overflow-x-auto rounded-xl border border-default">
       <table class="w-full text-sm">
         <thead class="bg-elevated text-left text-xs uppercase text-muted">
           <tr>
@@ -188,7 +243,7 @@ async function markVoid(inv: InvoiceRow) {
               #{{ String(inv.number).padStart(4, '0') }}
             </td>
             <td class="px-4 py-3 text-muted">
-              {{ fmtDate(inv.period_start) }} – {{ fmtDate(inv.period_end) }}
+              {{ formatIsoDate(inv.period_start) }} – {{ formatIsoDate(inv.period_end) }}
             </td>
             <td class="px-4 py-3 text-muted">{{ fmtDate(inv.due_at) }}</td>
             <td class="px-4 py-3 text-right font-semibold text-highlighted">

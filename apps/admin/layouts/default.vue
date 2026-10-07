@@ -7,6 +7,8 @@ useHead({
   title: ADMIN_IDENTITY.display_name,
 })
 
+const brandLabel = `${ADMIN_IDENTITY.short_name} · Console`
+
 const route = useRoute()
 const isAuthedView = computed(() => route.path !== '/login')
 
@@ -58,20 +60,28 @@ watch(() => route.path, () => { znunyMenuOpen.value = false })
       v-if="isAuthedView"
       class="sticky top-0 z-10 border-b border-default bg-default/85 backdrop-blur"
     >
-      <div class="mx-auto flex max-w-6xl items-center gap-3 px-5 py-3">
-        <NuxtLink to="/" class="flex items-center gap-3">
+      <div class="mx-auto flex max-w-7xl items-center gap-3 px-5 py-3">
+        <!-- Marca curta e sem quebra: o nome completo quebrava em 3 linhas e
+             empurrava o menu (teste V01). O nome completo fica no <title>. -->
+        <NuxtLink
+          to="/"
+          class="flex shrink-0 items-center gap-3"
+          :aria-label="ADMIN_IDENTITY.display_name"
+        >
           <img src="/favicon.svg" alt="Ground Control" class="h-8 w-8 rounded-lg shadow-sm">
-          <span class="font-display text-lg font-bold tracking-tight">
-            {{ ADMIN_IDENTITY.display_name }}
+          <span class="whitespace-nowrap font-display text-lg font-bold tracking-tight">
+            {{ brandLabel }}
           </span>
         </NuxtLink>
 
-        <nav class="ml-4 flex items-center gap-1">
+        <!-- flex-wrap: em janela estreita o menu desce de linha em vez de
+             vazar para a direita. -->
+        <nav class="ml-2 flex min-w-0 flex-wrap items-center gap-1">
           <ULink
             v-for="link in navLinks"
             :key="link.to"
             :to="link.to"
-            class="rounded-md px-3 py-1.5 text-sm font-medium text-muted transition hover:bg-elevated hover:text-default"
+            class="whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm font-medium text-muted transition hover:bg-elevated hover:text-default"
             active-class="bg-elevated text-highlighted"
           >
             {{ link.label }}
@@ -83,7 +93,7 @@ watch(() => route.path, () => { znunyMenuOpen.value = false })
             <button
               type="button"
               data-testid="nav-znuny-toggle"
-              class="flex items-center gap-1 rounded-md px-3 py-1.5 text-sm font-medium text-muted transition hover:bg-elevated hover:text-default"
+              class="flex items-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm font-medium text-muted transition hover:bg-elevated hover:text-default"
               :class="{ 'bg-elevated text-highlighted': isZnunyRoute }"
               @click="znunyMenuOpen = !znunyMenuOpen"
             >
