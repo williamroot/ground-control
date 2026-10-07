@@ -402,9 +402,11 @@ a um chamado.
 
 ✅ **Esperado:** a barra anda na hora. Recarregue a página: continua marcado.
 
-20. Aplique o **mesmo** modelo de novo no mesmo chamado.
+20. Abra o seletor **Aplicar modelo** do mesmo chamado.
 
-✅ **Esperado:** nada duplica — continua uma lista só.
+✅ **Esperado:** "Onboarding de estação" **não aparece** — um modelo já aplicado não é
+oferecido de novo, então não há como duplicar a lista. (Por baixo, reaplicar o mesmo modelo
+pela API também mantém uma lista só.)
 
 ### Roteiro E — o nome do calendário (R13a)
 

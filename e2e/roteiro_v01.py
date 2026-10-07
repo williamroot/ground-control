@@ -35,7 +35,8 @@ CHECKLIST_TICKET = "84"
 TITULO_V01 = f"Teste V01 — fila padrão e aprovação ({time.strftime('%d/%m %H:%M')})"
 
 resultado: dict[str, dict[str, str]] = {}
-ctx_state: dict[str, str] = {}
+ESTADO = OUT / "estado.json"
+ctx_state: dict[str, str] = json.loads(ESTADO.read_text()) if ESTADO.exists() else {}
 
 
 def shot(pg: Page, nome: str, full: bool = False) -> None:
@@ -227,12 +228,16 @@ def c2(c):
 def c3(c):
     pg = c["znuny"]
     tid = ctx_state["ticket_v01"]
-    pg.goto(f"{ZNUNY}?Action=AgentTicketZoom;TicketID={tid}", wait_until="domcontentloaded")
+    pg.goto(f"{ZNUNY}?Action=AgentTicketZoom;TicketID={tid}", wait_until="domcontentloaded", timeout=90000)
+    pg.wait_for_selector("text=aguardando aprovacao", timeout=60000)
     body = texto(pg)
     assert "aguardando aprovacao" in body, "estado não aparece no Znuny"
     shot(pg, "c3-znuny-estado")
-    fila = ctx_state.get("fila_padrao", "")
-    return f"estado real no Znuny; fila padrão esperada: {fila}"
+    filas = c["adm"].request.get(f"{ADMIN_BASE}/api/admin/tenants/{AURORA_TENANT_ID}/queues").json()
+    padrao = next((q["queue_name"] for q in filas["queues"] if q["is_default"]), None)
+    assert padrao and padrao in body, f"fila padrão {padrao!r} não aparece no chamado"
+    ctx_state["fila_padrao"] = padrao
+    return f"estado 'aguardando aprovacao' e fila '{padrao}' (a padrão da Aurora) no Znuny"
 
 
 @passo("C4", "Aprovações: reprovar sem motivo é recusado")
@@ -241,7 +246,7 @@ def c4(c):
     pg.goto(f"{AURORA}/aprovacoes", wait_until="networkidle")
     shot(pg, "c4-aprovacoes")
     tid = ctx_state["ticket_v01"]
-    card = pg.locator("div").filter(has_text=re.compile(f"Chamado #{tid}\\b")).last
+    card = pg.locator(f"xpath=//p[normalize-space()='Chamado #{tid}']/ancestor::div[.//button[contains(.,'Reprovar')]][1]")
     card.get_by_role("button", name="Reprovar").click()
     btn = pg.get_by_role("button", name="Confirmar reprovação")
     assert btn.is_disabled(), "reprovar sem motivo não foi bloqueado"
@@ -271,7 +276,15 @@ def c5(c):
 def c6(c, browser):
     ctx = browser.new_context(viewport={"width": 1480, "height": 900})
     pg = ctx.new_page()
-    portal_login(pg, AURORA, "mariana.bianchi", SENHA_PORTAL)
+    # Help-desk não tem painel financeiro: o login leva a /tickets, não a "/".
+    pg.goto(f"{AURORA}/login", wait_until="networkidle")
+    pg.fill('input[autocomplete="username"]', "mariana.bianchi")
+    pg.fill('input[autocomplete="current-password"]', SENHA_PORTAL)
+    pg.get_by_role("button", name="Entrar").click()
+    pg.wait_for_url(re.compile(r"/tickets"), timeout=30000)
+    pg.wait_for_load_state("networkidle")
+    menu_sem_aprovacoes = pg.get_by_role("link", name="Aprovações").count() == 0
+    shot(pg, "c6-helpdesk-menu")
     pg.goto(f"{AURORA}/aprovacoes", wait_until="networkidle")
     shot(pg, "c6-helpdesk-aprovacoes")
     pend = c["pendente_aprovacao"]
@@ -279,7 +292,8 @@ def c6(c, browser):
                         data={"decision": "approved", "reason": None})
     ctx.close()
     assert r.status == 403, f"help-desk aprovou? status {r.status}"
-    return f"tentativa de aprovar o chamado {pend} → HTTP 403"
+    return (f"menu sem 'Aprovações': {menu_sem_aprovacoes}; "
+            f"tentativa de aprovar o chamado {pend} pela API → HTTP 403")
 
 
 # --------------------------------------------------------------------------- D
@@ -312,7 +326,7 @@ def d3(c):
     pg.wait_for_url(re.compile(rf"/atendimento/{CHECKLIST_TICKET}$"))
     pg.wait_for_load_state("networkidle")
     espera_texto(pg, "Onboarding de estação")
-    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]").last
+    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]").first
     painel.screenshot(path=str(OUT / "d3-checklist-painel.png"))
     shot(pg, "d3-chamado-84", full=True)
     m = re.search(r"(\d+)\s*de\s*(\d+)", painel.inner_text())
@@ -323,7 +337,7 @@ def d3(c):
 @passo("D4", "Marca mais um item; persiste após recarregar")
 def d4(c):
     pg = c["adm"]
-    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]").last
+    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]").first
     caixas = painel.get_by_role("checkbox")
     alvo = next(i for i in range(caixas.count()) if not caixas.nth(i).is_checked())
     caixas.nth(alvo).click()
@@ -331,7 +345,7 @@ def d4(c):
     antes = re.search(r"(\d+)\s*de\s*(\d+)", painel.inner_text()).group(0)
     pg.reload(wait_until="networkidle")
     espera_texto(pg, "Onboarding de estação")
-    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]").last
+    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]").first
     depois = re.search(r"(\d+)\s*de\s*(\d+)", painel.inner_text()).group(0)
     assert antes == depois, f"não persistiu: {antes} → {depois}"
     painel.screenshot(path=str(OUT / "d4-checklist-apos-recarregar.png"))
@@ -341,16 +355,23 @@ def d4(c):
 @passo("D5", "Aplicar o mesmo modelo de novo não duplica")
 def d5(c):
     pg = c["adm"]
-    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]").last
-    n_antes = painel.get_by_text("Onboarding de estação").count()
-    painel.get_by_role("combobox").first.click()
-    pg.get_by_role("option", name=re.compile("Onboarding de estação")).first.click()
-    painel.get_by_role("button", name="Aplicar").click()
-    pg.wait_for_timeout(2000)
-    n_depois = painel.get_by_text("Onboarding de estação").count()
-    assert n_depois == n_antes, f"duplicou: {n_antes} → {n_depois}"
-    painel.screenshot(path=str(OUT / "d5-sem-duplicar.png"))
-    return "continua uma lista só"
+    pg.goto(f"{ADMIN_BASE}/atendimento/{CHECKLIST_TICKET}", wait_until="networkidle")
+    espera_texto(pg, "Onboarding de estação")
+    # A tela nem oferece um modelo já aplicado — a duplicação é barrada na origem.
+    pg.locator("button[aria-haspopup]").filter(has_text="Aplicar modelo").click()
+    opcoes = pg.get_by_role("option").all_inner_texts()
+    shot(pg, "d5-modelos-oferecidos")
+    pg.keyboard.press("Escape")
+    assert not any("Onboarding de estação" in o for o in opcoes), opcoes
+    # E, por fora da tela, reaplicar o mesmo modelo continua sem duplicar.
+    api = f"{ADMIN_BASE}/api/admin/tickets/{CHECKLIST_TICKET}/checklists"
+    tpl = next(t["id"] for t in pg.request.get(f"{ADMIN_BASE}/api/admin/checklists/templates").json()
+               if t["name"] == "Onboarding de estação")
+    antes = len(pg.request.get(api).json())
+    r = pg.request.post(api, data={"template_id": tpl})
+    depois = len(pg.request.get(api).json())
+    assert depois == antes, f"duplicou: {antes} → {depois}"
+    return f"seletor só oferece {opcoes}; reaplicar pela API → HTTP {r.status}, listas {antes} → {depois}"
 
 
 # --------------------------------------------------------------------------- E
@@ -364,13 +385,14 @@ def e1(c):
     shot(pg, "e1-seletor-aberto")
     pg.get_by_role("option", name=re.compile(r"^Calendário 3")).click()
     pg.wait_for_load_state("networkidle")
-    nome = pg.get_by_label(re.compile("Nome deste calendário"))
+    nome = pg.get_by_label("Nome deste calendário")
     nome.fill("Feriados de São Paulo")
     pg.get_by_role("button", name=re.compile("Salvar calendário")).click()
     pg.get_by_role("button", name=re.compile("Confirmar e gravar")).wait_for()
     shot(pg, "e1-confirmacao")
     pg.get_by_role("button", name=re.compile("Confirmar e gravar")).click()
-    pg.wait_for_timeout(6000)
+    # O deploy de SysConfig do Znuny leva dezenas de segundos.
+    pg.get_by_role("dialog").wait_for(state="detached", timeout=180000)
     pg.wait_for_load_state("networkidle")
     assert "before initialization" not in texto(pg)
     shot(pg, "e1-salvo")
@@ -462,8 +484,25 @@ def x1(c):
     return "agentes reais listados"
 
 
+@passo("Z1", "Devolve o checklist do #84 a 2 de 5 (o cliente refaz o roteiro)")
+def z1(c):
+    pg = c["adm"]
+    pg.goto(f"{ADMIN_BASE}/atendimento/{CHECKLIST_TICKET}", wait_until="networkidle")
+    espera_texto(pg, "Onboarding de estação")
+    painel = pg.locator("xpath=//*[normalize-space(text())='Checklists']/ancestor::div[.//button[contains(.,'Aplicar')]][1]").first
+    caixas = painel.get_by_role("checkbox")
+    for i in range(caixas.count() - 1, 1, -1):
+        if caixas.nth(i).is_checked():
+            caixas.nth(i).click()
+            pg.wait_for_timeout(1200)
+    pg.reload(wait_until="networkidle")
+    espera_texto(pg, "Onboarding de estação")
+    assert "2 de 5" in painel.inner_text(), painel.inner_text()[:200]
+    return "2 de 5"
+
+
 PASSOS = [a1, a2, a3, a4, b1, b2, b3, b4, b5, c1, c2, c3, c4, c5, c6,
-          d1, d2, d3, d4, d5, e1, f1, f2, f3, f4, f5, x1]
+          d1, d2, d3, d4, d5, e1, f1, f2, f3, f4, f5, x1, z1]
 
 
 def znuny_login(pg: Page) -> None:
@@ -472,10 +511,10 @@ def znuny_login(pg: Page) -> None:
     Pelo navegador o submit não termina: a página pós-login mantém conexões
     abertas e o Playwright fica esperando a navegação.
     """
-    r = pg.context.request.post(ZNUNY, form={"Action": "Login", "User": "william", "Password": SENHA_CONSOLE})
-    assert r.ok, f"login Znuny {r.status}"
-    pg.goto(f"{ZNUNY}?Action=AgentDashboard", wait_until="domcontentloaded")
-    pg.wait_for_selector("a[href*='Action=Logout']", state="attached", timeout=60000)
+    r = pg.context.request.post(
+        ZNUNY, form={"Action": "Login", "User": "william", "Password": SENHA_CONSOLE},
+        max_redirects=0, timeout=60000)
+    assert r.status in (200, 302), f"login Znuny {r.status}"
 
 
 def main(filtro: list[str]) -> int:
@@ -488,7 +527,10 @@ def main(filtro: list[str]) -> int:
             pg.set_default_timeout(30000)
         admin_login(c["adm"], ADMIN_BASE, "william", SENHA_CONSOLE)
         portal_login(c["portal"], AURORA, "eduardo.salvi", SENHA_PORTAL)
-        znuny_login(c["znuny"])
+        try:
+            znuny_login(c["znuny"])
+        except Exception as exc:  # noqa: BLE001 — só o C3 depende disto
+            print(f"⚠️  login no Znuny nativo falhou: {exc}"[:200])
         aprov = c["portal"].request.get(f"{AURORA}/api/portal/approvals").json() or []
         pend = [a for a in aprov if a.get("status") == "pending"]
         c["pendente_aprovacao"] = str(pend[0]["znuny_ticket_id"]) if pend else "0"
@@ -509,6 +551,7 @@ def main(filtro: list[str]) -> int:
                 except Exception:  # noqa: BLE001
                     pass
         browser.close()
+    ESTADO.write_text(json.dumps(ctx_state, ensure_ascii=False, indent=2))
     arq = OUT / "resultado.json"
     anterior = json.loads(arq.read_text()) if arq.exists() and filtro else {}
     anterior.update(resultado)
